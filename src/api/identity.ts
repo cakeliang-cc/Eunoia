@@ -42,6 +42,18 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 export const IDENTITY_COOKIE = 'df_uid';
 export const IDENTITY_HEADER = 'x-user-id';
 
+/**
+ * The attributes every identity cookie carries, set or cleared.
+ *
+ * One constant, because a browser only replaces a cookie whose name, domain and
+ * path all match: a clearing header that spelled the path differently would
+ * leave the old cookie in place and read as "delete did nothing".
+ */
+const PATH_AND_FLAGS = 'Path=/; HttpOnly; SameSite=Lax';
+
+/** A year, which is indefinitely for a handle with no expiry semantics. */
+const ONE_YEAR_SECONDS = 31536000;
+
 /** A UUID, which is also what `users.id` is. */
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -75,20 +87,44 @@ export interface Identity {
  * described above.
  */
 export function resolveIdentity(req: IncomingMessage, res: ServerResponse): Identity {
-  const fromHeader = firstHeader(req.headers[IDENTITY_HEADER]);
-  if (fromHeader && ID_PATTERN.test(fromHeader)) {
-    return { userId: fromHeader, created: false };
-  }
-
-  const fromCookie = parseCookies(firstHeader(req.headers.cookie) ?? undefined)[IDENTITY_COOKIE];
-  if (fromCookie && ID_PATTERN.test(fromCookie)) {
-    return { userId: fromCookie, created: false };
-  }
+  const existing = readIdentity(req);
+  if (existing) return { userId: existing, created: false };
 
   const userId = randomUUID();
   res.setHeader(
     'Set-Cookie',
-    `${IDENTITY_COOKIE}=${userId}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax`,
+    `${IDENTITY_COOKIE}=${userId}; ${PATH_AND_FLAGS}; Max-Age=${ONE_YEAR_SECONDS}`,
   );
   return { userId, created: true };
+}
+
+/**
+ * Who this is, or nobody — without minting anyone.
+ *
+ * `resolveIdentity` creates an identity when it does not find one, which is what
+ * every ordinary route wants and the one thing a route that *deletes* the caller
+ * must not do: minting first would create a person in order to remove them, and
+ * answer with a cookie for a row that no longer exists.
+ */
+export function readIdentity(req: IncomingMessage): string | null {
+  const fromHeader = firstHeader(req.headers[IDENTITY_HEADER]);
+  if (fromHeader && ID_PATTERN.test(fromHeader)) return fromHeader;
+
+  const fromCookie = parseCookies(firstHeader(req.headers.cookie) ?? undefined)[IDENTITY_COOKIE];
+  if (fromCookie && ID_PATTERN.test(fromCookie)) return fromCookie;
+
+  return null;
+}
+
+/**
+ * Forget the caller's handle.
+ *
+ * A deleted person's cookie is a pointer to nothing, and leaving it in the
+ * browser would mean the next request carried an id the server would *accept* —
+ * `resolveIdentity` checks the shape, not the row — and then write new memories
+ * under a user that no longer exists. Clearing it makes the next request a new
+ * person, which is what "I want everything gone" should mean.
+ */
+export function clearIdentity(res: ServerResponse): void {
+  res.setHeader('Set-Cookie', `${IDENTITY_COOKIE}=; ${PATH_AND_FLAGS}; Max-Age=0`);
 }

@@ -603,3 +603,81 @@ describe('the conversation list', () => {
     );
   });
 });
+
+describe('deleting everything', () => {
+  it('asks twice, because the first click is not the one that deletes', async () => {
+    // Not a `confirm()` dialog. A browser dialog is dismissed on reflex, and the
+    // reflex is trained by dialogs that do not matter — so the button changes
+    // what it says and what it looks like instead, and the second click is the
+    // deliberate one.
+    const harness = await boot({ routes: { 'DELETE /api/me': { json: { deleted: true } } } });
+    const button = harness.element('forget-all');
+
+    button.onclick?.();
+    await harness.settle();
+
+    expect(harness.requests.some((request) => request.method === 'DELETE')).toBe(false);
+    expect(button.dataset.armed).toBe('true');
+    expect(button.textContent).toBe('再点一次，删除');
+  });
+
+  it('deletes on the second click and clears what is on screen', async () => {
+    const harness = await boot({
+      frames: [
+        { type: 'text_delta', text: '嗯。' },
+        { type: 'completed', text: '嗯。', conversationId: 'c1' },
+      ],
+      routes: {
+        'DELETE /api/me': { json: { deleted: true } },
+        'GET /api/conversations': { json: { conversations: [] } },
+      },
+    });
+    await harness.send('今天什么都不想做。');
+    expect(harness.transcript.children.length).toBeGreaterThan(0);
+
+    const button = harness.element('forget-all');
+    button.onclick?.();
+    button.onclick?.();
+    await harness.settle();
+
+    expect(harness.requests.some((request) => `${request.method} ${request.url}` === 'DELETE /api/me')).toBe(true);
+    // The transcript is the last copy of what was just deleted, and the stored
+    // id now points at a row that is gone.
+    expect(harness.transcript.children).toEqual([]);
+    expect(harness.transcript.classList.contains('empty')).toBe(true);
+    expect(harness.store.has('df_conversation')).toBe(false);
+    expect(button.textContent).toBe('都删掉了');
+  });
+
+  it('says the deletion failed rather than reporting success', async () => {
+    // A failed delete that left the button reading "都删掉了" would be a lie
+    // about the one thing the person cannot check for themselves.
+    const harness = await boot({ routes: { 'DELETE /api/me': { status: 500, json: { error: 'down' } } } });
+
+    const button = harness.element('forget-all');
+    button.onclick?.();
+    button.onclick?.();
+    await harness.settle();
+
+    expect(button.textContent).toBe('删除失败，稍后再试');
+    // Disarmed, so the next click is a fresh decision rather than a retry the
+    // person did not make.
+    expect(button.dataset.armed).toBe('false');
+  });
+
+  it('disarms when the drawer is closed', async () => {
+    // An armed button that survives being put away is an armed button someone
+    // finds later without the context that made it red.
+    const harness = await boot({ routes: { 'DELETE /api/me': { json: { deleted: true } } } });
+    const button = harness.element('forget-all');
+
+    button.onclick?.();
+    expect(button.dataset.armed).toBe('true');
+
+    harness.element('drawer-close').onclick?.();
+
+    expect(button.dataset.armed).toBe('false');
+    expect(button.textContent).toBe('删除全部数据');
+    expect(harness.requests.some((request) => request.method === 'DELETE')).toBe(false);
+  });
+});

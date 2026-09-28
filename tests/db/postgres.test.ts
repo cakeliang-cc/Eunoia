@@ -16,7 +16,7 @@
  * already covered elsewhere against the same interface.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 
@@ -31,6 +31,15 @@ const enabled = url.length > 0;
 let pool!: Pool;
 let store!: PostgresStore;
 
+/**
+ * Everyone this file creates, cleaned up in `afterAll`.
+ *
+ * Deliberately *not* reset between tests. It was, and the effect was that only
+ * the last test's users were ever removed — every earlier test left a user, a
+ * conversation and a memory behind, which is the same accumulation this project
+ * had just written a retention sweep to stop. Found by counting the rows in the
+ * database rather than by reading this file.
+ */
 const createdUsers: string[] = [];
 
 async function freshUser(): Promise<string> {
@@ -50,6 +59,9 @@ describe.skipIf(!enabled)('PostgresStore', () => {
   afterAll(async () => {
     if (!pool) return;
     for (const userId of createdUsers) {
+      // Runs first, and by hand: `users` is `ON DELETE SET NULL` for them, so
+      // deleting the user leaves the run behind. That is the right behaviour for
+      // a real deletion and clutter in a test database.
       await pool.query('DELETE FROM agent_runs WHERE user_id = $1', [userId]).catch(() => undefined);
       await pool.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => undefined);
     }
@@ -58,9 +70,6 @@ describe.skipIf(!enabled)('PostgresStore', () => {
     await pool.end();
   });
 
-  beforeEach(() => {
-    createdUsers.length = 0;
-  });
 
   it('reports the target without leaking credentials', () => {
     const described = describeTarget(url);
@@ -436,5 +445,170 @@ describe.skipIf(!enabled)('PostgresStore', () => {
     const { rows } = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
     expect(rows).toHaveLength(1);
     expect(await store.listConversations(userId)).toHaveLength(1);
+  });
+
+  // -------------------------------------------------- retention (spec §44) -----
+
+  describe('deleting a person', () => {
+    /** A user with one of everything, so the cascade has something to catch. */
+    async function aPersonWithHistory(externalId: string | null = null) {
+      const id = randomUUID();
+      await store.ensureUser(id, externalId);
+      createdUsers.push(id);
+
+      const conversation = await store.ensureConversation(id);
+      const message = await store.appendMessage({
+        conversationId: conversation.id,
+        userId: id,
+        role: 'user',
+        content: '我养了一只叫团子的猫',
+      });
+      await store.createMemory(id, {
+        type: 'semantic',
+        content: '用户养了一只叫团子的猫',
+        source: 'user_stated',
+      });
+      await store.setPreference(id, 'tone.directness', 0.8);
+      await store.saveFeedback({ messageId: message.id, userId: id, rating: 'good' });
+      await store.recordRun({
+        id: randomUUID(),
+        userId: id,
+        conversationId: conversation.id,
+        model: 'deepseek-v4-pro',
+        promptVersion: 'test',
+        status: 'completed',
+        usedTools: false,
+        toolCalls: [],
+        inputFingerprint: 'len=2 sha256=deadbeef',
+        outputFingerprint: 'len=8 sha256=cafef00d',
+        riskLevel: null,
+        durationMs: 10,
+        error: null,
+      });
+
+      return { id, conversationId: conversation.id };
+    }
+
+    it('takes every row that references them, in one statement', async () => {
+      // The in-memory store mirrors this by hand, which is exactly why it has to
+      // be checked here: a cascade is a property of the schema, and the offline
+      // suite cannot see the schema.
+      const { id, conversationId } = await aPersonWithHistory();
+
+      expect(await store.deleteUser(id)).toBe(true);
+
+      const counts = await pool.query<{ table: string; n: string }>(
+        `SELECT 'conversations' AS table, count(*) AS n FROM conversations WHERE user_id = $1
+         UNION ALL SELECT 'messages', count(*) FROM messages WHERE user_id = $1
+         UNION ALL SELECT 'memories', count(*) FROM memories WHERE user_id = $1
+         UNION ALL SELECT 'memory_events', count(*) FROM memory_events WHERE user_id = $1
+         UNION ALL SELECT 'user_preferences', count(*) FROM user_preferences WHERE user_id = $1
+         UNION ALL SELECT 'message_feedback', count(*) FROM message_feedback WHERE user_id = $1`,
+        [id],
+      );
+      for (const row of counts.rows) {
+        expect(row.n, `${row.table} still has rows for a deleted person`).toBe('0');
+      }
+      expect(await store.listMessages(id, conversationId)).toEqual([]);
+    });
+
+    it('keeps the run as an anonymous measurement', async () => {
+      // The deliberate asymmetry, and the one thing that would be easy to get
+      // wrong in the other direction: `agent_runs` is `ON DELETE SET NULL`.
+      // Observability is sizes and hashes (spec §14), and a run whose owner has
+      // been erased is still evidence about what a prompt version did.
+      const { id } = await aPersonWithHistory();
+
+      await store.deleteUser(id);
+
+      const { rows } = await pool.query<{ user_id: string | null; conversation_id: string | null }>(
+        `SELECT user_id, conversation_id FROM agent_runs WHERE user_id IS NULL AND prompt_version = 'test'`,
+      );
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) {
+        expect(row.user_id).toBeNull();
+        // The conversation went with the person, and the run's pointer to it is
+        // nulled rather than left dangling.
+        expect(row.conversation_id).toBeNull();
+      }
+    });
+
+    it('reports false for a person who was never there', async () => {
+      expect(await store.deleteUser(randomUUID())).toBe(false);
+    });
+  });
+
+  describe('external identities', () => {
+    /**
+     * A namespace unique to one assertion.
+     *
+     * Counting assertions cannot use the real `eval:` prefix: this database
+     * already holds leftovers from runs made before the sweep existed, which is
+     * the gap itself. Counting those would make the suite pass or fail
+     * depending on whether anyone had run an evaluation recently — the same
+     * class of defect as a check that cannot fire, arriving by a different road.
+     * `external_id` is `UNIQUE`, so a fresh namespace per test also keeps two
+     * runs of this file from colliding.
+     */
+    const namespace = (): string => `eval-test-${randomUUID()}:`;
+
+    it('records one, and a later call without one does not erase it', async () => {
+      // `ensureUser` runs on every request, and only the evaluation runner
+      // passes an external id. If the COALESCE were missing, the second call
+      // would blank the mark and make the user un-sweepable — silently, and only
+      // in the request path, which no unit test goes through.
+      const id = randomUUID();
+      createdUsers.push(id);
+      const mark = `${namespace()}case-01`;
+
+      await store.ensureUser(id, mark);
+      await store.ensureUser(id);
+
+      const { rows } = await pool.query<{ external_id: string }>(
+        'SELECT external_id FROM users WHERE id = $1',
+        [id],
+      );
+      expect(rows[0]?.external_id).toBe(mark);
+    });
+
+    it('matches a prefix literally, not as a LIKE pattern', async () => {
+      // `starts_with`, not `LIKE $1 || '%'`. A sweep is a delete, and `%` in a
+      // `LIKE` prefix widens the match to every user in the table — so the first
+      // two assertions are absolute rather than relative, and hold whatever else
+      // is in the database.
+      const ns = namespace();
+      const id = randomUUID();
+      createdUsers.push(id);
+      await store.ensureUser(id, `${ns}case-02`);
+
+      expect(await store.listUsersByExternalPrefix('%'), "'%' matched as a wildcard").toEqual([]);
+      expect(await store.listUsersByExternalPrefix('_val'), "'_' matched as a wildcard").toEqual([]);
+      expect(await store.listUsersByExternalPrefix(ns)).toHaveLength(1);
+    });
+
+    it('does not match a prefix that is merely close', async () => {
+      // `evalx:` is one character from `eval:`, and one character is the whole
+      // distance between a sweep that removes throwaway users and one that
+      // removes nothing it was asked to.
+      const ns = namespace();
+      const id = randomUUID();
+      createdUsers.push(id);
+      await store.ensureUser(id, `${ns}evalx:case-03`);
+
+      expect(await store.listUsersByExternalPrefix(`${ns}eval:`)).toEqual([]);
+      expect(await store.listUsersByExternalPrefix(`${ns}evalx:`)).toHaveLength(1);
+    });
+
+    it('filters by age, which is the race guard the sweep runs on', async () => {
+      const ns = namespace();
+      const id = randomUUID();
+      createdUsers.push(id);
+      await store.ensureUser(id, `${ns}case-04`);
+
+      const future = new Date(Date.now() + 60_000);
+      const past = new Date(Date.now() - 60_000);
+      expect(await store.listUsersByExternalPrefix(ns, { olderThan: future })).toHaveLength(1);
+      expect(await store.listUsersByExternalPrefix(ns, { olderThan: past })).toHaveLength(0);
+    });
   });
 });

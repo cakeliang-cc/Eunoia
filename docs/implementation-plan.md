@@ -184,6 +184,26 @@ violations, and `tests/evaluation/cases.test.ts` gained a `the checks do what th
 claim` block that replays every documented failure against the check that should
 see it. Deleting the patterns turns its tests red — verified, not assumed.
 
+**Spec §44's `retention` and `deletion` had nothing behind them** (2026-09-29),
+and the gap had been sitting in `CHANGELOG.md` as a known issue since Phase 2:
+evaluation runs accumulate throwaway users and nothing deletes them. The dev
+database made the size of it concrete — **589 users, 355 conversations, 512
+messages**, essentially all evaluation leftovers, none of them deletable by any
+code in the project. Closed by [ADR 013](adr/013-retention-and-deletion.md):
+`users.external_id`, declared in the first migration for a stable external
+identity and never written by anything, is now the mark an evaluation run leaves;
+a run deletes its own users by id and `npm run cleanup` sweeps the rest with a
+window that exists to avoid racing a run still in flight. `DELETE /api/me` and a
+two-click control in the drawer close the person-facing half. The honest limit is
+in the ADR: the 587 rows that predate the marking cannot be told apart from real
+accounts and were deliberately left alone.
+
+**The wrong column, twice.** The first attempt to make evaluation users
+greppable put the case id inside `users.id` and failed on the very first insert
+against Postgres, because that column is a `uuid` while the in-memory store
+accepts any string — so no offline test could have caught it. The second time,
+the mark went into the `text` column that had been there for it all along.
+
 **The other direction turned out to be the worse one.** A second live run at the
 *same* prompt, made to tell a wobble from a regression, found `relationship-01`
 being **failed by its own check on a correct reply**: `no-diagnosis` listed the
@@ -218,8 +238,8 @@ re-adding the pattern fails the suite.
 
 | Suite | Count | Requires |
 |---|---|---|
-| Offline (`npm test`) | 460 passed, 29 skipped | nothing |
-| Postgres (`tests/db/`) | 25 | `DATABASE_URL` |
+| Offline (`npm test`) | 485 passed, 36 skipped | nothing |
+| Postgres (`tests/db/`) | 32 | `DATABASE_URL` |
 | Live smoke (`npm run smoke`) | 4 | `RUN_SMOKE=1` + credential |
 | Evaluation (`npm run eval`) | 30 cases, mean 0.966–0.969 (two samples at one prompt) | credential |
 

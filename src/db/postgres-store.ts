@@ -138,11 +138,45 @@ export class PostgresStore implements Store {
 
   // --------------------------------------------------------------- users -----
 
-  async ensureUser(userId: string): Promise<void> {
+  async ensureUser(userId: string, externalId?: string | null): Promise<void> {
     await this.#pool.query(
-      `INSERT INTO users (id) VALUES ($1) ON CONFLICT (id) DO UPDATE SET updated_at = now()`,
-      [userId],
+      `INSERT INTO users (id, external_id) VALUES ($1, $2)
+       ON CONFLICT (id) DO UPDATE SET
+         -- COALESCE, so a later call without an external id does not erase one
+         -- an earlier call supplied. The id is the identity; the external id is
+         -- a note about where it came from, and losing it silently would make
+         -- a user un-sweepable.
+         external_id = COALESCE(EXCLUDED.external_id, users.external_id),
+         updated_at  = now()`,
+      [userId, externalId ?? null],
     );
+  }
+
+  async deleteUser(userId: string): Promise<boolean> {
+    // One statement. Cascades do the rest, and `agent_runs` nulls its `user_id`
+    // rather than going with them — see the interface for why the measurement
+    // outlives the person.
+    const { rowCount } = await this.#pool.query(`DELETE FROM users WHERE id = $1`, [userId]);
+    return (rowCount ?? 0) > 0;
+  }
+
+  async listUsersByExternalPrefix(
+    prefix: string,
+    options: { olderThan?: Date; limit?: number } = {},
+  ): Promise<{ id: string; externalId: string }[]> {
+    // `starts_with`, not `LIKE $1 || '%'`: in `LIKE` a `%` or `_` inside the
+    // prefix is a wildcard, so a caller passing one would widen the match. This
+    // is the query a delete runs off, which makes "matches more than it was
+    // asked to" the one bug here worth being paranoid about.
+    const { rows } = await this.#pool.query<{ id: string; external_id: string }>(
+      `SELECT id, external_id FROM users
+        WHERE starts_with(external_id, $1)
+          AND ($2::timestamptz IS NULL OR created_at < $2)
+        ORDER BY created_at
+        LIMIT $3`,
+      [prefix, options.olderThan ?? null, options.limit ?? 1000],
+    );
+    return rows.map((row) => ({ id: row.id, externalId: row.external_id }));
   }
 
   // ------------------------------------------------------------ memories -----

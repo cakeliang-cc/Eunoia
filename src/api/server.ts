@@ -28,7 +28,7 @@ import type { MemoryStatus } from '../memory/types.ts';
 import { MEMORY_STATUSES } from '../memory/types.ts';
 import { runTurn, type TurnRunner } from '../service/chat.ts';
 import { selectStore } from '../db/pool.ts';
-import { resolveIdentity } from './identity.ts';
+import { clearIdentity, readIdentity, resolveIdentity } from './identity.ts';
 import { pipeEventsAsSse } from './sse.ts';
 
 /** Reject absurd bodies rather than buffering them. */
@@ -212,6 +212,22 @@ export function createApp(deps: AppDependencies) {
 
     if (req.method === 'POST' && pathname === '/api/chat') {
       await handleChat(req, res);
+      return true;
+    }
+
+    // ------------------------------------------------------------- me -----
+
+    if (req.method === 'DELETE' && pathname === '/api/me') {
+      // Deliberately not `identify`: that mints an identity when it finds none,
+      // and creating a person in order to delete them would also hand back a
+      // cookie for a row that no longer exists.
+      const userId = readIdentity(req);
+      const deleted = userId === null ? false : await store.deleteUser(userId);
+      clearIdentity(res);
+      // `deleted: false` is a 200, not a 404. The caller asked for a state, and
+      // somebody with no row here is already in it — the only interesting
+      // outcome is the one where a cookie was pointing at real data.
+      sendJson(res, 200, { deleted });
       return true;
     }
 

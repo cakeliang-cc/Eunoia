@@ -10,6 +10,42 @@ project evolved without reading the full diff history.
 
 ### Added
 
+- **The person can erase themselves, and evaluation runs stop leaving people
+  behind.** Spec §44 has listed `retention` and `deletion` since the beginning
+  and neither had anything behind it — the gap was recorded in this file as a
+  known issue ("Evaluation runs accumulate throwaway users in a shared database…
+  nothing deletes them") and it was not hypothetical: the development database
+  held **589 users, 355 conversations and 512 messages**, essentially all of it
+  evaluation leftovers. See [ADR 013](docs/adr/013-retention-and-deletion.md) for
+  the reasoning; the pieces are:
+  - `DELETE /api/me` and a **删除全部数据** control in the memory drawer, behind a
+    second click rather than a `confirm()` dialog — a browser dialog is dismissed
+    on reflex, and the reflex is trained by dialogs that do not matter. The
+    cascade is one statement, because every table that holds a person's content
+    references `users(id) ON DELETE CASCADE`; `agent_runs` is the deliberate
+    exception and survives with a null owner.
+  - `users.external_id` is finally written. The column has been in the schema
+    since the first migration, commented as the place a stable identity from an
+    external system goes, and no code had ever touched it. **An earlier attempt
+    to make evaluation users greppable put the case id inside `users.id` and
+    failed on the first insert against Postgres**, because that column is a
+    `uuid` — the intent was right and it was aimed at the wrong column.
+  - `npm run cleanup` (with `--dry-run` and `--all`) sweeps evaluation users,
+    skipping anyone younger than 24 hours. The window is a race guard rather than
+    a data policy: it exists so a sweep cannot pull users out from under a run
+    that is still using them, which is not hypothetical — two evaluations were in
+    flight at once while this was being written. The run itself deletes its own
+    users by id and needs no window at all.
+  - `IdentityStore` splits out of `MemoryStore`. `ensureUser` had been sitting on
+    the memory interface since Phase 2, which made the person look like a memory;
+    the two want opposite deletion semantics and now say so.
+- **The sweep cannot reach anyone who was not marked, which is both the safety
+  property and the limitation.** 587 users predate the marking and are now
+  indistinguishable from real accounts — a user with no preferences and one
+  conversation is what an evaluation user looks like *and* what a person who
+  never opened the panel looks like. They were left alone rather than guessed at;
+  dropping a development database is the right amount of friction for that.
+
 - **The companion now knows how long it has known you.** A companion asked
   *"我们之前聊过吧？你还记得我说过什么吗？"* used to answer with a report on a
   database query — *"我这次打开时没检索到存下来的东西"* — because it had no way to
@@ -281,6 +317,17 @@ project evolved without reading the full diff history.
   behaviour is thinking before answering is the wrong place to buy speed by
   thinking less. No evaluation run backs a change to it, so none was made
   (spec §20).
+- [ADR 013](docs/adr/013-retention-and-deletion.md) — what is kept, for how long,
+  and what deleting a person means. Spec §44 lists seven words and `retention`
+  and `deletion` were the two with nothing behind them; the concrete form of that
+  was already recorded in this file as a known issue. The decision has four
+  parts, and the boundaries between them are the point: `users.external_id` —
+  declared in the first migration for exactly this and never written — is the
+  only mark a sweep trusts; a run cleans up its own users by id while a windowed
+  prefix sweep is the backstop for runs that crashed; deleting a person deletes
+  the person but **keeps `agent_runs` as an anonymous measurement**, because a
+  run is sizes and hashes and the only record of what a prompt version did; and
+  the cookie is cleared rather than left pointing at a row that is gone.
 - [ADR 012](docs/adr/012-relationship-and-narrative.md) — relationship state is
   derived and always-on; narrative themes are carried without a similarity gate.
   **It records a decision and its reversal**, and keeps both, because the
@@ -504,9 +551,10 @@ project evolved without reading the full diff history.
 - Crisis turns still do not stream, and their reasoning is withheld with the
   reply. That is deliberate (ADR 008, ADR 010) — the delay is not perceptible on
   a three-to-five-sentence reply, and a rendered thought cannot be un-rendered.
-- Carried over from 0.2.0: evaluation runs accumulate throwaway users in a
-  shared database with no retention sweep; risk detection remains pattern-based;
-  there is still no embedding provider (ADR 004).
+- Carried over from 0.2.0: risk detection remains pattern-based; there is still
+  no embedding provider (ADR 004). The third item on that list — evaluation runs
+  accumulating throwaway users with no retention sweep — is closed in this
+  release (ADR 013).
 
 ---
 
@@ -742,11 +790,16 @@ Two things this baseline does **not** say, recorded so it is not over-read:
   expiry, no signature; a copied cookie is the account. Acceptable only because
   no real data is behind it. Must be replaced before any deployment, with the
   cookie upgraded to `HttpOnly; Secure; SameSite=Lax`.
-- **Evaluation runs accumulate throwaway users in a shared database.** Each of the
-  24 cases gets its own user, conversation, messages and run rows, and nothing
-  deletes them. Harmless at 24 rows a run against a development database, and
-  wrong in a shared one. The fix is a retention sweep or a `--cleanup` flag; it
-  has not been built.
+- ~~**Evaluation runs accumulate throwaway users in a shared database.**~~
+  **Closed**, and the entry is kept rather than deleted because the numbers are
+  worth reading. It said the fix was "a retention sweep or a `--cleanup` flag; it
+  has not been built" and the prediction that this was "wrong in a shared
+  database" understated it — by the time the sweep existed the development
+  database held **589 users, 355 conversations and 512 messages** from evaluation
+  runs alone. A run now removes its own users and `npm run cleanup` is the
+  backstop ([ADR 013](docs/adr/013-retention-and-deletion.md)). What is *not*
+  closed: the rows that predate the marking are unreachable by design, because
+  they cannot be told apart from real accounts.
 - **Postgres integration tests self-skip without `DATABASE_URL`.** Deliberate —
   the suite must run with nothing installed — but it means CI is the only place
   that reliably exercises the SQL unless someone remembers the variable.

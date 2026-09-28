@@ -211,6 +211,12 @@
   .tag { border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
   .tag.unconfirmed { border-color: var(--warn-border); background: var(--warn-bg); }
   .empty-note { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
+  .danger-zone { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .danger-zone .sub { color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 6px; }
+  .danger-zone button { color: var(--danger); border-color: var(--danger); }
+  /* Armed. The second click is the one that deletes, so it must not look like
+     the first one did. */
+  .danger-zone button[data-armed="true"] { background: var(--danger); color: var(--bg); }
 
   /* Conversation history. A row is a button, not a div with a click handler:
      it is focusable, it answers to Enter, and it reads as pressable. */
@@ -263,6 +269,19 @@
         <button id="memory-enable" type="button" aria-pressed="true">开</button>
       </div>
       <div id="memory-list"></div>
+
+      <!--
+        Separated from the list above on purpose. Every other control in this
+        panel is scoped to one memory and is undone by saying the thing again;
+        this one is not undoable by any means, so it sits on its own below a
+        rule and asks twice.
+      -->
+      <div class="danger-zone">
+        <button id="forget-all" type="button">删除全部数据</button>
+        <div class="sub">
+          删掉 ta 记住的一切、所有对话和设置。无法撤销。
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -732,6 +751,71 @@ async function refreshMemory() {
   }
 }
 
+// ------------------------------------------------------- forgetting all -----
+
+/**
+ * Delete everything (spec §44, `deletion`).
+ *
+ * Two clicks rather than a `confirm()` dialog, for the same reason the rest of
+ * this panel avoids modals: a browser dialog is a thing people dismiss on
+ * reflex, and the reflex is trained by dialogs that do not matter. Arming the
+ * button changes what it says and what it looks like, so the second click is
+ * made deliberately.
+ *
+ * The armed state expires, because a button left armed while the drawer sits
+ * open is a button that eventually gets clicked by someone who has forgotten
+ * why it is red.
+ */
+const FORGET_ARM_MS = 5000;
+let forgetTimer = null;
+
+async function forgetEverything() {
+  const button = $('forget-all');
+  const armed = button.dataset.armed === 'true';
+
+  if (!armed) {
+    button.dataset.armed = 'true';
+    button.textContent = '再点一次，删除';
+    clearTimeout(forgetTimer);
+    forgetTimer = setTimeout(disarmForget, FORGET_ARM_MS);
+    return;
+  }
+
+  clearTimeout(forgetTimer);
+  button.disabled = true;
+  button.textContent = '正在删除…';
+
+  const response = await fetch('/api/me', { method: 'DELETE' }).catch(() => null);
+  button.disabled = false;
+
+  if (!response || !response.ok) {
+    // Left armed would be a trap: the next click would delete after a failure
+    // the person was never told about.
+    disarmForget();
+    button.textContent = '删除失败，稍后再试';
+    return;
+  }
+
+  // The client's half of the deletion. The cookie is gone, so the conversation
+  // id in `localStorage` now points at nothing, and a transcript left on screen
+  // would be the only remaining copy of what was just deleted.
+  rememberConversation(null);
+  transcript.textContent = '';
+  transcript.classList.add('empty');
+  $('history-list').textContent = '';
+  disarmForget();
+  button.textContent = '都删掉了';
+  // The transcript's empty state is a stylesheet rule, not an element, so the
+  // confirmation goes where the click was rather than over the top of it.
+  setTimeout(() => { if (!button.disabled) button.textContent = '删除全部数据'; }, 2500);
+}
+
+function disarmForget() {
+  const button = $('forget-all');
+  button.dataset.armed = 'false';
+  button.textContent = '删除全部数据';
+}
+
 // --------------------------------------------------------------- events -----
 
 function resize() {
@@ -764,9 +848,18 @@ $('new-conversation').onclick = () => {
 };
 
 $('memory-toggle').onclick = () => void openDrawer();
-$('drawer-close').onclick = () => { $('drawer').dataset.open = 'false'; };
+$('forget-all').onclick = () => void forgetEverything();
+// Closing the drawer disarms: an armed button that survives being put away is
+// an armed button someone finds later without the context that made it red.
+$('drawer-close').onclick = () => {
+  $('drawer').dataset.open = 'false';
+  disarmForget();
+};
 $('drawer').addEventListener('click', (event) => {
-  if (event.target === $('drawer')) $('drawer').dataset.open = 'false';
+  if (event.target === $('drawer')) {
+    $('drawer').dataset.open = 'false';
+    disarmForget();
+  }
 });
 
 $('history-toggle').onclick = () => {

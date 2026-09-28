@@ -55,10 +55,66 @@ export interface EvaluationResultRecord {
   readonly violations: readonly string[];
 }
 
-export interface MemoryStore {
-  /** Idempotent: returns the existing row if the user is already known. */
-  ensureUser(userId: string): Promise<void>;
+/**
+ * Who exists, and how they stop existing.
+ *
+ * Kept apart from `MemoryStore` because the person is not a memory: deleting a
+ * memory is a soft delete on purpose (the audit trail in `memory_events` keeps
+ * pointing at a real row), and there is no equivalent argument for keeping a
+ * person who has asked to be removed.
+ *
+ * This interface exists because spec §44 lists `retention` and `deletion` and
+ * the project had neither — memories could be deleted one at a time by their
+ * owner, and the throwaway users evaluation runs create accumulated in a shared
+ * database with nothing that could ever remove them.
+ */
+export interface IdentityStore {
+  /**
+   * Idempotent: does nothing if the user is already known.
+   *
+   * `externalId` is a stable identifier from whatever system supplied this
+   * identity — the mini-program's openid, or an evaluation run's case handle.
+   * Namespacing (`eval:`, a future openid) is a convention between callers, not
+   * something the column enforces, because the database has no business knowing
+   * which systems exist.
+   */
+  ensureUser(userId: string, externalId?: string | null): Promise<void>;
 
+  /**
+   * Remove the person and everything that hangs off them.
+   *
+   * Hard delete, and one statement: every table that holds their content
+   * references `users(id) ON DELETE CASCADE`, so the database does the work
+   * rather than a sequence of deletes that can half-fail.
+   *
+   * What deliberately survives is the *measurement*, not the person.
+   * `agent_runs` is `ON DELETE SET NULL` — the row is observability, its
+   * fingerprints are sizes and hashes and never content (spec §14), and a run
+   * whose user has been erased is still a data point about this prompt version.
+   * `evaluation_results` never referenced a user at all.
+   *
+   * Returns false if there was nothing to delete, which is not an error: the
+   * caller asked for a state, and that state already held.
+   */
+  deleteUser(userId: string): Promise<boolean>;
+
+  /**
+   * Users handed an identity by some external system, by prefix.
+   *
+   * The one query a retention sweep needs, and the reason `external_id` is
+   * finally written. An earlier attempt made evaluation users greppable by
+   * putting the case id inside `users.id`, which failed against Postgres on the
+   * first insert because that column is a `uuid` — the in-memory store accepts
+   * any string, so no offline test could have caught it. The intent was right;
+   * it was aimed at the wrong column.
+   */
+  listUsersByExternalPrefix(
+    prefix: string,
+    options?: { olderThan?: Date; limit?: number },
+  ): Promise<{ id: string; externalId: string }[]>;
+}
+
+export interface MemoryStore {
   createMemory(userId: string, draft: MemoryDraft): Promise<Memory>;
   getMemory(userId: string, id: string): Promise<Memory | null>;
   updateMemory(userId: string, id: string, patch: MemoryPatch): Promise<Memory | null>;
@@ -180,7 +236,8 @@ export interface FeedbackStore {
 
 /** Everything the application needs from persistence, in one wiring handle. */
 export interface Store
-  extends MemoryStore,
+  extends IdentityStore,
+    MemoryStore,
     ConversationStore,
     RunStore,
     PreferenceStore,

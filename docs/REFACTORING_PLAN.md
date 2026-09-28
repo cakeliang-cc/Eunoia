@@ -158,11 +158,23 @@ is why tone is uncovered and said to be.
 
 ## Phase 12 — Production Hardening
 
-Not started, and the three blockers are already recorded in `CHANGELOG.md`:
-identity is a handle rather than authentication (ADR 009), there is no retention
-sweep for the throwaway users evaluation runs accumulate (§44), and there is no
-rate limiting. None of them can be closed without a decision the user has not
-made, so they stay visible rather than half-done.
+Two of the three blockers remain, and they are the two that need something this
+project does not have: **identity is a handle rather than authentication**
+(ADR 009) wants real auth, and **there is no rate limiting** wants a decision
+about who the users are and what they may spend.
+
+The third — **no retention sweep, so evaluation runs accumulated throwaway
+users** — is closed by [ADR 013](adr/013-retention-and-deletion.md). It was
+buildable from inside the project once the question was framed as "which rows
+does a sweep have a right to touch" rather than "how do we recognise an
+evaluation user": `users.external_id` had been declared for exactly this in the
+first migration and never written. The measurement of the gap is in the ADR —
+589 users, 355 conversations, 512 messages from evaluation runs alone.
+
+The lesson worth keeping is the one the plan's own wording hid. This section said
+none of the three "can be closed without a decision the user has not made", and
+that was true of two of them and a false equation of the third: retention needed
+no decision, only a mark that already existed in the schema.
 
 ## Deliberately not doing
 

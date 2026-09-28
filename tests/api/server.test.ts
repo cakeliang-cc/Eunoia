@@ -184,6 +184,67 @@ describe('identity', () => {
   });
 });
 
+describe('DELETE /api/me', () => {
+  it('removes everything the person had and clears the cookie', async () => {
+    const cookie = await newIdentity();
+    const userId = cookie.split('=')[1] as string;
+    await chat('我养了一只叫团子的猫', { cookie });
+    await store.createMemory(userId, {
+      type: 'semantic',
+      content: '用户养了一只叫团子的猫',
+      source: 'user_stated',
+    });
+
+    const response = await api('/api/me', { method: 'DELETE', cookie });
+
+    expect(response.status).toBe(200);
+    expect(response.body.deleted).toBe(true);
+    expect(await store.listMemories(userId)).toEqual([]);
+    expect(await store.listConversations(userId)).toEqual([]);
+    // Cleared, not just deleted: a live cookie pointing at a row that is gone
+    // would be accepted by `resolveIdentity` — it checks the shape, not the row
+    // — and the next message would be written under a user that does not exist.
+    const cleared = response.headers.get('set-cookie') as string;
+    expect(cleared).toMatch(/df_uid=;/);
+    expect(cleared).toMatch(/Max-Age=0/);
+  });
+
+  it('answers for someone who was never here rather than 404ing', async () => {
+    // The caller asked for a state — "I have no data here" — and a caller with
+    // no row is already in it. A 404 would report a failure that did not happen.
+    const { status, body } = await api('/api/me', {
+      method: 'DELETE',
+      cookie: `${IDENTITY_COOKIE}=0192f0aa-0000-7000-8000-0000000000ff`,
+    });
+    expect(status).toBe(200);
+    expect(body.deleted).toBe(false);
+  });
+
+  it('does not mint an identity in order to delete one', async () => {
+    // The route deliberately skips `identify`, which creates a user when it
+    // finds none. Minting here would both create a person to remove them and
+    // answer with a cookie for a row that never existed.
+    const response = await fetch(`${base}/api/me`, { method: 'DELETE' });
+    const body = (await response.json()) as { deleted: boolean };
+    expect(body.deleted).toBe(false);
+    expect(response.headers.get('set-cookie')).toMatch(/Max-Age=0/);
+  });
+
+  it('leaves the other person alone', async () => {
+    const alice = await newIdentity();
+    const bob = await newIdentity();
+    await store.createMemory(bob.split('=')[1] as string, {
+      type: 'semantic',
+      content: '鲍勃的私事',
+      source: 'user_stated',
+    });
+
+    await api('/api/me', { method: 'DELETE', cookie: alice });
+
+    expect((await api('/api/memory', { cookie: bob })).body.memories).toHaveLength(1);
+  });
+});
+
 describe('GET /health', () => {
   it('reports ok and the prompt version', async () => {
     const { status, body } = await api('/health');

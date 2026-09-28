@@ -169,11 +169,78 @@ describe('case isolation', () => {
     });
 
     expect(new Set(users).size).toBe(2);
-    // A plain UUID, not `eval-a-<case>`. The readable id was nicer to debug and
-    // impossible to insert: `users.id` is `uuid` in Postgres and the in-memory
+    // A plain UUID. The readable id was tried in this column first and was
+    // impossible to insert — `users.id` is `uuid` in Postgres and the in-memory
     // store accepts any string, so only a real database could have rejected it.
+    // It lives in `external_id` now, which is the `text` column that was there
+    // for it all along; see the retention tests for the readable side.
     const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
     for (const userId of users) expect(userId, `${userId} is not a uuid`).toMatch(UUID);
+  });
+
+  it('marks each case\'s user so a run can be told from the people in the table', async () => {
+    // The mark is what makes retention possible at all: an unmarked throwaway
+    // user is indistinguishable from a person, and a sweep that cannot tell
+    // them apart is a sweep nobody can safely run.
+    await runEvaluation({
+      store,
+      cases: [makeCase({ id: 'a' })],
+      executor: replyingWith('嗯。'),
+      cleanup: false,
+    });
+
+    const marked = await store.listUsersByExternalPrefix('eval:');
+    expect(marked).toHaveLength(1);
+    // Run id first, case id second, so one run's users share a prefix and the
+    // run could find its own if it ever needed to.
+    expect(marked[0]?.externalId).toMatch(/^eval:[0-9a-f-]{36}:a$/);
+  });
+
+  it('removes the users it created once it is done', async () => {
+    // The gap `CHANGELOG.md` recorded: every run left its users behind and
+    // nothing could remove them. A run holds the exact ids it made, so it does
+    // not need a prefix or a window to clean up after itself safely.
+    const { userIds } = await runEvaluation({
+      store,
+      cases: [makeCase({ id: 'a' }), makeCase({ id: 'b' })],
+      executor: replyingWith('嗯。'),
+    });
+
+    expect(userIds).toHaveLength(2);
+    expect(await store.listUsersByExternalPrefix('eval:')).toEqual([]);
+    for (const userId of userIds) {
+      expect(await store.listMemories(userId)).toEqual([]);
+    }
+  });
+
+  it('keeps them when the caller says so', async () => {
+    // For tests that want to inspect what a case wrote, and for anyone
+    // debugging a run without re-running it.
+    await runEvaluation({
+      store,
+      cases: [makeCase({ id: 'a' })],
+      executor: replyingWith('嗯。'),
+      cleanup: false,
+    });
+
+    expect(await store.listUsersByExternalPrefix('eval:')).toHaveLength(1);
+  });
+
+  it('cleans up after a run that had a failing case', async () => {
+    // A case that throws still gets an identity, and a cleanup that ran only on
+    // the happy path would leak exactly the runs most likely to be repeated.
+    const exploding: CaseExecutor = async () => {
+      throw new Error('connection reset');
+    };
+
+    const { userIds } = await runEvaluation({
+      store,
+      cases: [makeCase({ id: 'a' })],
+      executor: exploding,
+    });
+
+    expect(userIds).toHaveLength(1);
+    expect(await store.listUsersByExternalPrefix('eval:')).toEqual([]);
   });
 
   it('seeds memories under the case\'s own user, not a shared one', async () => {

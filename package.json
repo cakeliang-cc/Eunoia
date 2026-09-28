@@ -17,6 +17,7 @@
     "migrate": "node --experimental-strip-types src/db/migrate.ts",
     "eval": "node --experimental-strip-types src/evaluation/cli.ts",
     "eval:replay": "node --experimental-strip-types src/evaluation/cli.ts --replay",
+    "cleanup": "node --experimental-strip-types src/privacy/cli.ts",
     "smoke": "vitest run tests/smoke"
   },
   "dependencies": {

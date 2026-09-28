@@ -54,7 +54,7 @@ interface StoredConversation {
 export class InMemoryStore implements Store {
   readonly #memories = new Map<string, Memory>();
   readonly #conversations = new Map<string, StoredConversation>();
-  readonly #users = new Set<string>();
+  readonly #users = new Map<string, { externalId: string | null; createdAt: Date }>();
   readonly #preferences = new Map<string, Map<string, unknown>>();
   readonly #runs = new Map<string, AgentRunRecord>();
   readonly #evaluationResults: EvaluationResultRecord[] = [];
@@ -70,8 +70,63 @@ export class InMemoryStore implements Store {
 
   // ------------------------------------------------------------- users -----
 
-  async ensureUser(userId: string): Promise<void> {
-    this.#users.add(userId);
+  async ensureUser(userId: string, externalId?: string | null): Promise<void> {
+    const existing = this.#users.get(userId);
+    if (existing) {
+      // Matching the Postgres `COALESCE`: a later call without an external id
+      // does not erase one an earlier call supplied.
+      if (externalId != null) existing.externalId = externalId;
+      return;
+    }
+    this.#users.set(userId, { externalId: externalId ?? null, createdAt: new Date() });
+  }
+
+  /**
+   * Unlike the foreign keys this store deliberately does not enforce, the
+   * cascade here *is* the behaviour under test — a `deleteUser` against a store
+   * that leaves the rows behind would assert nothing. So this one operation
+   * mirrors the schema: everything that references the person goes, and
+   * `agent_runs` survives with a null owner.
+   */
+  async deleteUser(userId: string): Promise<boolean> {
+    if (!this.#users.delete(userId)) return false;
+
+    const conversations = new Set(
+      [...this.#conversations.values()]
+        .filter((conversation) => conversation.userId === userId)
+        .map((conversation) => conversation.id),
+    );
+
+    for (const [id, memory] of this.#memories) {
+      if (memory.userId === userId) this.#memories.delete(id);
+    }
+    // Messages live inside their conversation, so this takes them with it.
+    for (const id of conversations) this.#conversations.delete(id);
+    this.#preferences.delete(userId);
+
+    for (const [id, run] of this.#runs) {
+      if (run.userId === userId) this.#runs.set(id, { ...run, userId: null, conversationId: null });
+    }
+    for (let index = this.#feedback.length - 1; index >= 0; index -= 1) {
+      if (this.#feedback[index]?.userId === userId) this.#feedback.splice(index, 1);
+    }
+    for (let index = this.events.length - 1; index >= 0; index -= 1) {
+      if (this.events[index]?.userId === userId) this.events.splice(index, 1);
+    }
+    return true;
+  }
+
+  async listUsersByExternalPrefix(
+    prefix: string,
+    options: { olderThan?: Date; limit?: number } = {},
+  ): Promise<{ id: string; externalId: string }[]> {
+    const cutoff = options.olderThan;
+    return [...this.#users.entries()]
+      .filter(([, user]) => user.externalId !== null && user.externalId.startsWith(prefix))
+      .filter(([, user]) => cutoff === undefined || user.createdAt < cutoff)
+      .sort((a, b) => a[1].createdAt.getTime() - b[1].createdAt.getTime())
+      .slice(0, options.limit ?? 1000)
+      .map(([id, user]) => ({ id, externalId: user.externalId as string }));
   }
 
   // ---------------------------------------------------------- memories -----
@@ -348,6 +403,7 @@ export class InMemoryStore implements Store {
     this.#conversations.clear();
     this.#preferences.clear();
     this.#runs.clear();
+    this.#users.clear();
   }
 }
 

@@ -27,6 +27,7 @@ import { PROMPT_VERSION } from '../agent/instructions.ts';
 import { COMPANION_MODEL } from '../agent/model-client.ts';
 import { log } from '../observability/logging.ts';
 import type { Store } from '../memory/store.ts';
+import { EVALUATION_USER_PREFIX } from '../privacy/retention.ts';
 import { runTurn } from '../service/chat.ts';
 import { EVALUATION_CASES } from './cases.ts';
 import { scoreCase } from './scorers.ts';
@@ -119,11 +120,27 @@ export interface RunEvaluationOptions {
   readonly onProgress?: (completed: number, total: number, result: CaseResult) => void;
   /** Skip writing to `evaluation_results`. Used by replay-after-replay runs. */
   readonly persist?: boolean;
+  /**
+   * Remove the throwaway users this run created, once it has finished.
+   *
+   * On by default, because the alternative has been tried: a `CHANGELOG.md`
+   * entry records that evaluation runs accumulated users in a shared database
+   * and that "nothing deletes them". A knob that defaults to off would be the
+   * same gap with a flag next to it.
+   *
+   * Safe here in a way a sweep cannot be, because the run holds the exact ids it
+   * created and deletes those — no window, no prefix match, nothing it has to
+   * believe about the rest of the table. `false` exists for tests that want to
+   * inspect what a case wrote.
+   */
+  readonly cleanup?: boolean;
 }
 
 export async function runEvaluation(options: RunEvaluationOptions): Promise<{
   run: EvaluationRun;
   recording: Recording;
+  /** Ids of the throwaway users this run created, whether or not they were removed. */
+  userIds: string[];
 }> {
   const cases = options.cases ?? EVALUATION_CASES;
   const mode: 'live' | 'recorded' = options.replay ? 'recorded' : 'live';
@@ -148,6 +165,7 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<{
   const results: CaseResult[] = [];
   const recorded: RecordedTurn[] = [];
   const liveDuringReplay: string[] = [];
+  const userIds: string[] = [];
 
   for (const evaluationCase of cases) {
     const replayed = replayById.get(evaluationCase.id);
@@ -158,8 +176,14 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<{
     // the run rather than left for someone to notice.
     if (replayed === undefined && mode === 'recorded') liveDuringReplay.push(evaluationCase.id);
 
-    const turn =
-      replayed ?? (await runCase(options.store, evaluationCase, executor, options.signal));
+    let turn: RecordedTurn;
+    if (replayed === undefined) {
+      const outcome = await runCase(options.store, evaluationCase, executor, runId, options.signal);
+      turn = outcome.turn;
+      userIds.push(outcome.userId);
+    } else {
+      turn = replayed;
+    }
 
     recorded.push(turn);
 
@@ -202,6 +226,22 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<{
     );
   }
 
+  // After the results are saved, never before: this deletes the people, and
+  // `evaluation_results` is the measurement that outlives them. Clearing up
+  // first would make the failure mode "lost results", which is the one thing a
+  // run exists to produce.
+  //
+  // By id, not by prefix. A prefix sweep here would also catch a second run's
+  // users while that run was still using them — not hypothetical, since two
+  // evaluations were in flight at once while this was written — and the run
+  // already holds the exact ids it created, so there is nothing to gain by
+  // matching loosely. Users leaked by a run that crashed are the other case, and
+  // they belong to `npm run cleanup` (src/privacy/cli.ts), which has a window to
+  // keep it away from anything in flight.
+  if (options.cleanup !== false) {
+    for (const userId of userIds) await options.store.deleteUser(userId);
+  }
+
   return {
     run,
     recording: {
@@ -210,6 +250,7 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<{
       recordedAt: new Date().toISOString(),
       turns: recorded,
     },
+    userIds,
   };
 }
 
@@ -218,8 +259,9 @@ async function runCase(
   store: Store,
   evaluationCase: EvaluationCase,
   executor: CaseExecutor,
+  runId: string,
   signal?: AbortSignal,
-): Promise<RecordedTurn> {
+): Promise<{ turn: RecordedTurn; userId: string }> {
   // A throwaway identity per case. Everything the case reads or writes —
   // memories, messages, runs — belongs to it and to nothing else.
   //
@@ -228,11 +270,16 @@ async function runCase(
   // worked everywhere except against Postgres, where `users.id` is `uuid` and
   // the very first insert failed. The in-memory store accepts any string, so no
   // offline test could have caught it — the same blind spot as the missing
-  // `installProvider()` call next door. The pairing is logged instead, which is
-  // the part that was actually wanted.
+  // `installProvider()` call next door.
+  //
+  // That intent was right and it was aimed at the wrong column. The readable
+  // handle now goes in `users.external_id`, which is `text` and was declared for
+  // exactly this — an identity supplied by an external system — and has been
+  // sitting unused since the first migration. Run id first so that one run's
+  // users are a prefix apart from every other run's, which is what lets the run
+  // clean up after itself without a query it has to trust.
   const userId = randomUUID();
-  log.debug('evaluation.case_identity', { case_id: evaluationCase.id, user_id: userId });
-  await store.ensureUser(userId);
+  await store.ensureUser(userId, `${EVALUATION_USER_PREFIX}${runId}:${evaluationCase.id}`);
 
   const conversation = await store.ensureConversation(userId);
 
@@ -256,19 +303,28 @@ async function runCase(
   }
 
   try {
-    return await executor(evaluationCase, { store, userId, conversationId: conversation.id, signal });
+    const turn = await executor(evaluationCase, {
+      store,
+      userId,
+      conversationId: conversation.id,
+      signal,
+    });
+    return { turn, userId };
   } catch (error) {
     log.error('evaluation.case_failed', {
       case_id: evaluationCase.id,
       error: error instanceof Error ? error.message : String(error),
     });
     return {
-      caseId: evaluationCase.id,
-      reply: '',
-      toolsCalled: [],
-      riskLevel: 'none',
-      riskReplaced: false,
-      error: error instanceof Error ? error.message : String(error),
+      userId,
+      turn: {
+        caseId: evaluationCase.id,
+        reply: '',
+        toolsCalled: [],
+        riskLevel: 'none',
+        riskReplaced: false,
+        error: error instanceof Error ? error.message : String(error),
+      },
     };
   }
 }

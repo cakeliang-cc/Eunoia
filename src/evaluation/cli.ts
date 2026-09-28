@@ -114,7 +114,7 @@ async function main(): Promise<void> {
       replay = recording.turns;
     }
 
-    const { run, recording } = await runEvaluation({
+    const { run, recording, userIds } = await runEvaluation({
       store,
       cases,
       replay,
@@ -125,6 +125,17 @@ async function main(): Promise<void> {
     });
 
     process.stdout.write(`\n${formatReport(run, { verbose: args.verbose })}\n`);
+
+    // Said out loud because it is a write to the database that no line of the
+    // report otherwise accounts for, and because "the run cleaned up after
+    // itself" is the kind of thing that should be visible rather than inferred
+    // from a table that happens not to have grown.
+    if (userIds.length > 0) {
+      process.stdout.write(
+        `\nremoved ${userIds.length} throwaway ${userIds.length === 1 ? 'user' : 'users'} ` +
+          `· spec §44 retention\n`,
+      );
+    }
 
     if (!args.replay && args.record) {
       if (cases.length === EVALUATION_CASES.length) {
