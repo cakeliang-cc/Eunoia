@@ -119,3 +119,24 @@ export const MEMORY_SOURCE_LABELS: Readonly<Record<MemorySource, string>> = {
   user_stated: '你说过的',
   inferred: '我的推测（未经你确认）',
 };
+
+/** How long a conversation name can get before it is cut. */
+export const CONVERSATION_TITLE_CHARS = 24;
+
+/**
+ * Name a conversation after the message that opened it.
+ *
+ * Derived rather than asked for: a companion that opened by requesting a title
+ * would be asking the person to do filing. The first message is a good label
+ * precisely because it is what the person came with.
+ *
+ * Cut at a character budget rather than a word one, because the text is usually
+ * Chinese and Chinese has no spaces to cut at. Newlines collapse first — a
+ * first message is often several lines, and a title that renders as one line of
+ * a paragraph reads worse than a truncated one.
+ */
+export function conversationTitle(message: string): string {
+  const flat = message.replace(/\s+/g, ' ').trim();
+  if (flat.length <= CONVERSATION_TITLE_CHARS) return flat;
+  return `${flat.slice(0, CONVERSATION_TITLE_CHARS)}…`;
+}

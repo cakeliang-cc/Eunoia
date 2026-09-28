@@ -299,6 +299,14 @@ export class PostgresStore implements Store {
     return toConversation(row);
   }
 
+  async nameConversation(userId: string, conversationId: string, title: string): Promise<void> {
+    await this.#pool.query(
+      `UPDATE conversations SET title = $3
+        WHERE id = $1 AND user_id = $2 AND title IS NULL`,
+      [conversationId, userId, title],
+    );
+  }
+
   async appendMessage(message: {
     conversationId: string;
     userId: string;

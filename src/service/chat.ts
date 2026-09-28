@@ -44,6 +44,7 @@ import { buildTurnContext } from './context.ts';
 import { applyOutputCheck, safetyDirectiveFor } from '../safety/response.ts';
 import { maxRisk } from '../safety/risk.ts';
 import { WorkingMemory, seedWorkingMemory } from '../memory/working-memory.ts';
+import { conversationTitle } from '../memory/types.ts';
 import type { Store } from '../memory/store.ts';
 
 /** How many prior messages are replayed into the model as conversation. */
@@ -126,6 +127,15 @@ export async function* runTurn(
       content: message,
     });
     userMessageId = stored.id;
+
+    // The conversation takes its name from the message that opened it. Done
+    // here rather than at creation because `ensureConversation` runs before the
+    // user's message exists, and because a conversation created by a client that
+    // then failed to send anything should stay unnamed rather than be labelled
+    // with nothing.
+    await deps.store
+      .nameConversation(request.userId, conversationId, conversationTitle(message))
+      .catch(() => undefined);
   }
 
   const working = deps.working ?? new WorkingMemory();

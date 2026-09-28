@@ -213,6 +213,39 @@ describe('a normal turn', () => {
     expect(events).toEqual([{ type: 'error', message: 'message is empty', retryable: false }]);
     expect(await store.listConversations(USER)).toEqual([]);
   });
+
+  it('names the conversation after its first message, and only the first', async () => {
+    // The name is what makes a list of conversations a list rather than a pile
+    // of threads. It is derived here rather than asked for, because a companion
+    // that opened by requesting a title would be asking the person to do filing.
+    const first = await drain({ store, runner: fakeRunner('嗯。') }, {
+      userId: USER,
+      message: '今天不想上班',
+    });
+    const conversationId = completedOf(first)?.conversationId as string;
+
+    await drain({ store, runner: fakeRunner('嗯。') }, {
+      userId: USER,
+      message: '而且我还没睡好',
+      conversationId,
+    });
+
+    const conversation = (await store.listConversations(USER))[0];
+    expect(conversation?.title).toBe('今天不想上班');
+  });
+
+  it('does not name a conversation it was told not to persist', async () => {
+    // Evaluation turns run through this path. The conversation row itself is
+    // still created — it scopes retrieval and the tools — but a named one would
+    // put an evaluation prompt into the product's own history list.
+    await drain({ store, runner: fakeRunner('嗯。') }, {
+      userId: USER,
+      message: '这是评测用例',
+      persist: false,
+    });
+
+    expect((await store.listConversations(USER))[0]?.title).toBeNull();
+  });
 });
 
 describe('memory retrieval', () => {

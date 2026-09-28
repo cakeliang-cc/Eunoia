@@ -182,6 +182,13 @@ export class InMemoryStore implements Store {
     return conversation;
   }
 
+  async nameConversation(userId: string, conversationId: string, title: string): Promise<void> {
+    const conversation = this.#conversations.get(conversationId);
+    if (!conversation || conversation.userId !== userId) return;
+    // Same rule as Postgres: the first name wins.
+    if (conversation.title === null) conversation.title = title;
+  }
+
   async appendMessage(message: {
     conversationId: string;
     userId: string;

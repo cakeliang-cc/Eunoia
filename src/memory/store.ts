@@ -75,6 +75,16 @@ export interface MemoryStore {
 
 export interface ConversationStore {
   ensureConversation(userId: string, conversationId?: string | null): Promise<Conversation>;
+  /**
+   * Give a conversation a name, from its first user message.
+   *
+   * Set once and never replaced: `title IS NULL` is part of the update, so the
+   * first turn names the conversation and every later turn leaves it alone. A
+   * title that tracked the latest message would be a worse label than one that
+   * says what the conversation was *about*, and re-deriving it every turn would
+   * make the list flicker.
+   */
+  nameConversation(userId: string, conversationId: string, title: string): Promise<void>;
   appendMessage(message: {
     conversationId: string;
     userId: string;

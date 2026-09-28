@@ -257,6 +257,30 @@ describe.skipIf(!enabled)('PostgresStore', () => {
     expect(other.id).not.toBe(first.id);
   });
 
+  it('names a conversation once, and never replaces the name', async () => {
+    const userId = await freshUser();
+    const conversation = await store.ensureConversation(userId);
+
+    await store.nameConversation(userId, conversation.id, '今天不想上班');
+    await store.nameConversation(userId, conversation.id, '后来的这句话');
+
+    // The second call is what a long conversation would otherwise do on every
+    // turn: the list would be a rolling window onto whatever was said last.
+    const listed = await store.listConversations(userId);
+    expect(listed[0]?.title).toBe('今天不想上班');
+  });
+
+  it('does not name a conversation that belongs to someone else', async () => {
+    const alice = await freshUser();
+    const bob = await freshUser();
+    const aliceConversation = await store.ensureConversation(alice);
+
+    await store.nameConversation(bob, aliceConversation.id, '我给它起个名字');
+
+    const listed = await store.listConversations(alice);
+    expect(listed[0]?.title).toBeNull();
+  });
+
   it('does not hand a conversation to the wrong user', async () => {
     const alice = await freshUser();
     const bob = await freshUser();

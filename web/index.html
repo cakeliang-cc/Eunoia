@@ -211,6 +211,20 @@
   .tag { border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
   .tag.unconfirmed { border-color: var(--warn-border); background: var(--warn-bg); }
   .empty-note { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
+
+  /* Conversation history. A row is a button, not a div with a click handler:
+     it is focusable, it answers to Enter, and it reads as pressable. */
+  .thread {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    padding: 11px 12px; margin: 0 0 6px; border-radius: 8px;
+    border: 1px solid transparent; background: none; color: inherit;
+    font: inherit; line-height: 1.5;
+  }
+  .thread:hover { background: var(--think-bg); }
+  .thread[aria-current="true"] { background: var(--think-bg); border-color: var(--think-border); }
+  .thread .name { font-size: 14px; display: block; }
+  .thread .name.unnamed { color: var(--muted); }
+  .thread .when { font-size: 12px; color: var(--muted); margin-top: 3px; display: block; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
@@ -218,6 +232,7 @@
 <div class="app">
   <header>
     <h1>陪伴 <span class="sub" id="prompt-version"></span></h1>
+    <button id="history-toggle" type="button">对话</button>
     <button id="memory-toggle" type="button">记忆</button>
     <button id="new-conversation" type="button">新对话</button>
   </header>
@@ -248,6 +263,18 @@
         <button id="memory-enable" type="button" aria-pressed="true">开</button>
       </div>
       <div id="memory-list"></div>
+    </div>
+  </div>
+</div>
+
+<div class="drawer" id="history" data-open="false">
+  <div class="drawer-panel" role="dialog" aria-label="对话">
+    <header>
+      <h1>对话</h1>
+      <button id="history-close" type="button">关闭</button>
+    </header>
+    <div class="drawer-body">
+      <div id="history-list"></div>
     </div>
   </div>
 </div>
@@ -486,7 +513,10 @@ async function send(text) {
       } else if (event.type === 'completed') {
         reply = event.text;
         body.textContent = reply;
-        state.conversationId = event.conversationId ?? state.conversationId;
+        // Only when the server names one: a turn that was not persisted reports
+        // null, and taking that at face value would forget a conversation that
+        // is still perfectly good.
+        if (event.conversationId) rememberConversation(event.conversationId);
         messageId = event.messageId ?? null;
       } else if (event.type === 'error') {
         throw new Error(event.message);
@@ -536,6 +566,110 @@ function addFeedback(actions, messageId) {
   up.onclick = () => void rate('good');
   down.onclick = () => void rate('bad');
   actions.append(up, down);
+}
+
+// --------------------------------------------------------- conversations ----
+
+/**
+ * The conversation id survives a reload.
+ *
+ * `localStorage` rather than the URL, because a URL is a thing people paste and
+ * a conversation is private. Both directions are wrapped: storage throws in some
+ * privacy modes, and failing to remember which conversation this is costs less
+ * than a page that will not start.
+ */
+const STORAGE_KEY = 'df_conversation';
+
+function rememberConversation(id) {
+  state.conversationId = id;
+  try {
+    if (id) localStorage.setItem(STORAGE_KEY, id);
+    else localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // The conversation still works for this page view; only the reload is lost.
+  }
+}
+
+function recallConversation() {
+  try {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** "刚刚" / "12 分钟前" / "3 小时前" / "9 月 28 日" */
+function whenLabel(iso) {
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return '';
+  const minutes = Math.round((Date.now() - then.getTime()) / 60000);
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} 小时前`;
+  return `${then.getMonth() + 1} 月 ${then.getDate()} 日`;
+}
+
+/**
+ * Render a stored conversation.
+ *
+ * No streaming and no reasoning block: those described a turn while it was
+ * happening, and replaying them would be a re-enactment rather than a record.
+ * What is drawn is what was said.
+ */
+async function loadConversation(id) {
+  const response = await fetch(`/api/conversations/${id}/messages`).catch(() => null);
+  if (!response || !response.ok) return false;
+
+  // `?? []` rather than trusting the shape: a proxy or a future server that
+  // answers 200 with something else should leave the page usable, not throw
+  // inside a click handler where nothing is listening for it.
+  const { messages = [] } = await response.json();
+  if (messages.length === 0) return false;
+
+  transcript.textContent = '';
+  transcript.classList.remove('empty');
+  for (const message of messages) {
+    const { actions } = addTurn(message.role, message.content);
+    if (message.role === 'assistant') addFeedback(actions, message.id);
+  }
+  rememberConversation(id);
+  scrollToEnd();
+  return true;
+}
+
+async function refreshHistory() {
+  const list = $('history-list');
+  list.textContent = '';
+
+  const response = await fetch('/api/conversations').catch(() => null);
+  if (!response || !response.ok) {
+    list.append(el('div', 'empty-note', '读不到历史对话。'));
+    return;
+  }
+
+  const { conversations = [] } = await response.json();
+  if (conversations.length === 0) {
+    list.append(el('div', 'empty-note', '还没有别的对话。'));
+    return;
+  }
+
+  for (const conversation of conversations) {
+    const row = el('button', 'thread');
+    row.type = 'button';
+    const named = Boolean(conversation.title);
+    row.append(
+      el('span', `name${named ? '' : ' unnamed'}`, conversation.title ?? '（没有名字的对话）'),
+    );
+    row.append(el('span', 'when', whenLabel(conversation.lastTurnAt ?? conversation.startedAt)));
+    row.setAttribute('aria-current', String(conversation.id === state.conversationId));
+    row.onclick = async () => {
+      // Already open: just close the drawer rather than re-fetching what is
+      // already on screen.
+      if (conversation.id !== state.conversationId) await loadConversation(conversation.id);
+      $('history').dataset.open = 'false';
+    };
+    list.append(row);
+  }
 }
 
 // -------------------------------------------------------------- memory ------
@@ -620,15 +754,35 @@ $('composer').addEventListener('submit', (event) => {
 });
 
 $('new-conversation').onclick = () => {
-  state.conversationId = null;
+  // Forget the id as well as clearing the screen: otherwise the next reload
+  // would pull the old conversation back and the "new" one would have been a
+  // view change rather than a new conversation.
+  rememberConversation(null);
   transcript.textContent = '';
   transcript.classList.add('empty');
+  input.focus();
 };
 
 $('memory-toggle').onclick = () => void openDrawer();
 $('drawer-close').onclick = () => { $('drawer').dataset.open = 'false'; };
 $('drawer').addEventListener('click', (event) => {
   if (event.target === $('drawer')) $('drawer').dataset.open = 'false';
+});
+
+$('history-toggle').onclick = () => {
+  $('history').dataset.open = 'true';
+  void refreshHistory();
+};
+$('history-close').onclick = () => { $('history').dataset.open = 'false'; };
+$('history').addEventListener('click', (event) => {
+  if (event.target === $('history')) $('history').dataset.open = 'false';
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  for (const id of ['drawer', 'history']) {
+    if ($(id).dataset.open === 'true') $(id).dataset.open = 'false';
+  }
 });
 
 $('memory-enable').onclick = async () => {
@@ -648,8 +802,28 @@ fetch('/health')
   .then((data) => { $('prompt-version').textContent = data.prompt_version ?? ''; })
   .catch(() => undefined);
 
+/**
+ * The last conversation comes back on reload.
+ *
+ * This is the whole point of storing the id: a companion you have to re-introduce
+ * yourself to every time you open the page is not keeping anything. Failures are
+ * silent — the stored id is kept rather than cleared, because a request that
+ * failed once says nothing about whether the conversation still exists, and the
+ * server treats an id that is not this user's as "start a new one" anyway.
+ */
+async function restore() {
+  const saved = recallConversation();
+  if (!saved) return;
+  // Adopted before the fetch, not after: if reading the messages fails, the next
+  // message still continues that conversation instead of quietly starting a new
+  // one and leaving the thread behind.
+  state.conversationId = saved;
+  await loadConversation(saved);
+}
+
 resize();
 input.focus();
+void restore();
 </script>
 </body>
 </html>

@@ -120,14 +120,45 @@ class El {
 
 type Frame = Record<string, unknown>;
 
+/** Requests the module made, so a test can assert what was asked for. */
+interface CapturedRequest {
+  readonly url: string;
+  readonly method: string;
+  readonly body: Record<string, unknown> | null;
+}
+
+/** What the fake server answers with, keyed by `"METHOD /path"`. */
+interface Route {
+  readonly status?: number;
+  readonly json?: unknown;
+}
+
+interface Harness {
+  readonly transcript: El;
+  readonly element: (id: string) => El;
+  readonly store: Map<string, string>;
+  readonly requests: CapturedRequest[];
+  /** Run one turn by submitting the composer. */
+  send(text: string): Promise<void>;
+  /** Let queued microtasks and the module's fire-and-forget calls settle. */
+  settle(): Promise<void>;
+}
+
 /**
- * Load `web/index.html`'s module and run one turn through it.
+ * Load `web/index.html`'s module against a hand-written DOM.
  *
  * The module is compiled with `new Function` rather than imported: it has no
  * imports of its own, and this keeps vitest's module pipeline out of the way of
  * a file that was never meant to go through one.
+ *
+ * `routes` is the fake server. Anything not routed still answers `200 {}`, so a
+ * test only has to describe the requests its subject actually depends on.
  */
-async function runTurn(frames: Frame[]): Promise<El> {
+async function boot(options: {
+  frames?: Frame[];
+  routes?: Record<string, Route>;
+  stored?: string;
+} = {}): Promise<Harness> {
   const html = readFileSync(join(import.meta.dirname, '..', '..', 'web', 'index.html'), 'utf8');
   const source = /<script type="module">([\s\S]*?)<\/script>/.exec(html)?.[1];
   if (!source) throw new Error('web/index.html no longer contains a module script');
@@ -139,36 +170,95 @@ async function runTurn(frames: Frame[]): Promise<El> {
     return node;
   };
 
+  const routes = options.routes ?? {};
+  const requests: CapturedRequest[] = [];
+  const store = new Map<string, string>();
+  if (options.stored) store.set('df_conversation', options.stored);
+
   (globalThis as { document?: unknown }).document = {
     createElement: (tag: string) => new El(tag),
     getElementById: element,
+    addEventListener: () => {},
   };
-  (globalThis as { fetch?: unknown }).fetch = async () => ({
-    ok: true,
-    status: 200,
-    body: new ReadableStream({
-      start(controller) {
-        const encoder = new TextEncoder();
-        for (const frame of frames) {
-          const type = String(frame.type);
-          controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(frame)}\n\n`));
-        }
-        controller.close();
-      },
-    }),
-  });
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, String(value)),
+    removeItem: (key: string) => void store.delete(key),
+  };
+  (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
+    const method = init?.method ?? 'GET';
+    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
+    requests.push({ url, method, body });
+
+    // The stream the turn is read from, for whatever asked for the chat route.
+    if (url === '/api/chat') {
+      const frames = options.frames ?? [];
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+        body: new ReadableStream({
+          start(controller) {
+            const encoder = new TextEncoder();
+            for (const frame of frames) {
+              const type = String(frame.type);
+              controller.enqueue(
+                encoder.encode(`event: ${type}\ndata: ${JSON.stringify(frame)}\n\n`),
+              );
+            }
+            controller.close();
+          },
+        }),
+      };
+    }
+
+    const route = routes[`${method} ${url}`];
+    const status = route?.status ?? 200;
+    const payload = route?.json ?? {};
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => payload,
+      body: null,
+    };
+  };
 
   new Function(source)();
 
-  element('input').value = '今天什么都不想做。';
-  const submit = element('composer').listeners.submit?.[0];
-  if (!submit) throw new Error('the composer no longer listens for submit');
-  submit({ preventDefault() {} });
+  const settle = (): Promise<void> =>
+    new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
 
-  // The handler fires `send()` without awaiting it, so the turn has to be given
-  // a chance to drain. The stream above is synchronous, so one tick is enough.
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  return element('transcript');
+  const harness: Harness = {
+    transcript: element('transcript'),
+    element,
+    store,
+    requests,
+    settle,
+    async send(text: string) {
+      element('input').value = text;
+      const submit = element('composer').listeners.submit?.[0];
+      if (!submit) throw new Error('the composer no longer listens for submit');
+      submit({ preventDefault() {} });
+      // The handler fires `send()` without awaiting it, so the turn has to be
+      // given a chance to drain. The stream above is synchronous, so one tick is
+      // enough.
+      await settle();
+    },
+  };
+
+  // The module restores the remembered conversation without being asked; give
+  // that fetch a chance to land before the test inspects the transcript.
+  await settle();
+  return harness;
+}
+
+/** Most tests only want one turn, so this is the short form. */
+async function runTurn(frames: Frame[]): Promise<El> {
+  const harness = await boot({ frames });
+  await harness.send('今天什么都不想做。');
+  return harness.transcript;
 }
 
 /** The last turn on the transcript, and the parts of it the tests inspect. */
@@ -195,6 +285,32 @@ const THINKING_TURN: Frame[] = [
   { type: 'text_delta', text: '真的很沉。' },
   { type: 'completed', text: '听起来真的很沉。', conversationId: 'c1', messageId: 'm1' },
 ];
+
+/** A stored conversation, as `/api/conversations/:id/messages` returns it. */
+const STORED_MESSAGES = {
+  messages: [
+    { id: 'm1', role: 'user', content: '今天不想上班', createdAt: '2026-09-28T09:00:00.000Z' },
+    { id: 'm2', role: 'assistant', content: '嗯，那就先不上的样子。', createdAt: '2026-09-28T09:00:02.000Z' },
+    { id: 'm3', role: 'user', content: '可是不行啊', createdAt: '2026-09-28T09:01:00.000Z' },
+    { id: 'm4', role: 'assistant', content: '是有什么在后面等着？', createdAt: '2026-09-28T09:01:03.000Z' },
+  ],
+};
+
+/** The last request the module made to a path. */
+function lastRequest(harness: Harness, url: string) {
+  return harness.requests.filter((request) => request.url === url).at(-1);
+}
+
+const messageRoute = (json: unknown, status = 200): Record<string, Route> => ({
+  'GET /api/conversations/c1/messages': { status, json },
+});
+
+/** The turn bodies posted to `/api/chat`, which is what "continues the thread" means. */
+function sentConversationIds(harness: Harness): unknown[] {
+  return harness.requests
+    .filter((request) => request.url === '/api/chat')
+    .map((request) => request.body?.conversationId ?? null);
+}
 
 // ------------------------------------------------------------------ tests ---
 
@@ -284,6 +400,206 @@ describe('the reply', () => {
     expect(thinking).toBeDefined();
     expect(bubble?.find((node) => node.classList.contains('dots')).some((n) => n.isConnected)).toBe(
       false,
+    );
+  });
+});
+
+/**
+ * The conversation survives a reload.
+ *
+ * This is the bug these tests exist for. Everything server-side was already
+ * right — the messages were being written, and both endpoints returned them —
+ * but the client held the conversation id in a variable that died with the page
+ * and never called either endpoint. From the outside that is indistinguishable
+ * from losing the conversation, which is exactly what it looked like.
+ */
+describe('coming back to a conversation', () => {
+  it('restores the remembered conversation on load', async () => {
+    const harness = await boot({ stored: 'c1', routes: messageRoute(STORED_MESSAGES) });
+
+    const turns = harness.transcript.children.filter((node) => node.classList.contains('turn'));
+    expect(turns).toHaveLength(4);
+    expect(turns[0]?.classList.contains('user')).toBe(true);
+    expect(turns[0]?.child('bubble')?.child('text')?.textContent).toBe('今天不想上班');
+    expect(turns[1]?.classList.contains('assistant')).toBe(true);
+    expect(turns[3]?.child('bubble')?.child('text')?.textContent).toBe('是有什么在后面等着？');
+  });
+
+  it('continues that conversation on the next message rather than starting a new one', async () => {
+    const harness = await boot({
+      stored: 'c1',
+      routes: messageRoute(STORED_MESSAGES),
+      frames: [{ type: 'completed', text: '嗯。', conversationId: 'c1', messageId: 'm5' }],
+    });
+
+    await harness.send('我还是去了');
+
+    expect(sentConversationIds(harness)).toEqual(['c1']);
+  });
+
+  it('offers feedback on the restored replies, as it does on live ones', async () => {
+    // A reply that was rated when it arrived and cannot be rated on reload would
+    // make the history a read-only copy rather than the same conversation.
+    const harness = await boot({ stored: 'c1', routes: messageRoute(STORED_MESSAGES) });
+
+    const rated = harness.transcript.find((node) => node.classList.contains('turn'))[1];
+    // `meta` holds the note and then the rating buttons; neither carries a class
+    // of its own, so this reaches in by position rather than by name.
+    const buttons = rated?.child('meta')?.children[1]?.children ?? [];
+    expect(buttons.map((button) => button.textContent)).toEqual(['有帮助', '不太对']);
+
+    buttons[0]?.onclick?.();
+    await harness.settle();
+    const posted = lastRequest(harness, '/api/feedback');
+    expect(posted?.body).toMatchObject({ messageId: 'm2', rating: 'good' });
+  });
+
+  it('remembers the id the server hands back', async () => {
+    const harness = await boot({ frames: THINKING_TURN });
+
+    await harness.send('今天什么都不想做。');
+
+    // The first turn sends no id — the server makes one — and the client stores
+    // what comes back, which is what the reload above reads.
+    expect(sentConversationIds(harness)).toEqual([null]);
+    expect(harness.store.get('df_conversation')).toBe('c1');
+  });
+
+  it('carries the stored id into the turn, even when the restore failed', async () => {
+    // The transcript is empty because the fetch failed; that is not a reason to
+    // abandon the conversation and write the reply somewhere else.
+    const harness = await boot({
+      stored: 'c1',
+      routes: messageRoute({ error: 'boom' }, 500),
+      frames: [{ type: 'completed', text: '嗯。', conversationId: 'c1', messageId: 'm5' }],
+    });
+
+    expect(harness.transcript.children).toEqual([]);
+    await harness.send('在吗');
+    expect(sentConversationIds(harness)).toEqual(['c1']);
+  });
+
+  it('replays nothing when the stored conversation is gone', async () => {
+    const harness = await boot({ stored: 'c1', routes: messageRoute({ messages: [] }) });
+
+    expect(harness.transcript.children).toEqual([]);
+  });
+
+  it('forgets the conversation when a new one is started', async () => {
+    const harness = await boot({
+      stored: 'c1',
+      routes: messageRoute(STORED_MESSAGES),
+      frames: [{ type: 'completed', text: '嗯。', conversationId: 'c2', messageId: 'm5' }],
+    });
+
+    harness.element('new-conversation').onclick?.();
+
+    // Both halves matter: the screen is cleared, and the reload that follows
+    // does not pull the old conversation back over it.
+    expect(harness.transcript.children).toEqual([]);
+    expect(harness.store.has('df_conversation')).toBe(false);
+
+    await harness.send('换个话题');
+    expect(sentConversationIds(harness)).toEqual([null]);
+  });
+});
+
+describe('the conversation list', () => {
+  // The order the server returns them in — newest first — is the order the
+  // drawer draws them, so the fixture is written the way the API sends it.
+  const LIST = {
+    conversations: [
+      { id: 'c2', title: '今天不想上班', startedAt: '2026-09-27T09:00:00.000Z', turnCount: 3 },
+      { id: 'c1', title: null, startedAt: '2020-01-15T09:00:00.000Z', turnCount: 2 },
+    ],
+  };
+
+  const listRoutes = (extra: Record<string, Route> = {}): Record<string, Route> => ({
+    ...messageRoute(STORED_MESSAGES),
+    'GET /api/conversations': { json: LIST },
+    ...extra,
+  });
+
+  async function openList(routes: Record<string, Route>, stored?: string) {
+    const harness = await boot({ stored, routes });
+    harness.element('history-toggle').onclick?.();
+    await harness.settle();
+    return harness.element('history-list').find((node) => node.classList.contains('thread'));
+  }
+
+  it('lists every conversation and marks the one that is open', async () => {
+    const rows = await openList(listRoutes(), 'c1');
+
+    expect(rows.map((row) => row.child('name')?.textContent)).toEqual([
+      '今天不想上班',
+      '（没有名字的对话）',
+    ]);
+    expect(rows.map((row) => row.getAttribute('aria-current'))).toEqual(['false', 'true']);
+  });
+
+  it('names an untitled conversation rather than showing a hole', async () => {
+    // Every conversation written before naming existed has a null title, and one
+    // that is never written in again never gets one. The fallback is what keeps
+    // those rows readable instead of blank.
+    const rows = await openList(listRoutes());
+
+    expect(rows[1]?.child('name')?.classList.contains('unnamed')).toBe(true);
+    // An old conversation is dated, not counted in hours — "9864 小时前" tells
+    // nobody anything. The exact string is not asserted because it is local time
+    // and the test would then be answering about the machine it ran on.
+    expect(rows[1]?.child('when')?.textContent).toMatch(/^\d+ 月 \d+ 日$/);
+  });
+
+  it('says 刚刚 for a conversation used moments ago', async () => {
+    const rows = await openList({
+      'GET /api/conversations': {
+        json: {
+          conversations: [
+            { id: 'c9', title: '刚说过的', startedAt: new Date().toISOString(), turnCount: 1 },
+          ],
+        },
+      },
+    });
+
+    expect(rows[0]?.child('when')?.textContent).toBe('刚刚');
+  });
+
+  it('opens a conversation when its row is picked', async () => {
+    const harness = await boot({
+      stored: 'c1',
+      routes: listRoutes({
+        'GET /api/conversations/c2/messages': {
+          json: {
+            messages: [{ id: 'm9', role: 'user', content: '昨天那些事', createdAt: new Date().toISOString() }],
+          },
+        },
+      }),
+    });
+
+    harness.element('history-toggle').onclick?.();
+    await harness.settle();
+    const rows = harness.element('history-list').find((node) => node.classList.contains('thread'));
+    rows[0]?.onclick?.();
+    await harness.settle();
+
+    // Picking a row replaces the transcript and adopts that conversation, so the
+    // next message goes there rather than into the one that was open.
+    expect(harness.transcript.children).toHaveLength(1);
+    expect(harness.transcript.find((node) => node.classList.contains('turn'))[0]?.child('bubble')?.child('text')?.textContent).toBe('昨天那些事');
+    expect(harness.store.get('df_conversation')).toBe('c2');
+    expect(harness.element('history').dataset.open).toBe('false');
+  });
+
+  it('says so rather than showing nothing when the list cannot be read', async () => {
+    const harness = await boot({
+      routes: { 'GET /api/conversations': { status: 503, json: { error: 'down' } } },
+    });
+
+    harness.element('history-toggle').onclick?.();
+    await harness.settle();
+
+    expect(harness.element('history-list').child('empty-note')?.textContent).toBe(
+      '读不到历史对话。',
     );
   });
 });
