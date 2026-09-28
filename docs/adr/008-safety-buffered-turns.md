@@ -1,97 +1,84 @@
-# ADR 008 — Buffered crisis turns, and a mechanical check on the way out
+# ADR 008 — 缓冲的危机轮次，以及出口处的一道机械检查
 
-## Context
+## 背景
 
-Spec §10 requires two things that do not obviously fit together: the persona is
-the product, and safety outranks it. Phase 4 had to make that ordering real
-rather than aspirational.
+Spec §10 提出两项并不显然相容的要求：人格设定就是产品，而安全高于它。Phase 4
+必须让这个排序成为事实，而不是一个愿望。
 
-Two facts shaped the design:
+两个事实塑造了这个设计：
 
-**A system prompt is a request, not a guarantee.** The crisis directive tells the
-model to name a real helpline, avoid minimising language, and not diagnose. It
-will almost always comply. "Almost always" is not a standard to hold a safety
-path to, and the one turn where it fails is the one turn where failure is not
-recoverable.
+**system prompt 是一个请求，不是一份保证。** 危机指令要求模型给出真实的求助热
+线、避免淡化性的说法、不做诊断。它几乎总是会照做。"几乎总是" 不是一个可以用来
+要求一条安全路径的标准，而它失效的那一轮，恰恰是失效不可挽回的那一轮。
 
-**A rendered delta cannot be un-rendered.** The default path streams: the model's
-tokens go to the person's screen as they are generated. If the reply is then
-found unsafe, replacing it does not un-show it. Anything the person has already
-read has been read.
+**已经渲染出去的 delta 无法收回。** 默认路径是流式的：模型的 token 在生成的同
+时就到达当事人的屏幕。如果随后发现回复不安全，替换它并不能让它没被看到。当事
+人已经读到的内容就是已经读到了。
 
-## Decision
+## 决定
 
-**1. Crisis turns are buffered; every other turn streams.**
+**1. 危机轮次缓冲；其余每一轮都流式。**
 
-`runTurn` withholds `text_delta` events when the assessed risk level is `crisis`,
-holds the reply, runs the output check, and only then emits it — as a single
-delta followed by `completed`, a shape a non-streaming client already handles.
-`elevated` turns stream normally.
+当评估出的风险等级为 `crisis` 时，`runTurn` 扣住 `text_delta` 事件，留住回复，
+先跑输出检查，然后才发出——作为一个 delta，后面跟 `completed`，这是非流式客户
+端本就能处理的形态。`elevated` 轮次照常流式。
 
-The cost is a delay of roughly one reply's generation time on a three-to-five
-sentence answer. That cost was accepted knowingly: it is the only way the check
-can be a check rather than a notification.
+代价是三到五句话的回答上，大约一次回复生成时间的延迟。这个代价是被明确接受的：
+只有这样，这项检查才可能是一次检查，而不是一次事后通知。
 
-**2. The check is mechanical and shallow, and that is the point.**
+**2. 这项检查是机械的、浅的，而这正是要点。**
 
-`checkCrisisReply` inspects the text for four things:
+`checkCrisisReply` 检查文本中的四件事：
 
-| Violation | Trigger |
+| 违规 | 触发条件 |
 |---|---|
-| `empty` | No reply at all |
-| `no_resource` | Nothing matching a helpline, emergency number, or "go to a hospital" |
-| `minimising` | "想开点", "加油", "会好起来的", "别人比你更惨", … |
-| `diagnosing` | Naming a condition as fact about the person, hedged or not |
-| `too_long` | Over `CRISIS_MAX_CHARS` (600) — the one sentence that matters is buried |
+| `empty` | 完全没有回复 |
+| `no_resource` | 没有匹配到求助热线、急救号码或 "去医院" |
+| `minimising` | "想开点"、"加油"、"会好起来的"、"别人比你更惨"，… |
+| `diagnosing` | 把某种状况当作关于当事人的事实来命名，无论是否加了模糊限定 |
+| `too_long` | 超过 `CRISIS_MAX_CHARS`（600）——真正重要的那一句被埋住了 |
 
-It cannot judge whether a reply is *good*. It can judge whether a reply is **safe
-to send**, which is the only question it is asked.
+它无法判断一条回复是否*好*。它能判断一条回复是否**可以安全发出**，而这是唯一
+被问到它的问题。
 
-**3. Failure substitutes fixed text, it does not regenerate.**
+**3. 失败时替换为固定文本，而不是重新生成。**
 
-`CRISIS_FALLBACK` is a constant: it asks whether the person is safe, names
-`120` / `110` / `12356` / `010-82951332`, does not diagnose, and does not ask
-them to explain themselves. Regenerating would risk a second unsafe reply and
-spend time the situation does not have.
+`CRISIS_FALLBACK` 是一个常量：它询问当事人是否安全，给出 `120` / `110` /
+`12356` / `010-82951332`，不做诊断，也不要求对方解释自己。重新生成可能再产出
+一次不安全的回复，而且会花掉这个处境没有的时间。
 
-**4. The fallback must pass its own check**, and there is a test asserting that it
-does. A safety net with a hole in it is worse than a documented absence.
+**4. 兜底文本必须能通过它自己的检查**，并且有一个测试断言它确实能通过。一张有
+洞的安全网，比一处有据可查的空缺更糟。
 
-**5. The persona cannot override any of this.** The crisis directive opens with
-"安全优先于人格设定" and states explicitly that the ordinary behavioural rules —
-one question, don't rush to solve, don't judge — **让位** this turn. Which rule is
-suspended, and by what, is asserted against the directive's own text.
+**5. 人格设定无法覆盖以上任何一条。** 危机指令以 "安全优先于人格设定" 开头，并
+明确声明常规行为规则——只问一个问题、不急于解决、不做评判——本轮**让位**。哪
+条规则被暂停、被什么暂停，是针对指令自身的文本断言的。
 
-**6. Elevated is reported, not replaced.** A merely-elevated message gets a
-gentler directive and a check that reports violations into the log without
-substituting the reply. Over-firing here would replace warm, appropriate replies
-with a hotline script, which is a worse experience for the person and teaches
-them not to say true things.
+**6. Elevated 只上报，不替换。** 仅仅是 elevated 的消息得到的是更温和的指令，
+以及一项把违规上报到日志、但不替换回复的检查。在这里过度触发，会用一段热线话
+术替换掉温暖、得体的回复，对当事人来说是更差的体验，还会教他们不要把真话说
+出来。
 
-## Alternatives
+## 备选方案
 
-1. **Stream everything and correct afterwards.** Rejected: it is not a check. The
-   person has already read the unsafe reply.
-2. **Buffer every turn.** Rejected: it gives up streaming — a real product
-   property — everywhere to protect one path.
-3. **Let a model judge the output.** Rejected for this path. It adds latency and
-   a second failure mode to the one check that must be deterministic; a judge is
-   the right tool for reply *quality* (§13) and the wrong one for whether a
-   helpline number is present.
-4. **Provider-level guardrails.** Not available on this endpoint, and a check
-   that runs in another process is harder to test than one that runs here.
+1. **全部流式，事后纠正。** 否决：那不是检查。当事人已经读了那条不安全的回复。
+2. **每一轮都缓冲。** 否决：为了保护一条路径，等于在所有地方都放弃流式——而流
+   式是一项真实的产品属性。
+3. **让模型来评判输出。** 在这条路径上否决。它给唯一必须确定性的检查增添了延
+   迟和第二个失效模式；评判模型是回答回复*质量*（§13）的正确工具，却是回答
+   "求助热线号码在不在" 的错误工具。
+4. **Provider 级别的护栏。** 该 endpoint 上不可用，而且在另一个进程里运行的检
+   查，比在这里运行的更难测试。
 
-## Consequences
+## 后果
 
-- Risk detection is pattern-based and therefore has both false negatives and
-  false positives. The idiomatic guard is explicit: "累死了", "笑死", "想死你了",
-  "烦死了" are not crisis signals, but a real signal inside an idiomatic sentence
-  ("今天累死了，而且我真的不想活了") **is**, and a test pins that case.
-- `assessment.reason` never contains the matched text — only a category label —
-  because the assessment is logged. The text itself stays in the conversation
-  and out of the logs (spec §14).
-- A replaced crisis turn is persisted as the reply the person actually received,
-  with the run recorded as `safety_replaced`. Storing what the model *would have*
-  said would make the audit trail a record of something that never happened.
-- A crisis turn emits one `text_delta` rather than many. Clients must not assume
-  streaming granularity; the event contract already permits this.
+- 风险检测基于模式匹配，因此既有漏报也有误报。口语化的豁免是显式的："累死了"、
+  "笑死"、"想死你了"、"烦死了" 不是危机信号，但口语化句子里夹着的真实信号
+  （"今天累死了，而且我真的不想活了"）**是**，并且有一个测试固定了这个用例。
+- `assessment.reason` 从不包含被匹配到的文本——只有一个类别标签——因为该评估
+  会进日志。文本本身留在对话里，不进日志（spec §14）。
+- 被替换的危机轮次，按当事人实际收到的回复持久化，该 run 记为
+  `safety_replaced`。存下模型*本来会*说的话，会让审计轨迹变成一份关于从未发生
+  过的事情的记录。
+- 一次危机轮次只发出一个 `text_delta`，而不是多个。客户端不得假定流式粒度；事
+  件契约本就允许这一点。

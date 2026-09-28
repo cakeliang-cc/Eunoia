@@ -1,208 +1,179 @@
-# ADR 012 — Relationship state is derived, and narrative is a block rather than a retrieval result
+# ADR 012 — 关系状态是推导出来的，叙事是一个区块而不是一条检索结果
 
-Extends [ADR 003](003-memory-model.md) (the four layers) and
-[ADR 007](007-retrieval-gates.md) (why retrieval is gated). Closes the §43
-dimensions Phase 8 was written for.
+延伸 [ADR 003](003-memory-model.md)（四层）与 [ADR 007](007-retrieval-gates.md)
+（检索为什么要有闸门）。收束了 Phase 8 为之而写的那些 §43 维度。
 
-**This ADR records a decision and its reversal.** The narrative block was
-deferred on one observation, then built when four more contradicted it. Both
-halves are kept, because the interesting part is not the answer but how thin the
-evidence for the first one was.
+**本 ADR 同时记录了一项决定和它的反转。** 叙事区块先是因为一个观察而被推迟，随
+后又因为另外四个观察与之相矛盾而被建了出来。两半都被保留，因为有意思的部分不
+是答案，而是第一个观察所依据的证据有多么单薄。
 
-## Context
+## 背景
 
-The spec lists *Relationship State* as a component of context (§25) and
-*Relationship Continuity* and *Narrative Continuity* as evaluation dimensions
-(§43), and does not say what either is. `docs/REFACTORING_PLAN.md` proposed the
-smallest useful version of each.
+spec 把 *Relationship State* 列为上下文的一个组件（§25），把
+*Relationship Continuity* 与 *Narrative Continuity* 列为评测维度（§43），却没
+有说明这两个东西是什么。`docs/REFACTORING_PLAN.md` 为它们各自提出了最小可用的
+版本。
 
-Two measurements were taken before anything was built, on the recorded rule that
-evaluation cases come first — a change no case can see is a change nothing
-verifies (§20).
+在任何东西被造出来之前先做了两次测量，依据的是那条被记录下来的规则：评测用例
+先行——没有任何用例能看见的改动，就是没有任何东西在验证的改动（§20）。
 
-**`relationship-01` — "我们之前聊过吧？你还记得我说过什么吗？" — scored 0.80
-before the change, and the reply is the reason this ADR exists:**
+**`relationship-01` —— "我们之前聊过吧？你还记得我说过什么吗？" —— 改动前得分
+0.80，而这条回复正是本 ADR 存在的原因：**
 
 > 说实话，我这边没有留下之前的记录——不是说你没说过，而是我这次打开时没检索到
 > 存下来的东西。
 
-That is a status report on a database query. The honest answer is "this is our
-first conversation". The companion could not give it, because it had no way to
-tell a first conversation from a two-hundredth — it had retrieval and nothing
-else, so a question about the relationship had to be interpreted as a retrieval
-problem, because retrieval was the only thing it had that could be wrong.
+那是一份关于数据库查询的状态报告。诚实的答案是 "这是我们第一次对话"。陪伴者给
+不出这句话，因为它没有途径分辨第一次对话和第二百次——它只有检索，别无其他，所
+以一个关于关系的问题必须被解释成一个检索问题，因为检索是它唯一拥有的、可能出
+错的东西。
 
-**`narrative-01` — "最近老是梦见小时候住的那个院子" against a seeded `narrative`
-memory about 要不要回老家 — scored 0.50, and this is the measurement that went
-the other way at first:**
+**`narrative-01` —— "最近老是梦见小时候住的那个院子"，对照一条关于要不要回老家
+的预置 `narrative` 记忆 —— 得分 0.50，而这是那个起初指向相反方向的测量：**
 
 > 这个院子，和你想回的那个老家，是同一个地方吗？
 
-The reply *did* connect a lexically distant message to the running theme, through
-`search_memory`. The 0.50 was a defect in the check's pattern list, not in the
-reply — the list looked for `回老家` and the reply said `想回的那个老家`, which is
-what happens when the patterns are written from imagination instead of from
-observed output.
+这条回复*确实*把一条词法上相距很远的消息与那条一直在延续的主题联系了起来，通
+过 `search_memory`。0.50 是检查的模式列表的缺陷，不是回复的缺陷——列表找的是
+`回老家`，而回复说的是 `想回的那个老家`，当模式是凭想象写出来而不是从观察到的
+输出里写出来时，就会发生这种事。
 
-That single reply is what the first version of this ADR deferred the narrative
-block on. **It did not replicate**, and the section below is the record of that.
+本 ADR 的第一版就是因为这单独一条回复而推迟了叙事区块。**它没有被复现**，下面
+那一节就是这件事的记录。
 
-## Decision
+## 决定
 
-### Relationship state: derived, rendered every turn
+### 关系状态：推导得出，每轮渲染
 
-**`src/memory/relationship.ts` derives it; nothing stores it.** Everything needed
-is already in the schema — when the first conversation started, how many
-conversations and messages — and the derivation is one aggregate query
-(`historyStats`), which is faster to compute than to keep in sync.
+**`src/memory/relationship.ts` 推导它；没有任何东西存储它。** 需要的一切都已经
+在 schema 里——第一次对话是什么时候开始的、有多少次对话和多少条消息——而推导
+是一次聚合查询（`historyStats`），计算它比让它保持同步更快。
 
-A `relationship` table was the obvious alternative and was rejected on three
-counts: it would need a migration (§1); it would disagree with the conversations
-it summarises the moment one was deleted; and it would be a **cache of an
-aggregate**, which is the definition of a thing that goes stale in exchange for
-nothing.
+一张 `relationship` 表是显而易见的备选，被以三条理由否决：它需要一次 migration
+（§1）；只要有一条对话被删除，它就会与它所概括的那些对话不一致；而且它会是一
+个**聚合结果的缓存**，那正是一种以变旧为代价、却什么也没换来的东西的定义。
 
-**It is rendered on every turn, not gated by relevance.** This is the one place
-where the design is deliberately asymmetric with retrieved memory, and the
-asymmetry is the point: *"is knowing you for three months relevant to this
-turn?"* answers itself. Worse, a relevance-gated relationship block would be
-absent on exactly the turn it was needed — the turn where someone asks whether
-you remember them mentions no topic at all, so there is nothing to match on.
+**它每一轮都渲染，不受相关性把关。** 这是设计中唯一一处刻意与检索记忆不对称的
+地方，而不对称正是要点：*"认识你三个月，与这一轮相关吗？"* 这个问题自己回答了
+它自己。更糟的是，一个受相关性把关的关系区块，恰恰会在它被需要的那一轮缺席
+——有人问你是否记得他的那一轮，根本没有提到任何话题，所以没有任何东西可供匹
+配。
 
-**No stage taxonomy.** There is no "new / familiar / close". The bands would be
-invented numbers, and a companion that behaves differently on day 13 than on day
-14 is worse than one that reads the facts. The only derived judgement is the
-boolean the failure turned on — whether there has *been* a relationship, which is
-a question with an answer, unlike "are we close". The one threshold
-(`FIRST_MEETING_MESSAGES = 6`) exists because a first conversation is not over
-when the first message is: at message two the companion must not claim to know
-someone, and by message six it must stop disclaiming a relationship it has begun
-to have.
+**没有阶段分类。** 没有 "new / familiar / close"。这些分段会是编造出来的数字，
+而一个在第 13 天和第 14 天行为不同的陪伴者，比一个只读事实的陪伴者更糟。唯一被
+推导出的判断，就是那次失效所依赖的布尔值——是否*曾经*有过一段关系，这是一个
+有答案的问题，不像 "我们亲近吗"。唯一那个阈值（`FIRST_MEETING_MESSAGES = 6`）
+之所以存在，是因为第一次对话并不会在第一条消息时就结束：在第二条消息时，陪伴
+者不得声称认识某人；而到第六条消息，它必须停止否认一段它已经开始拥有的关系。
 
-**Two rules about what the model may do with it**, both encoded in the rendered
-block and in the prompt document:
+**两条关于模型可以拿它做什么的规则**，都编码在渲染出的区块里，也编码在 prompt
+文档里：
 
-| Rule | Why |
+| 规则 | 原因 |
 |---|---|
-| It is never announced | "我们已经认识 34 天了" is a strange thing to say to a person. It is a fact about the companion's situation, not a contribution to the conversation — the same rule the memory block carries. |
-| A first meeting is stated, not performed | The block says what is true and lets the model find its own words. A script here would make every first conversation identical, which is its own failure. |
+| 它从不被宣告 | "我们已经认识 34 天了" 是一句对人说很奇怪的话。这是关于陪伴者自身处境的一个事实，不是对对话的贡献——与记忆区块携带的是同一条规则。 |
+| 初次见面是被陈述的，不是被表演的 | 区块说出真实的情况，让模型自己找词。在这里放一段脚本，会让每一次初次对话都一模一样，那本身也是一种失效。 |
 
-### The narrative block: deferred, then built — and why it was reversed
+### 叙事区块：先推迟，后建出——以及为什么被反转
 
-**Deferred in the first version of this ADR.** The reasoning was that
-`narrative-01` had just shown the model reaching the running theme on its own
-through `search_memory`. One observation of the tool route working, against a
-permanent per-turn cost, is not a trade worth making — and a block no case could
-see would violate the rule this phase is otherwise built on.
+**在本 ADR 的第一版中被推迟。** 理由是 `narrative-01` 刚刚显示了模型能自己通过
+`search_memory` 到达那条延续的主题。工具路径奏效的一次观察，对上一项永久性的
+每轮成本，不是一笔值得做的交换——而且一个没有任何用例能看见的区块，会违反这
+一阶段其余部分所依据的那条规则。
 
-**Reversed by four observations.** `narrative-01` was run four more times at the
-next prompt. `search_memory` was not called once, and every reply treated the
-dream as a thing to explore in the present tense. Three of the four were scored
-1.00 or 0.75 by a check defect rather than by the reply — see below — but the
-replies are the evidence, not the scores:
+**被四个观察反转。** 在下一个 prompt 下，`narrative-01` 又跑了四次。
+`search_memory` 一次都没有被调用，每一条回复都把那个梦当作一件要用现在时去探
+索的事。四次里有三次得到 1.00 或 0.75，是检查缺陷给的，而不是回复挣的——见下
+文——但证据是那些回复，不是那些分数：
 
-| # | prompt | connected the theme? | tools |
+| # | prompt | 联系上主题了吗？ | tools |
 |---|---|---|---|
-| 1 | `1e0d7fcd97a2` | yes — *"和你想回的那个老家，是同一个地方吗？"* | `search_memory` |
-| 2 | `372297600bf1` | no | none |
-| 3 | `372297600bf1` | no | none |
-| 4 | `372297600bf1` | no | none |
-| 5 | `372297600bf1` | no | none |
+| 1 | `1e0d7fcd97a2` | 是——*"和你想回的那个老家，是同一个地方吗？"* | `search_memory` |
+| 2 | `372297600bf1` | 否 | 无 |
+| 3 | `372297600bf1` | 否 | 无 |
+| 4 | `372297600bf1` | 否 | 无 |
+| 5 | `372297600bf1` | 否 | 无 |
 
-**Then the mechanism, measured offline and deterministically.** The reason is not
-that the model is unreliable; it is that the memory never arrives:
+**然后是机制，在离线且确定性的条件下测得。** 原因不是模型不可靠；原因是那条记
+忆根本没到达：
 
 ```
 candidates 1 · selected 0 · dropped {below_min_similarity: 1}
 ```
 
-The theme ("纠结要不要离开现在的城市、回老家") and the message ("最近老是梦见
-小时候住的那个院子") share no terms, so `selectMemories` drops the memory at
-`minSimilarity = 0.06` before the model sees anything. This is the gate working
-as designed (ADR 007) — which is the point. **Narrative content is the one kind
-that cannot be delivered behind a similarity gate**, because a theme is by
-definition phrased differently every time it comes up. The four replies are what
-a companion looks like when its only route to someone's ongoing story is a tool
-call that may not happen.
+主题（"纠结要不要离开现在的城市、回老家"）和那条消息（"最近老是梦见小时候住的
+那个院子"）没有任何共同的词，所以 `selectMemories` 在模型看到任何东西之前，就
+以 `minSimilarity = 0.06` 把这条记忆丢掉了。这是闸门按设计工作（ADR 007）——
+而这正是要点。**叙事内容是唯一一种无法在相似度闸门之后送达的东西**，因为一个
+主题按定义每次出现时措辞都不同。那四条回复，就是一个陪伴者在它通往某人持续故
+事的唯一路径是一次可能不会发生的工具调用时，看起来的样子。
 
-That is a case the plan predicted and the measurement confirmed, so the block was
-built: `src/memory/narrative.ts`.
+这是一个计划预测过、测量确认了的用例，于是区块被建了出来：
+`src/memory/narrative.ts`。
 
-**Design, and what is deliberately not in it:**
+**设计，以及刻意不在其中的东西：**
 
-| Decision | Why |
+| 决定 | 原因 |
 |---|---|
-| Selected by importance and recency, with **no query term** | There is no similarity to gate on — that is the whole reason the block exists. Ranking on the two terms that remain is the only honest option, and it means a theme surfaces because it matters, not because this turn happened to mention it. |
-| Budget of **3 themes / 400 characters** | Tighter than `AUTO_INJECT_BUDGET`'s four items and 900 characters, because this block is unconditional: retrieved memory costs nothing on a turn with no match, while these lines are sent on every one. |
-| `active` only, never `unconfirmed` | The block is headed 这是 ta 正在经历的事. An unconfirmed narrative is the model's own guess about someone's life, and a guess cannot be stated in that voice — the same reason the source labels exist. |
-| Removed from the retrieval candidates | A narrative that *does* pass the gate would otherwise be rendered twice, once as a theme and once as a retrieved fragment. Two voices saying one thing read as two things. |
-| Switched off by `retrieve: false`, unlike the relationship block | That flag is the person's memory switch. A companion that stopped citing facts but kept narrating someone's life back to them would have ignored the request in the way that matters most. |
+| 按重要度和新鲜度选取，**不带任何查询词** | 没有相似度可供把关——那正是这个区块存在的原因。在剩下的两个项上排序是唯一诚实的选项，而这意味着一个主题浮出来是因为它重要，而不是因为这一轮恰好提到了它。 |
+| 预算为 **3 个主题 / 400 字符** | 比 `AUTO_INJECT_BUDGET` 的 4 条和 900 字符更紧，因为这个区块是无条件的：检索记忆在没有匹配的那一轮不花任何代价，而这些行每一轮都会发出。 |
+| 只要 `active`，从不要 `unconfirmed` | 这个区块的标题是 这是 ta 正在经历的事。一条未确认的叙事是模型对某人生活的猜测，而猜测不能用那个口吻陈述——与来源标签存在的理由相同。 |
+| 从检索候选中移除 | 一条*确实*通过闸门的叙事，否则会被渲染两次，一次作为主题，一次作为检索到的片段。两种声音说同一件事，读起来像两件事。 |
+| 会被 `retrieve: false` 关闭，与关系区块不同 | 那个开关是当事人的记忆开关。一个停止引用事实、却继续把某人的生活叙事回去的陪伴者，会以最要紧的那种方式无视这个请求。 |
 
-**A check defect was found and fixed in the course of this**, and it is worth
-recording because it is the second time the same mistake was made in one
-afternoon. Fixing `holds-the-thread` to stop missing `老家` introduced `回去`，
-which then matched *"梦里常回去"* — returning to a courtyard in a dream, not to
-the running theme — and scored a reply that never mentioned the theme at all as
-1.00. `反复` did the same thing a second time (*"反复梦见同一个地方"* is a generic
-statement about recurring dreams). The pattern list now names **subjects** — the
-place, the decision — and no word that a subject happens to share with something
-else in the sentence. The lesson is in the CHANGELOG as well: a pattern list
-written from imagination scores the reply that is in front of it, and a pattern
-list widened until the number looks right stops measuring anything.
+**在这个过程中发现并修复了一个检查缺陷**，它值得记录，因为这是同一个下午里第
+二次犯同一个错误。把 `holds-the-thread` 修到不再漏掉 `老家`，引入了 `回去`，而
+它接着匹配上了 *"梦里常回去"*——在梦里回到一个院子，而不是回到那条延续的主题
+——于是把一条根本没有提到主题的回复打成了 1.00。`反复` 又做了同样的事第二次
+（*"反复梦见同一个地方"* 是一句关于重复做梦的泛泛陈述）。模式列表现在命名的是
+**主语**——那个地方、那个决定——而不是任何恰好与句中其他东西共用的词。这条教
+训也写在 CHANGELOG 里：凭想象写出的模式列表，给的是摆在它面前的那条回复的分
+数；而一个被放宽到数字看起来对了的模式列表，就不再测量任何东西。
 
-### The three profile tools: deferred (spec §26)
+### 三个 profile 工具：推迟（spec §26）
 
-`getUserProfile`, `getRelationship`, `getNarrative` are **not implemented**. A
-tool is redundant when the same content is already in the prompt on every turn,
-and each added tool is a new way for the model to pick wrong — a non-zero cost
-even when it picks right. They become right when the content grows large enough
-that always-on stops being affordable, which is a measurement.
+`getUserProfile`、`getRelationship`、`getNarrative` **没有实现**。当同样的内容
+已经每一轮都在 prompt 里时，工具是多余的；而每增加一个工具，都是模型选错的一
+种新方式——即使它选对了，代价也不为零。当内容增长到常驻不再负担得起时，它们
+才会变得正确，而那是一个测量。
 
-`getUserProfile` has a second problem: it duplicates what the preference store
-and semantic memories already provide. It needs an argument before it needs code.
+`getUserProfile` 还有第二个问题：它与偏好存储和语义记忆已经提供的东西重复。它
+需要的是一个论证，而不是代码。
 
-## Consequences
+## 后果
 
-- **The failure is fixed and pinned.** `relationship-01`'s reply goes from a
-  database report to a statement about the two of them, and the prompt document
-  now carries the rule (`# 你们之间已经发生的事`) that makes the honest answer
-  the available one.
-- **The narrative block is pinned to the gate it exists because of.** The test
-  asserts both halves at once: that `selectMemories` drops the theme at
-  `minSimilarity`, and that `selectNarratives` carries it. If the first half ever
-  stops being true — an embedding provider would change the arithmetic — the test
-  fails and says the block has become redundant, which is a thing worth being told
-  rather than discovering by accident.
-- **The evaluation harness got three repairs along the way**, all of which had
-  been making measurements lie: a replay absorbed a live model call while still
-  reporting `mode: 'recorded'` (now named on the run as `liveDuringReplay`); a
-  filtered run wrote a partial recording that `--replay` would pick up as the
-  baseline (now refused); and `--replay` picked its file by **filename**, which
-  sorts by prompt hash rather than by time, so it replayed a two-generation-old
-  recording while reading as a normal replay (now sorted by the timestamp). The
-  third was found only because the first had already been fixed — the gap-filling
-  count came back as six instead of zero.
-- **Relationship state is not authentication and holds nothing.** It is two
-  counts and two dates, computed from rows the person can already see in their
-  own history. Deleting a conversation changes it, which is correct — the
-  alternative is a stored number that disagrees.
-- **A store that cannot answer loses the block, not the turn.** `relationshipFor`
-  swallows any error and returns `''`. Same reasoning as the fire-and-forget
-  access accounting beside it: a count query is not worth failing a message over.
-- **`narrative-01` stays in the suite as a proxy, and a proxy is not a
-  measurement.** Its `holds-the-thread` check matches the *shape* of naming the
-  running theme, and it is marked `expectation` rather than `violation` so a miss
-  lowers the score without failing the case. It has now been rewritten twice — a
-  list that missed `老家`, then one that matched `回去` in *"梦里常回去"* and `反复`
-  in *"反复梦见同一个地方"* — and both times the corrected version scored a reply
-  *lower* than the broken one, which is the direction a check should move when it
-  is fixed. A single case for a whole §43 dimension remains thin, and this one is
-  the thinnest in the suite.
-- **The block was built on five observations, not on a proof.** Four failures and
-  one success is enough to reverse a deferral — deferring costs nothing, and the
-  cost of being wrong about a *missing* feature is paid by the person — but it is
-  not enough to claim the block works. The next full run is the evidence for that,
-  and the honest statement until then is that the mechanism is now present and the
-  reply quality is unmeasured.
-- **The deferred tools leave a visible gap**, recorded in
-  `docs/REFACTORING_PLAN.md` Phase 9 rather than silently dropped.
+- **失效已被修复并钉住。** `relationship-01` 的回复从一份数据库报告，变成一句
+  关于他们两人的陈述，而 prompt 文档现在带着那条规则
+  （`# 你们之间已经发生的事`），正是它让那个诚实的答案成为可用的答案。
+- **叙事区块被钉在它因之而存在的那个闸门上。** 测试一次断言两半：
+  `selectMemories` 在 `minSimilarity` 处丢弃了这个主题，而 `selectNarratives`
+  带上了它。如果前半有一天不再成立——一个 embedding provider 会改变这套算法
+  ——测试会失败，并说明这个区块已经变得多余，这是一件值得被告诉、而不是靠偶然
+  才发现的事。
+- **评测 harness 沿路得到了三处修复**，它们此前一直在让测量说谎：一次 replay
+  吸收了一次 live 模型调用，却仍然报告 `mode: 'recorded'`（现在会在该次运行上
+  标为 `liveDuringReplay`）；一次带过滤的运行写下了部分录制，而 `--replay` 会
+  把它当作基线捡起来（现在会被拒绝）；还有 `--replay` 是按**文件名**挑文件
+  的，而文件名按 prompt 哈希排序而不是按时间排序，于是它重放了两代之前的录制，
+  读起来却像一次正常重放（现在按时间戳排序）。第三处之所以被发现，只是因为第
+  一处已经被修好了——补空计数返回的是六，而不是零。
+- **关系状态不是认证，也不持有任何东西。** 它是两个计数和两个日期，从当事人已
+  经能在自己的历史里看到的那些行算出来。删除一次对话会改变它，这是正确的——
+  另一个选择是一个会不一致的存储数字。
+- **一个答不上来的存储丢掉的是区块，不是那一轮。** `relationshipFor` 吞掉任何
+  错误并返回 `''`。与它旁边的 fire-and-forget 访问计数是同样的理由：一次计数
+  查询不值得让一条消息失败。
+- **`narrative-01` 作为代理留在套件里，而代理不是测量。** 它的
+  `holds-the-thread` 检查匹配的是点出那条延续主题的*形状*，它被标为
+  `expectation` 而不是 `violation`，所以一次漏掉会拉低分数，但不会让用例失
+  败。它现在已经被重写了两次——一个漏掉 `老家` 的列表，然后是一个在
+  *"梦里常回去"* 里匹配到 `回去`、在 *"反复梦见同一个地方"* 里匹配到 `反复`
+  的列表——而两次修正后的版本给一条回复打的分数都比坏版本*更低*，这正是检查在
+  被修好时应该移动的方向。整整一个 §43 维度只有单个用例仍然单薄，而这一个是套
+  件里最单薄的。
+- **这个区块是建立在五个观察之上的，不是建立在一个证明之上。** 四次失败和一次
+  成功足以反转一次推迟——推迟不花任何代价，而在一项*缺失的*功能上判断错误的
+  代价是由当事人来付的——但不足以声称这个区块有效。下一次完整运行才是这件事的
+  证据；在那之前，诚实的说法是机制现在已经在位，而回复质量尚未被测量。
+- **被推迟的工具留下一处可见的空缺**，记录在 `docs/REFACTORING_PLAN.md` Phase 9
+  里，而不是被悄悄丢掉。

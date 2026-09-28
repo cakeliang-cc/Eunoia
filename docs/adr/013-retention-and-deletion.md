@@ -1,155 +1,132 @@
-# ADR 013 — What is kept, for how long, and what is never stored
+# ADR 013 — 保留什么、保留多久，以及什么从不存储
 
-## Context
+## 背景
 
-Spec §44 is a list of seven words a long-lived companion's memory design has to
-answer for:
+Spec §44 是七个词，一个长期存在的陪伴者的记忆设计必须对它们有所交代：
 
 ```text
 purpose    scope    retention    deletion    privacy    sensitivity
 ```
 
-and two prohibitions — no unconditionally storing everything about a person, and
-no sending their private data to an external tool without a reason.
+以及两条禁令——不得无条件地存储关于一个人的一切，不得在没有理由的情况下把他们
+的私有数据发给外部工具。
 
-Six of the seven had an answer somewhere. `purpose` and `scope` are ADR 003 and
-the schema comments (episodic / semantic / narrative, and why each exists).
-`privacy` is ADR 009 plus the standing rule that logs carry category labels and
-fingerprints rather than content — `len=42`, never the forty-two characters.
-`sensitivity` is ADR 008: risk is detected before anything renders, and a crisis
-turn is checked mechanically rather than trusted to the model.
+七个词里有六个在某个地方有答案。`purpose` 和 `scope` 是 ADR 003 和 schema 注释
+（episodic / semantic / narrative，以及各自为什么存在）。`privacy` 是 ADR 009 加
+上那条常驻规则：日志携带的是类别标签和指纹而不是内容——`len=42`，绝不是那
+四十二个字符。`sensitivity` 是 ADR 008：风险在任何东西渲染之前就被检出，危机轮
+次是被机械检查的，而不是被信任给模型的。
 
-**`retention` and `deletion` had nothing.** The concrete form of that gap was
-already written down in `CHANGELOG.md` as a known issue:
+**`retention` 和 `deletion` 什么都没有。** 这个缺口的具象形式已经写在
+`CHANGELOG.md` 里，作为一条已知问题：
 
-> Evaluation runs accumulate throwaway users in a shared database. Each of the 24
-> cases gets its own user, conversation, messages and run rows, and nothing
-> deletes them.
+> 评测运行会在共享数据库里不断堆积一次性用户。24 个用例各自有自己的 user、
+> conversation、messages 和 run 行，而没有任何东西删除它们。
 
-That was not a hypothetical. When this ADR was written the development database
-held **589 users, 355 conversations and 512 messages**, essentially all of it
-left by evaluation runs, and the sweep found nothing to remove because nothing
-had ever marked which users were the throwaway ones. A person could delete one
-memory at a time from the panel and had no way at all to remove themselves.
+这不是假设。本 ADR 写成时，开发数据库里有 **589 users、355 conversations 和
+512 messages**，几乎全部是评测运行留下来的，而清扫什么也没找到，因为从来没有
+任何东西标记过哪些 user 是一次性的。一个人可以从面板里一次删掉一条记忆，却完
+全没有办法删除自己。
 
-## Decision
+## 决定
 
-**Four things, and the boundaries between them are the decision.**
+**四件事，而它们之间的边界就是这项决定本身。**
 
-### 1. `external_id` is the mark, and it is the only thing a sweep trusts
+### 1. `external_id` 是那个标记，也是清扫唯一信任的东西
 
-An evaluation run writes `eval:<runId>:<caseId>` into `users.external_id`. That
-column has been in the schema since the first migration, declared for exactly
-this — "stable identity from an external system" — and had never been written by
-any code.
+一次评测运行把 `eval:<runId>:<caseId>` 写进 `users.external_id`。这一列从第一次
+migration 起就在 schema 里，声明出来正是为了这件事——"来自外部系统的稳定身份"
+——却从来没有被任何代码写过。
 
-An earlier attempt had made evaluation users greppable by putting the case id
-inside `users.id`, which failed against Postgres on the very first insert because
-that column is a `uuid`. The intent was right and it was aimed at the wrong
-column; `external_id` is `text`, and it was already there.
+早先的一次尝试为了让评测用户可 grep，把 case id 塞进 `users.id`，结果在
+Postgres 上的第一条 insert 就失败了，因为那一列是 `uuid`。意图是对的，只是瞄错
+了列；`external_id` 是 `text`，而且它本来就在那里。
 
-**A real person has no `external_id` at all.** That is what makes the sweep safe
-to run without a confirmation prompt: the set it can reach is exactly the set
-that was never a person. It is also the property that makes the 587 unmarked
-rows unreachable — see Consequences.
+**一个真实的人完全没有 `external_id`。** 正是这一点让清扫可以不加确认提示就安
+全运行：它能够到的集合，恰好是从来不是人的那个集合。也是同一个属性让那 587 条
+未被标记的记录无法被触及——见「后果」。
 
-### 2. A run cleans up after itself; a sweep is the backstop
+### 2. 一次运行自己收拾干净；清扫是兜底
 
-Two mechanisms, deliberately different:
+两套机制，刻意不同：
 
-- **The evaluation run deletes the users it created**, by id, the moment it has
-  saved its results. It holds the exact ids, so it needs no prefix, no window and
-  nothing it has to believe about the rest of the table.
-- **`npm run cleanup` sweeps by prefix**, for the runs that crashed before they
-  got there. It leaves users younger than `RETENTION_WINDOW_HOURS` (24) alone.
+- **评测运行删除它自己创建的 user**，按 id 删，在它保存完结果的那一刻。它握着
+  确切的 id，所以它不需要前缀、不需要时间窗，也不需要它对表里其余部分做任何相
+  信。
+- **`npm run cleanup` 按前缀清扫**，针对那些还没走到那一步就崩掉的运行。它不
+  碰比 `RETENTION_WINDOW_HOURS`（24）更年轻的 user。
 
-The window is a **race guard, not a data policy**. Evaluation data has no reason
-to outlive the run that made it; the margin exists only so a sweep cannot pull
-users out from under a run that is still using them. It is not hypothetical —
-two evaluations were in flight simultaneously while this was being written.
+这个时间窗是**竞态防护，不是数据策略**。评测数据没有理由比制造它的那次运行活得
+更久；这个余量之所以存在，只是为了让清扫无法把 user 从一次仍在使用它们的运行脚
+下抽走。这不是假设——在写这份文档时，有两个评测正在同时进行。
 
-Deleting by id rather than by prefix in the run is the same reasoning in the
-other direction: the run knows exactly what it made, so matching loosely would
-buy nothing and risk a concurrent run's users.
+运行里按 id 删除而不是按前缀删除，是同一个推理的反方向：运行确切知道自己造了
+什么，所以宽松匹配什么也买不到，还会危及一次并发运行的 user。
 
-### 3. Deleting a person deletes the person, not the measurement
+### 3. 删除一个人删除的是这个人，不是那次测量
 
-`DELETE /api/me` removes the caller outright. Every table holding their content
-references `users(id) ON DELETE CASCADE`, so it is one statement and the database
-does the work.
+`DELETE /api/me` 直接把调用者删掉。每一张持有其内容的表都引用
+`users(id) ON DELETE CASCADE`，所以它是一条语句，活由数据库干。
 
-**`agent_runs` is the deliberate exception: `ON DELETE SET NULL`.** A run is
-observability — `len=N sha256=…`, never content (spec §14) — and it is the only
-record of what a prompt version did. Erasing a person should not erase the
-evidence about the prompt. `evaluation_results` never referenced a user at all.
+**`agent_runs` 是刻意的例外：`ON DELETE SET NULL`。** 一次 run 是可观测性
+——`len=N sha256=…`，绝不是内容（spec §14）——而且它是关于某个 prompt 版本做了
+什么的唯一记录。抹掉一个人不应该抹掉关于 prompt 的证据。`evaluation_results`
+根本没有引用过 user。
 
-This is the opposite choice from `deleteMemory`, which is soft on purpose: a
-deleted memory keeps a `memory_events` trail pointing at it, because "why did it
-think it knew that?" is a question worth answering about a *belief*. There is no
-equivalent question about a person who has asked to be left alone.
+这与 `deleteMemory` 的选择相反，后者刻意是软的：一条被删除的记忆保留一条指向它
+的 `memory_events` 轨迹，因为 "它当初为什么以为自己知道那件事？" 是一个关于
+*信念*的、值得回答的问题。对于一个已经要求你别打扰他的人来说，不存在对等的问
+题。
 
-### 4. The cookie is cleared, not just the row
+### 4. cookie 被清掉，而不只是删掉那一行
 
-`DELETE /api/me` answers with `Max-Age=0` on the same attributes. The route also
-deliberately does **not** call `identify()`, which mints an identity on first
-contact: minting here would create a person in order to delete them, and hand
-back a cookie for a row that no longer exists.
+`DELETE /api/me` 用同一组属性、以 `Max-Age=0` 作答。这条路由还刻意**不**调用
+`identify()`，后者会在第一次接触时生成一个身份：在这里生成，等于为了删除一个人
+而先创建他，还会发回一个指向已经不存在的行的 cookie。
 
-This matters because `resolveIdentity` checks the *shape* of a handle, not that
-the row exists. A live cookie pointing at a deleted user would be accepted, and
-the next message would be written under an id nothing owns.
+这一点要紧，因为 `resolveIdentity` 检查的是句柄的*形状*，而不是那一行是否存
+在。一个指向已删除 user 的活 cookie 会被接受，下一条消息就会被写在一个没有任何
+东西拥有的 id 下。
 
-## Alternatives
+## 备选方案
 
-1. **A periodic scheduler** (cron, a background timer). Rejected: there is no
-   scheduler in this project, and adding one for a development database is the
-   unnecessary framework spec §0 warns against. The reference implementation
-   (`reference/hello-agents`, ch8) has the same shape — a manual `forget()` with
-   importance / time / capacity strategies and **no automatic trigger anywhere**,
-   which is worth knowing: the practice is to expose the operation, not to run
-   it on a timer nobody watches.
-2. **A `deleted_at` column and soft deletes.** Rejected for people, and it is
-   what §34 makes expensive — it is a schema change, and it would mean the row
-   and everything derived from it stays in the database, which is the opposite of
-   what was asked for. Soft delete is right for memories (§3 above) and wrong
-   for this.
-3. **Marking evaluation users by inserting the case id into `users.id`.** Tried,
-   failed, and the failure is instructive: `users.id` is `uuid` in Postgres and
-   the in-memory store accepts any string, so no offline test could have caught
-   it. The same blind spot as the missing `installProvider()` call.
-4. **A sweep with no age window.** Rejected — it would race a concurrent run.
-   The window is the minimum that makes the operation safe to run at any moment.
-5. **Deleting `agent_runs` with the person.** Rejected. It would make the
-   project's own history of prompt versions unreadable, and a fingerprint is not
-   the person.
-6. **Erasure by policy (a TTL on all data).** Rejected. A companion that forgets
-   a person because a timer expired is not a companion; §44 asks what is kept and
-   why, and the answer for a real user's memories is "until they say otherwise",
-   not "thirty days".
+1. **一个周期性的调度器**（cron、一个后台定时器）。否决：这个项目里没有调度
+   器，为了一个开发数据库加一个，正是 spec §0 警告的那种多余框架。参考实现
+   （`reference/hello-agents`，ch8）是同样的形态——一个手动的 `forget()`，带重
+   要度 / 时间 / 容量策略，**任何地方都没有自动触发**，这一点值得知道：实践中
+   的做法是把操作暴露出来，而不是让它在一个没人看的定时器上运行。
+2. **一个 `deleted_at` 列与软删除。** 对于人被否决，而且这正是 §34 使之昂贵的
+   东西——它是一次 schema 改动，而且意味着那一行以及由它派生的一切都留在数据库
+   里，这与被要求的东西恰好相反。软删除对记忆是对的（上文 §3），对这件事是错
+   的。
+3. **把 case id 插进 `users.id` 来标记评测用户。** 试过，失败，而失败是有教益
+   的：`users.id` 在 Postgres 里是 `uuid`，而内存存储接受任何字符串，所以没有
+   任何离线测试能抓到它。与缺失的 `installProvider()` 调用是同一个盲点。
+4. **没有时间窗的清扫。** 否决——它会与一次并发的运行赛跑。时间窗是让这个操作
+   在任何时刻运行都安全的最小量。
+5. **随人一起删除 `agent_runs`。** 否决。它会让这个项目自己的 prompt 版本历史
+   变得不可读，而指纹不是那个人。
+6. **按策略擦除（对所有数据设 TTL）。** 否决。一个因为定时器到点就忘掉一个人的
+   陪伴者不是陪伴者；§44 问的是保留了什么、为什么，而对一个真实用户的记忆，答
+   案是 "直到他们另有说法"，不是 "三十天"。
 
-## Consequences
+## 后果
 
-- **The backlog is not reachable, and was left alone.** 587 users predate the
-  marking and are now indistinguishable from real accounts — a user with no
-  preferences and one conversation is exactly what an evaluation user looks like,
-  and also exactly what a person who never opened the panel looks like. An
-  unmarked user is not swept **by design**, so the sweep cannot help. The honest
-  options for a development database in that state are to drop it or to write SQL
-  by hand, and both are the right amount of friction for deleting hundreds of
-  rows at once.
-- **`external_id` now has two planned occupants**, `eval:` and the mini-program
-  openid. The namespace is by convention rather than by a constraint. An openid
-  will not begin with `eval:`, and the prefix match is literal (`starts_with`,
-  not `LIKE`) so a stray `%` cannot widen a delete.
-- **Retention covers evaluation data only.** A real user's memories are kept
-  until they delete them, one at a time or all at once. If the product ever needs
-  an inactivity policy, that is a new decision with a real cost, not an extension
-  of this one.
-- **Still not authentication** (ADR 009, unchanged). Anyone with the cookie is
-  the user, which now also means anyone with the cookie can delete the account.
-  `HttpOnly` and `SameSite=Lax` are set; `Secure` still waits for TLS. This ADR
-  makes the *data* deletable, not the *identity* trustworthy.
-- **The Postgres suite cleans up after itself now.** Its `beforeEach` used to
-  clear the shared `createdUsers` list, so only the last test's users were ever
-  removed and every earlier test leaked a user, a conversation and a memory —
-  the same accumulation this ADR exists to stop, in the file next door.
+- **那批积压够不着，被放着不管了。** 587 个 user 早于这次标记，现在已经与真实
+  账号无从区分——一个没有偏好、只有一次对话的 user，正是一个评测用户的样子，
+  也正是一个从没打开过面板的人的样子。未标记的 user **按设计**不会被清扫，所
+  以清扫帮不上忙。一个处于这种状态的开发数据库，诚实的选项只有把它丢掉或者手
+  写 SQL，而对于一次删除几百行来说，这两者的摩擦力都刚好。
+- **`external_id` 现在有两个计划中的占用者**，`eval:` 和小程序的 openid。命名
+  空间靠约定，而不是靠约束。openid 不会以 `eval:` 开头，而前缀匹配是字面的
+  （`starts_with`，不是 `LIKE`），所以一个乱入的 `%` 无法扩大一次删除的范围。
+- **保留策略只覆盖评测数据。** 一个真实用户的记忆会一直被保留，直到他们删除
+  ——一次一条，或者一次全部。如果产品将来需要一套不活跃策略，那是一个有真实代
+  价的新决定，而不是这项决定的延伸。
+- **仍然不是认证**（ADR 009，未变）。任何持有 cookie 的人就是那个用户，这现在
+  也意味着任何持有 cookie 的人都能删除账号。`HttpOnly` 和 `SameSite=Lax` 已经
+  设置；`Secure` 仍在等 TLS。本 ADR 让*数据*可被删除，而不是让*身份*可信。
+- **Postgres 测试套件现在自己收拾干净了。** 它的 `beforeEach` 过去会清空共享的
+  `createdUsers` 列表，于是只有最后一个测试的 user 被删掉，而之前每一个测试都
+  漏掉一个 user、一次 conversation 和一条 memory——正是本 ADR 存在所要阻止的那
+  种堆积，就发生在隔壁文件里。

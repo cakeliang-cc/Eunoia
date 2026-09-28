@@ -1,91 +1,79 @@
-# ADR 007 — Two retrieval gates, and two widths
+# ADR 007 — 两道检索闸门，以及两种宽度
 
-Extends [ADR 004](004-context-retrieval.md). ADR 004 fixed the score; this
-records what was learned when it was implemented against real memories.
+延伸 [ADR 004](004-context-retrieval.md)。ADR 004 确定了打分公式；本篇记录的是把
+它放到真实记忆上实现时所学到的东西。
 
-## Context
+## 背景
 
-ADR 004 defined `score = w_s·similarity + w_i·importance + w_r·recency +
-w_t·typePrior` and a single floor, `minScore`. Implementation exposed two
-problems that the formula alone does not solve.
+ADR 004 定义了 `score = w_s·similarity + w_i·importance + w_r·recency +
+w_t·typePrior` 以及单一的下限 `minScore`。实现过程暴露出两个单靠公式本身无法
+解决的问题。
 
-**1. A score floor cannot express relevance.** Importance and recency are
-independent of topical connection. A memory reading "用户讨厌香菜" from
-yesterday, marked important, scores well against the message "我明天要面试" —
-nothing in it overlaps, and it wins anyway. The floor was doing one job
-("is this good enough?") while two questions were being asked: *is this
-prominent?* and *is this about the same thing?*
+**1. 分数下限无法表达相关性。** 重要度和新鲜度与话题关联彼此独立。一条昨天的
+记忆 "用户讨厌香菜"，被标为重要，面对消息 "我明天要面试" 时得分不低——两者没有
+任何重叠，它却照样胜出。这个下限只在做一件事（"它够好吗？"），而实际被问的是
+两个问题：*它够突出吗？* 和 *它讲的是同一件事吗？*
 
-**2. The two callers of retrieval need opposite things.**
+**2. 检索的两个调用方需要相反的东西。**
 
-- **Automatic injection** runs before every turn with no human in the loop. A
-  bad match is not rejected downstream — it is silently pasted into the system
-  prompt, where it shapes the reply and is invisible afterwards. Precision
-  matters more than recall: the failure mode is "the companion brought up
-  something irrelevant and slightly unsettling", which is worse than silence.
-- **The `search_memory` tool** is called *because the model decided it needed to
-  know something*. It receives candidates it can read and discard. Recall
-  matters more than precision, and a gate here removes exactly the items that
-  would have helped.
+- **自动注入**在每一轮之前运行，没有人在环中。一次坏匹配不会在下游被拒绝——它
+  被悄悄贴进 system prompt，在那里塑造回复，事后无从看见。精确率比召回率更重
+  要：失效模式是 "陪伴者提起了一件无关且略令人不安的事"，这比沉默更糟。
+- **`search_memory` 工具**被调用，是因为*模型判断自己需要知道某件事*。它拿到的
+  是可以读、也可以丢弃的候选。召回率比精确率更重要，而在这里设闸门，恰好会移
+  除那些本可以帮上忙的条目。
 
-## Decision
+## 决定
 
-**Relevance is gated by `minSimilarity`, not `minScore`.** Both exist, with
-distinct jobs:
+**相关性由 `minSimilarity` 把关，而不是 `minScore`。** 两者都存在，各司其职：
 
-| Term | Question | Behaviour |
+| 项 | 问题 | 行为 |
 |---|---|---|
-| `minScore` | "Is this prominent enough to be worth a slot?" | Sanity floor, both paths |
-| `minSimilarity` | "Is this about the same thing?" | Relevance gate, automatic path only |
+| `minScore` | "它够突出、值得占一个位置吗？" | 兜底下限，两条路径都生效 |
+| `minSimilarity` | "它讲的是同一件事吗？" | 相关性闸门，仅自动路径 |
 
-`minSimilarity` is `null` on `DEFAULT_BUDGET` (the tool path) and `0.06` on
-`AUTO_INJECT_BUDGET`.
+`minSimilarity` 在 `DEFAULT_BUDGET`（工具路径）上是 `null`，在
+`AUTO_INJECT_BUDGET` 上是 `0.06`。
 
-**The two paths are deliberately different widths**, not one budget with a flag:
+**两条路径的宽度是刻意不同的**，而不是同一份预算加一个开关：
 
-| | Automatic injection | `search_memory` (default) |
+| | 自动注入 | `search_memory`（默认） |
 |---|---|---|
-| `maxItems` | 4 | 6 (or the caller's `limit`) |
+| `maxItems` | 4 | 6（或调用方给的 `limit`） |
 | `maxChars` | 900 | 1600 |
 | `maxPerType` | 2 | 4 |
 | `minScore` | 0.3 | 0.25 |
 | `minSimilarity` | 0.06 | `null` |
 
-**A status multiplier sits outside the sum**: `score × STATUS_FACTOR[status]`
-(1.0 active, 0.85 unconfirmed). This is an addition to ADR 004's formula and is
-recorded as such in `src/memory/retrieval.ts`. The four weighted terms decide
-*relevance*; the multiplier is a judgement about how much to trust the ranking
-at all, so it multiplies the result rather than competing with the terms.
+**一个 status 乘数放在求和之外**：`score × STATUS_FACTOR[status]`（1.0 active，
+0.85 unconfirmed）。这是对 ADR 004 公式的追加，并在 `src/memory/retrieval.ts`
+中照此注明。四个加权项决定的是*相关性*；而这个乘数是对 "这份排序整体上有多可
+信" 的判断，所以它乘在结果上，而不与那些项竞争。
 
-**Similarity is lexical for now**: CJK character bigrams scored with the
-**overlap coefficient**, not Jaccard. A short query matching one clause of a long
-memory is a real match, and Jaccard divides by the union, punishing exactly that
-case.
+**相似度目前是词法的**：CJK 字符二元组，用**重叠系数**打分，而不是 Jaccard。
+短查询命中一条长记忆里的一个分句，是一次真实的匹配，而 Jaccard 除以并集，惩罚
+的恰恰是这种情况。
 
-## Alternatives
+## 备选方案
 
-1. **One budget, one gate.** Rejected: it makes the automatic path either too
-   loose (irrelevant memories in every prompt) or the tool path too strict
-   (useless results). The two callers genuinely want different things.
-2. **Raise `minScore` instead of adding a gate.** Rejected: it would suppress
-   genuinely important memories that merely lack a topical hook, which is the
-   opposite of what the four-term score was built to value.
-3. **Embeddings now.** Still unavailable — no embeddings route on the endpoint
-   (ADR 004, re-probed and unchanged). The similarity function is injected, so
-   turning it on later replaces one function and changes nothing else.
-4. **Overlap gate on the tool path too, so both behave the same.** Rejected on
-   the evidence: lexical similarity is crude, and "睡不好" vs "失眠" share no
-   bigram at all. A gate there would hide the memory the person had just
-   described in different words — from the one caller that can tell.
+1. **一份预算，一道闸门。** 否决：这会让自动路径要么过松（每一轮 prompt 里都塞
+   进无关记忆），要么让工具路径过严（结果无用）。两个调用方要的东西确实不同。
+2. **提高 `minScore` 而不是新增一道闸门。** 否决：这会压制那些确实重要、只是缺
+   少一个话题钩子的记忆，这与四项打分被造出来所要珍视的东西恰好相反。
+3. **现在就上 embeddings。** 仍然不可用——该 endpoint 上没有 embeddings 路由
+   （ADR 004，重新探测过，没有变化）。相似度函数是注入的，所以以后打开它只需
+   替换一个函数，其余什么都不变。
+4. **工具路径上也加重叠闸门，让两边行为一致。** 依证据否决：词法相似度很粗糙，
+   "睡不好" 与 "失眠" 没有任何共同的二元组。在那里设闸门，会让当事人刚用另一
+   种说法描述过的记忆被藏起来——而且是藏给唯一那个能分辨的调用方。
 
-## Consequences
+## 后果
 
-- `search_memory` results carry a `note` saying these are candidates, because the
-  tool trusts the model to judge. The model is told it may ignore them.
-- A memory that is relevant, unimportant, and stale is still injected
-  automatically — correct, and pinned by test.
-- `tests/service/context.test.ts` and `tests/tools/memory-tools.test.ts` assert
-  the two paths behave *differently*, including a test that the tool has **no**
-  overlap gate. The asymmetry is the design, so it is the thing under test.
-- When embeddings arrive, `minSimilarity` values need re-tuning: cosine and
-  bigram overlap do not share a scale.
+- `search_memory` 的结果带一条 `note`，说明这些是候选，因为该工具信任模型自行
+  判断。模型被告知它可以忽略它们。
+- 一条相关、不重要且陈旧的记忆仍会被自动注入——这是正确的，并被测试固定。
+- `tests/service/context.test.ts` 与 `tests/tools/memory-tools.test.ts` 断言两条
+  路径的行为*不同*，其中一项测试断言该工具**没有**重叠闸门。这种不对称就是设
+  计本身，所以它也正是被测的东西。
+- 等 embeddings 到位时，`minSimilarity` 的取值需要重新调校：cosine 与 bigram
+  重叠不在同一个量纲上。

@@ -1,20 +1,20 @@
-# ADR 004 — Context retrieval: scored budget, embeddings deferred
+# ADR 004 — 上下文检索：带评分的预算，embedding 推迟
 
-## Context
+## 背景
 
-Spec §6 forbids retrieving all memories per turn and forbids "vector -> text" as
-the only mechanism. Spec §7 forbids writing memory every turn.
+spec §6 禁止每轮检索所有记忆，也禁止把 "vector -> text" 作为唯一的机制。
+spec §7 禁止每轮都写记忆。
 
-Reconnaissance found the only available model endpoint exposes **no embeddings
-route** (HTTP 404 on `/v1/embeddings`, `/embeddings`, `/v1/embed`). The spec's
-retrieval scoring includes a "semantic relevance" term, and §13 scores
-`memory_relevance` — so this is a real gap, not a detail.
+侦察发现唯一可用的模型端点**没有 embeddings 路由**（`/v1/embeddings`、
+`/embeddings`、`/v1/embed` 均返回 HTTP 404）。spec 的检索评分包含一个
+"semantic relevance" 项，而 §13 会为 `memory_relevance` 打分——因此这是一个
+真实的缺口，不是细节。
 
-## Decision
+## 决定
 
-**Two-part decision.**
+**由两部分构成的决定。**
 
-**1. Retrieval is a scored, budgeted selection, not a fetch-all.**
+**1. 检索是带评分、带预算的选择，不是全量抓取。**
 
 ```
 candidate set (SQL-filtered by user_id, type, expiry)
@@ -26,45 +26,41 @@ take top-K under an explicit context token budget
 render compactly (one line per memory, with date + type + confidence)
 ```
 
-Weights and K live in one config module, not scattered through the code.
+权重与 K 集中在一个 config 模块里，而不是散落在代码各处。
 
-**2. Embeddings and the `similarity` term are deferred, not dropped.**
+**2. embedding 与 `similarity` 项是被推迟，而不是被去掉。**
 
-Phase 2 ships scoring with `w_s = 0`, using importance + recency + type prior +
-lexical overlap. The `embedding` column and the `vector` extension are created in
-the **first migration** so that enabling similarity later is a backfill, not a
-migration. The scoring function takes similarity as an injected input, so turning
-it on is a config change plus a backfill job.
+Phase 2 交付的评分中 `w_s = 0`，使用 importance + recency + type prior + 词法
+重叠。`embedding` 列与 `vector` 扩展在**第一个 migration** 中就创建，这样以后
+启用 similarity 是回填，而不是 migration。评分函数把 similarity 作为注入的
+输入，因此开启它是一次配置变更加一个回填任务。
 
-## Alternatives
+## 备选方案
 
-1. **Local ONNX embeddings now** (`all-MiniLM-L6-v2`, 384-dim, offline).
-   Deferred, not rejected — the user chose scoring-first. It remains the intended
-   follow-up: it needs no API key and no network at inference time.
-2. **External embedding API.** Rejected for now: no such credential exists in the
-   environment, and it adds a network dependency on the hot path of every turn.
-3. **Lexical-only retrieval permanently.** Rejected — it will not satisfy §13's
-   `memory_relevance` dimension for paraphrased memories ("I hate being rushed"
-   vs. "don't pressure me"), which is exactly what similarity is for.
-4. **Fetch all memories and let the model filter.** Rejected — explicitly
-   forbidden by §6 and anti-pattern 2.
+1. **现在就上本地 ONNX embedding**（`all-MiniLM-L6-v2`，384 维，离线）。推迟，
+   而非否决——用户选择了评分优先。它仍然是既定的后续工作：推理时不需要 API
+   key，也不需要网络。
+2. **外部 embedding API。** 暂时否决：环境中不存在这样的凭据，而且它会在每一轮
+   的热路径上引入网络依赖。
+3. **永久只用词法检索。** 已否决——对于被改述的记忆（"我很讨厌被催促" 对
+   "别给我压力"），它无法满足 §13 的 `memory_relevance` 维度，而这正是
+   similarity 的用途所在。
+4. **抓取所有记忆，让模型来过滤。** 已否决——§6 与反模式 2 明确禁止。
 
-## Why
+## 理由
 
-Deferring the similarity term is the lowest-risk, most rollback-friendly path: it
-unblocks Phase 2 entirely, costs nothing to reverse, and keeps the schema
-forward-compatible. Doing nothing about the column would have made it a real
-migration later; doing local ONNX immediately would have added a dependency
-before the retrieval logic it serves is even proven.
+推迟 similarity 项是风险最低、最易回滚的路径：它完全解锁 Phase 2，逆转起来不花
+任何代价，并保持 schema 向前兼容。对那一列什么都不做，会让它日后变成一次真正
+的 migration；而立即上本地 ONNX，则会在它所服务的检索逻辑尚未被验证之前就引入
+一个依赖。
 
-## Consequences
+## 后果
 
-- **Known limitation, recorded in CHANGELOG:** retrieval quality for paraphrased
-  memories is degraded until embeddings land. Eval cases must not over-claim
-  `memory_relevance` in Phase 2.
-- The context budget is a hard cap, asserted in tests — a test must fail if
-  retrieval ever returns all memories for a user.
-- `MemoryRetrieval` is unit-testable without a database, because scoring is pure.
-- The vector dimension (384) must be fixed in the first migration even though
-  unused, since changing a `vector(N)` column later is a migration. 384 is
-  chosen to match `all-MiniLM-L6-v2`, the intended model.
+- **已知局限，记录在 CHANGELOG：** 在 embedding 落地之前，对被改述记忆的检索
+  质量是下降的。Phase 2 的 eval 用例不得在 `memory_relevance` 上过度声称。
+- 上下文预算是硬上限，在测试中断言——如果检索曾经为一个用户返回了所有记忆，
+  测试必须失败。
+- `MemoryRetrieval` 无需数据库即可单元测试，因为评分是纯的。
+- 向量维度（384）必须在第一个 migration 中固定，尽管它还没被用到，因为日后修改
+  一个 `vector(N)` 列就是一次 migration。选 384 是为了匹配既定的模型
+  `all-MiniLM-L6-v2`。

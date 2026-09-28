@@ -1,202 +1,173 @@
-# Refactoring Plan
+# 重构计划
 
-Required by spec §42 ("建立渐进式 roadmap") and §43 ("先记录到
-`docs/REFACTORING_PLAN.md`"). It was missing until now; this file is that
-document.
+由 spec §42（"建立渐进式 roadmap"）与 §43（"先记录到
+`docs/REFACTORING_PLAN.md`"）所要求。在此之前它一直缺失；本文件就是那份文档。
 
-Two rules from the spec govern how it is used, and both are load-bearing:
+spec 里有两条规则决定它怎么用，两条都是承重的：
 
-- **§42: 不要一次完成全部阶段.** This is a roadmap, not a queue. A phase being
-  written here is not a commitment to build it.
-- **§28: Start simple.** Everything below is sized so that the smallest useful
-  version comes first, and the rest is explicitly deferred with a reason. A
-  phase that cannot be started without a large change is a phase that should be
-  split, not scheduled.
+- **§42：不要一次完成全部阶段。** 这是一份 roadmap，不是一个队列。某个阶段被写在这里，
+  不等于承诺要建它。
+- **§28：Start simple。** 下面每一项的规模划分都遵循这条：最小可用的版本先做，其余部分
+  以明确的理由显式推迟。一个不经过大规模改动就无法启动的阶段，是应该被拆分的阶段，而
+  不是应该被排期的阶段。
 
-Status is honest rather than aspirational. Where something is deliberately not
-built, the reason is written down, because "not yet" and "forgotten" look
-identical in a repository.
+状态是诚实的，而不是愿望式的。凡是刻意没有建的东西，理由都写了下来，因为在一个仓库
+里，"尚未"和"被遗忘"看起来一模一样。
 
 ---
 
-## Where the project is against spec §42
+## 项目相对 spec §42 的位置
 
-| # | Phase | Status |
+| # | 阶段 | 状态 |
 |---|---|---|
-| 0 | Repository Audit | ✅ `CURRENT_STACK.md`, ADRs 001–005 |
-| 1 | Reference Integration | ✅ hello-agents read, not copied (§6–§11); no code taken |
-| 2 | Architecture Stabilization | ✅ the client/server boundary, ADR 006 |
-| 3 | Agent Core | ✅ one agent, four lenses, ADR 001 |
-| 4 | Conversation / Session | ✅ conversations, messages, history, naming |
-| 5 | Memory | ✅ four layers minus preference (ADR 003); write policy; scored retrieval (ADR 007) |
-| 6 | Context Engineering | ✅ automatic memory injection + risk (ADR 008); relationship and narrative blocks assembled (ADR 012) |
-| 7 | INFP Persona | ✅ the prompt document (ADR 011), five principles, four lenses, evaluated |
-| 8 | Relationship + Narrative | ✅ both built; the narrative deferral and its reversal are in ADR 012 |
-| 9 | Tools | ⏳ three of six (§26) |
-| 10 | Evaluation | ⏳ 30 cases, 9 of §43's 12 dimensions |
-| 11 | Frontend Integration | ⏳ web client shipped (ADR 006); mini-program adapter deferred by design |
-| 12 | Production Hardening | ❌ not started; the blockers are named in `CHANGELOG.md` |
+| 0 | 仓库审查 | ✅ `CURRENT_STACK.md`、ADR 001–005 |
+| 1 | 参考集成 | ✅ 读了 hello-agents，没有照抄（§6–§11）；没有取用任何代码 |
+| 2 | 架构稳定化 | ✅ 客户端/服务端边界，ADR 006 |
+| 3 | Agent 核心 | ✅ 一个 agent，四个 lens，ADR 001 |
+| 4 | 会话 / Session | ✅ 会话、消息、历史、命名 |
+| 5 | 记忆 | ✅ 四层减去 preference（ADR 003）；写入策略；打分检索（ADR 007） |
+| 6 | 上下文工程 | ✅ 自动记忆注入 + 风险（ADR 008）；relationship 与 narrative 块已组装（ADR 012） |
+| 7 | INFP 人格 | ✅ 提示词文档（ADR 011），五条原则，四个 lens，已评测 |
+| 8 | 关系 + 叙事 | ✅ 两者都已建成；narrative 的推迟与反转都在 ADR 012 里 |
+| 9 | 工具 | ⏳ 六个中的三个（§26） |
+| 10 | 评测 | ⏳ 30 个 case，§43 的 12 个维度中的 9 个 |
+| 11 | 前端集成 | ⏳ web 客户端已交付（ADR 006）；mini-program adapter 按设计推迟 |
+| 12 | 生产加固 | ❌ 未开始；阻塞项列在 `CHANGELOG.md` 里 |
 
 ---
 
-## Evaluation dimensions (spec §43)
+## 评测维度（spec §43）
 
-The spec names twelve and says "第一阶段不要全部实现". This table is the record of
-which are actually measured, and — more usefully — which are not.
+spec 列出了十二个，并说"第一阶段不要全部实现"。这张表记录的是哪些维度真的被测量了，
+以及——更有用的——哪些没有。
 
-| Dimension | Measured by | Status |
+| 维度 | 由什么测量 | 状态 |
 |---|---|---|
-| Personality Consistency | `persona_consistency` (2 cases) | ✅ |
-| Emotional Attunement | `emotional_attunement` (2) | ✅ |
-| Value Clarification | `no_premature_solving` (3) | ✅ |
-| Non-directiveness | `boundary` (3), `question_discipline` (2) | ✅ |
-| Gentle Challenge | `gentle_challenge` (2) | ✅ |
-| Memory Accuracy | `memory` (3), `no_fabricated_memory` (2) | ✅ |
-| Memory Relevance | budget and gate tests in `tests/memory/` | ✅ (offline, not a case) |
-| Reality Grounding | `no_judgment` (2) — the fact/interpretation split | ✅ |
-| Response Helpfulness | `light_intent` (4) | ⏳ partial |
-| Narrative Continuity | `narrative_continuity` (1) | ✅ (a proxy, and recorded as one) |
-| Relationship Continuity | `relationship_continuity` (1) | ✅ |
-| Context Relevance | retrieval tests, not a case | ⏳ partial |
+| Personality Consistency | `persona_consistency`（2 个 case） | ✅ |
+| Emotional Attunement | `emotional_attunement`（2） | ✅ |
+| Value Clarification | `no_premature_solving`（3） | ✅ |
+| Non-directiveness | `boundary`（3）、`question_discipline`（2） | ✅ |
+| Gentle Challenge | `gentle_challenge`（2） | ✅ |
+| Memory Accuracy | `memory`（3）、`no_fabricated_memory`（2） | ✅ |
+| Memory Relevance | `tests/memory/` 里的预算与门控测试 | ✅（离线，不是一个 case） |
+| Reality Grounding | `no_judgment`（2）——事实/解释之分 | ✅ |
+| Response Helpfulness | `light_intent`（4） | ⏳ 部分 |
+| Narrative Continuity | `narrative_continuity`（1） | ✅（一个 proxy，并且被当作 proxy 记录） |
+| Relationship Continuity | `relationship_continuity`（1） | ✅ |
+| Context Relevance | 检索测试，不是一个 case | ⏳ 部分 |
 
-Phase 8 closed the two rows that were ❌, and they were closed in that order for a
-reason: a dimension with no case *and* no feature behind it is not a gap in the
-suite, it is a gap in the product that the suite would be unable to see even if it
-had a case. That is the lesson `light_intent` taught, and it is why both cases
-here were written and run before the relationship block existed — the "before"
-reply is the evidence that the feature was needed, and it is quoted in ADR 012.
+阶段 8 关闭了那两行 ❌，而它们按这个顺序关闭是有原因的：一个既没有 case、*也*没有
+功能在背后的维度，不是套件里的缺口，而是产品里的缺口——即便它有 case，套件也看不见
+它。这就是 `light_intent` 教出来的教训，也是这里两个 case 都在 relationship 块存在
+之前就被写好并跑过一遍的原因——那条"之前"的回复就是功能确有必要的证据，它被引在
+ADR 012 里。
 
-`Narrative Continuity` is ✅ with a caveat that is worth more than the tick: its
-single check matches the *shape* of referring back to a running theme, not the
-theme itself, which makes it a proxy — and writing it went wrong twice in one
-afternoon (a list that missed `老家`, then one that matched `回去` in *"梦里常回去"*
-and `反复` in *"反复梦见同一个地方"*). The patterns now name subjects rather than
-words. A proxy that has been rewritten twice is not a measurement, and the honest
-status of this row is "✅, thin".
+`Narrative Continuity` 是 ✅，但附带的那句说明比这个勾更有价值：它唯一的检查匹配的是
+"回指一个持续主题"的*形状*，而不是那个主题本身，这使它成为一个 proxy——而写它的过程
+在一个下午里错了两次（一份列表漏掉了 `老家`，接着一份在*"梦里常回去"*里匹配到了
+`回去`，在*"反复梦见同一个地方"*里匹配到了 `反复`）。这些模式现在命名的是主语，而
+不是词。一个被重写两次的 proxy 不是一种测量，而这一行诚实的状态是"✅，薄"。
 
-`Response Helpfulness` is marked partial on purpose: the four light-intent cases
-measure "does it give what was asked for", which is one third of helpfulness.
-Warmth is not mechanically checkable and no case pretends otherwise.
+`Response Helpfulness` 被有意标为部分：四个 light-intent case 测的是"它是否给出了被
+请求的东西"，而那只是 helpfulness 的三分之一。温暖无法被机械检查，也没有任何 case
+假装它可以。
 
-Two of those four cases were measuring less than they appeared to. `light-04`
-scored a clean 1.00 on the reply the changelog names as its failure, because the
-check written for that failure did not contain the phrase — so a whole category's
-headline defect could have returned with the suite green. The repair is not more
-patterns but a falsifier: `tests/evaluation/cases.test.ts` now replays the four
-recorded failures against the checks that are supposed to catch them, and the
-mutation that deletes the patterns turns it red. A case count is a claim about
-coverage; that block is what makes the claim checkable — and it is why this row
-stays ⏳ rather than ✅, because a category that can now fail is not the same as
-a category that is complete.
+那四个 case 里有两个测得比它们看上去的要少。`light-04` 在 changelog 点名为它的失败的
+那条回复上拿了干净的 1.00，因为为那条失败写下的检查并不包含那个短语——于是一整个类别
+的头条缺陷本可以在套件全绿的情况下回来。修复之道不是加更多模式，而是加一个证伪器：
+`tests/evaluation/cases.test.ts` 现在把那四条有记录的失败，拿去给本该抓住它们的检查
+重放一遍，而删掉这些模式的变异会让它变红。case 数量是一个关于覆盖率的声明；那个块是
+让这个声明可被检验的东西——这也是这一行停在 ⏳ 而不是 ✅ 的原因，因为一个现在能失败
+的类别，和一个已经完整的类别，不是一回事。
 
 ---
 
-## Phase 8 — Relationship + Narrative
+## 阶段 8 — 关系 + 叙事
 
-**The gap.** The product's premise is 长期陪伴 — a companion that knows you over
-time. Today the companion knows *facts* about a person (memories) and nothing
-about the *relationship*: it cannot tell a first conversation from a two-hundredth,
-so it cannot greet a familiar person differently from a stranger, and it has no
-view of the story a person is in the middle of. The two §43 dimensions fall out
-of that.
+**缺口。** 产品的前提是长期陪伴——一个随时间认识你的陪伴者。如今这个陪伴者知道一个人
+的*事实*（memories），对*关系*却一无所知：它分不出第一次对话和第两百次对话，所以它
+无法用不同的方式迎接一个熟悉的人和一个陌生人，也看不到一个人正身处其中的那个故事。
+§43 的那两个维度就是从这一点掉出来的。
 
-**Design, smallest useful version:**
+**设计，最小可用的版本：**
 
-- **Relationship state is derived, never stored.** Everything needed is already
-  in the schema: when they first spoke, how many conversations and messages, how
-  many memories. A stored copy would need a migration (§1), would drift from the
-  rows it summarises, and would buy nothing — the derivation is one aggregate
-  query.
-- **It is rendered into every turn**, like retrieved memory, because continuity
-  is not relevance-gated. Asking "is knowing you for three months relevant to
-  this turn?" answers itself — and a relevance-gated block would be absent on
-  exactly the turn it was needed, because "你还记得我吗" mentions no topic.
-- **Narrative is a separate, tightly-budgeted block** drawn from `narrative`-type
-  memories. `narrative` already exists as a memory type and the label is already
-  written (你正在经历的); what is missing is that nothing renders it as
-  continuity rather than as one more fact competing for a retrieval slot.
-  → **Built, after being deferred and then reversed.** The first decision rested
-  on one run where the model reached the theme through `search_memory`; four more
-  did not replicate it, and the cause is deterministic — the theme and the message
-  share no terms, so `selectMemories` drops the memory at `minSimilarity` before
-  the model sees anything. A similarity gate cannot deliver a theme that is
-  phrased differently every time it comes up. Both halves of the decision are in
-  [ADR 012](adr/012-relationship-and-narrative.md).
-- **Three tools are deferred** (`getUserProfile`, `getRelationship`,
-  `getNarrative`, §26) with a reason recorded in ADR 012: a tool is redundant
-  when the same content is already in the prompt every turn, and each added tool
-  is a new way for the model to pick wrong. They become right when the content
-  grows large enough that always-on stops being affordable — which is a
-  measurement, not a guess.
-- **Two evaluation cases** (`relationship_continuity`, `narrative_continuity`),
-  written first, on the recorded rule.
+- **关系状态是推导出来的，从不存储。** 需要的一切都已经在 schema 里：他们第一次说话
+  的时间、有多少个会话和多少条消息、有多少条记忆。存一份副本需要一次 migration（§1），
+  会与它所概括的那些行漂移，而且什么都换不来——推导只是一条聚合查询。
+- **它被渲染进每一轮**，像被检索到的记忆一样，因为连续性不受相关性门控。问一句
+  "认识你三个月，跟这一轮相关吗？"本身就是答案——而一个受相关性门控的块，恰恰会在它
+  被需要的那一轮缺席，因为"你还记得我吗"不提及任何话题。
+- **叙事是一个独立的、预算卡得很紧的块**，取自 `narrative` 类型的记忆。`narrative`
+  已经作为一种记忆类型存在，标签也已经写好（你正在经历的）；缺的是：没有任何东西把它
+  渲染成连续性，而不是把它当成又一条争夺检索槽位的事实。
+  → **已建成，在经历推迟、然后反转之后。** 最初的决策建立在一次 run 上——模型通过
+  `search_memory` 触及了主题；之后四次都没能复现，而成因是确定性的——主题与消息不
+  共享任何词项，所以 `selectMemories` 在模型看到任何东西之前，就把它丢在了
+  `minSimilarity` 上。一个相似度门无法交付一个每次浮现时说法都不同的主题。这个决策的
+  两半都写在 [ADR 012](adr/012-relationship-and-narrative.md) 里。
+- **三个工具被推迟**（`getUserProfile`、`getRelationship`、`getNarrative`，§26），理由
+  记录在 ADR 012 中：当同样的内容每一轮都已经在提示词里时，工具就是多余的，而每多一个
+  工具，就是模型挑错的一个新途径。等内容大到常驻不再划算时，它们就变成对的了——而这
+  是一个测量结果，不是一个猜测。
+- **两个评测 case**（`relationship_continuity`、`narrative_continuity`），按记录下来的
+  规则先写。
 
-**Not in this phase:** relationship *stages* with behavioural rules attached (a
-stage taxonomy nobody has calibrated), a relationship timeline UI, and any
-storage of the relationship as its own table.
+**不在本阶段内：** 附带行为规则的 relationship *阶段*（一套无人校准过的阶段分类法）、
+关系时间线 UI，以及把关系存成自己一张表的任何做法。
 
-**Status: done.** `src/memory/relationship.ts` and `src/memory/narrative.ts`,
-`historyStats` on both stores, both blocks threaded through `buildInstructions` →
-`createCompanionAgent` → `runTurn`, and two rules in the prompt document
-(`# 你们之间已经发生的事`, `# ta 正在经历的事`). Full reasoning, including the
-reversal, in [ADR 012](adr/012-relationship-and-narrative.md).
+**状态：完成。** `src/memory/relationship.ts` 与 `src/memory/narrative.ts`，两个 store
+上都有 `historyStats`，两个块都串过 `buildInstructions` → `createCompanionAgent` →
+`runTurn`，提示词文档里还有两条规则（`# 你们之间已经发生的事`、`# ta 正在经历的事`）。
+完整推理，包括那次反转，见 [ADR 012](adr/012-relationship-and-narrative.md)。
 
-## Phase 9 — Tools
+## 阶段 9 — 工具
 
-Remaining from §26: `getUserProfile`, `getRelationship`, `getNarrative`. **No
-longer blocked on Phase 8 — decided by it**: the same content is in the prompt on
-every turn, so a tool for it is a second route to a result that already arrives.
-`getUserProfile` duplicates what the preference
-store and semantic memories already provide, so it needs an argument before it
-needs code.
+§26 中剩下的：`getUserProfile`、`getRelationship`、`getNarrative`。**不再被阶段 8 阻塞
+——而是由它决定**：同样的内容每一轮都在提示词里，所以为它做一个工具，只是通往一个已经
+到达的结果的第二条路径。`getUserProfile` 与 preference store 和语义记忆已经提供的
+东西重复，所以它先需要的是一个论证，然后才是代码。
 
-## Phase 10 — Evaluation
+## 阶段 10 — 评测
 
-Unchanged beyond Phase 8's two cases: `Response Helpfulness` wants more than
-four cases, and there is still no judge model — every check is mechanical, which
-is why tone is uncovered and said to be.
+除了阶段 8 的两个 case 之外没有变化：`Response Helpfulness` 想要的不止四个 case，而
+judge model 仍然没有——每个检查都是机械的，这也是为什么语气没有被覆盖，而且是被明说
+没有覆盖的。
 
-## Phase 12 — Production Hardening
+## 阶段 12 — 生产加固
 
-Two of the three blockers remain, and they are the two that need something this
-project does not have: **identity is a handle rather than authentication**
-(ADR 009) wants real auth, and **there is no rate limiting** wants a decision
-about who the users are and what they may spend.
+三个阻塞项里还剩两个，而它们正是需要这个项目所没有的东西的那两个：**身份是 handle
+而不是认证**（ADR 009）需要真正的 auth，**没有限流**需要先决定用户是谁、他们可以花掉
+什么。
 
-The third — **no retention sweep, so evaluation runs accumulated throwaway
-users** — is closed by [ADR 013](adr/013-retention-and-deletion.md). It was
-buildable from inside the project once the question was framed as "which rows
-does a sweep have a right to touch" rather than "how do we recognise an
-evaluation user": `users.external_id` had been declared for exactly this in the
-first migration and never written. The measurement of the gap is in the ADR —
-589 users, 355 conversations, 512 messages from evaluation runs alone.
+第三个——**没有 retention sweep，于是评测 run 攒下了一堆用完即弃的用户**——由
+[ADR 013](adr/013-retention-and-deletion.md) 关闭。当问题被重新表述为"一次 sweep 有权
+触碰哪些行"，而不是"我们怎么识别一个评测用户"时，它就变成了可以在项目内部建出来的
+东西：`users.external_id` 正是在第一个 migration 里为此声明的，且从未被写入。缺口的
+度量在 ADR 里——仅评测 run 就产生了 589 个用户、355 个会话、512 条消息。
 
-The lesson worth keeping is the one the plan's own wording hid. This section said
-none of the three "can be closed without a decision the user has not made", and
-that was true of two of them and a false equation of the third: retention needed
-no decision, only a mark that already existed in the schema.
+值得留下的那个教训，是这计划自己的措辞所掩盖的那一个。本节曾写道，三者中没有一个
+"can be closed without a decision the user has not made"，而这对其中两个成立，对第三个
+则是一个错误的等式：retention 不需要任何决策，只需要一个 schema 里早就存在的标记。
 
-**A fourth item was on the list less visibly and is now done: `npm run build`
-was a script that could not run.** It was a known issue rather than a blocker —
-nothing in development depends on it, because `npm run dev` runs the sources
-through Node's type stripping — which is exactly why it sat there for the whole
-project. `tsconfig.build.json` and `scripts/copy-assets.ts` close it, and the
-copy step is the part the known issue had already predicted: `tsc` does not emit
-the prompt document, and `instructions.ts` resolves it relative to itself.
+**第四项更不显眼地留在清单上，如今已经做完：`npm run build` 曾是一条跑不起来的
+script。** 它是已知问题，而不是阻塞项——开发中没有任何东西依赖它，因为 `npm run dev`
+是通过 Node 的类型剥离直接跑源码的——而这恰恰是它在这个项目里一直待着的原因。
+`tsconfig.build.json` 和 `scripts/copy-assets.ts` 关掉了它，而复制那一步正是这个已知
+问题早已预言过的部分：`tsc` 不会输出提示词文档，而 `instructions.ts` 是相对自身解析
+它的。
 
-**Still not a deployment.** `npm run build && npm start` produces a runnable
-server, which is not the same as a server you would put in front of people: the
-two blockers above are unchanged, there is no CI to run the build, and Docker is
-not written. The build removed one excuse, not the reasons.
+**仍然不是一次部署。** `npm run build && npm start` 产出一个能跑的 server，这与一个
+你会放到人前的 server 不是一回事：上面两个阻塞项没有变，没有 CI 来跑构建，Docker 也
+没有写。这次构建移走的是一个借口，而不是那些理由。
 
-## Deliberately not doing
+## 刻意不做的事
 
-| Not doing | Why |
+| 不做 | 理由 |
 |---|---|
-| Multi-agent, event bus, workflow engine | §28. One agent with tools covers the product. |
-| A second database, a real vector store | ADR 004: retrieval is lexical until an embedding provider exists. The similarity function is injected so the swap is one function. |
-| Storing relationship state in a table | Derivable in one query; a migration for a cache. |
-| A relationship stage taxonomy | Nobody has calibrated the bands. Facts now, labels when there is evidence for them. |
-| An always-on block for anything else | The two that exist are unconditional because a relationship and a running theme are not things that *become* relevant. The gate is right for everything else, and widening the unconditional part is how a prompt becomes a status report. |
-| A runtime detector for rumination | `RUMINATION_SIGNALS` existed for this and was deleted. `question-01` scores 1.00 on the behaviour with `toolsCalled: []`, so the prompt's Te lens already does it; a keyword list cannot tell a loop from a settled decision; and safety is enforced mechanically only because a miss there is unrecoverable, which rumination is not. The full argument is in `CHANGELOG.md` → Changed. |
-| Rewriting the memory layers | §32 (no unrelated cleanup), §34 (no destructive refactoring without a plan). |
+| Multi-agent、event bus、workflow engine | §28。一个带工具的 agent 就覆盖了这个产品。 |
+| 第二个数据库、真正的向量存储 | ADR 004：在 embedding provider 存在之前，检索是词法的。相似度函数是注入的，所以替换只涉及一个函数。 |
+| 把关系状态存进一张表 | 一条查询就能推导；为一份缓存做一次 migration。 |
+| 一套关系阶段分类法 | 没有人校准过这些分档。先要事实，等有了证据支持时再要标签。 |
+| 为其他任何东西做常驻块 | 现存的两个块是无条件的，因为一段关系和一条持续主题不是那种*会变得*相关的东西。门控对别的所有东西都是对的，而扩大无条件的那部分，正是提示词变成状态报告的方式。 |
+| 一个针对反刍的运行时检测器 | `RUMINATION_SIGNALS` 曾为此存在，已被删除。`question-01` 在 `toolsCalled: []` 的情况下对那个行为打出 1.00，说明提示词里的 Te lens 已经做到了；关键词列表分不清一个循环和一个已经做出的决定；而安全之所以用机械方式强制，只是因为在那里漏一次的代价不可挽回，反刍不是。完整论证见 `CHANGELOG.md` → Changed。 |
+| 重写记忆层 | §32（不做无关清理）、§34（没有计划不做破坏性重构）。 |

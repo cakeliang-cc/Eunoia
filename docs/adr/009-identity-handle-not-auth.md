@@ -1,57 +1,50 @@
-# ADR 009 — Identity is an unguessable handle, not authentication
+# ADR 009 — 身份是一个不可猜的句柄，不是认证
 
-## Context
+## 背景
 
-The product needs to know who is talking: memories, conversations, preferences
-and feedback are all per-person, and a companion that mixes two people's
-histories is not a companion. Phase 5 needed something now, with no auth
-provider, no login screen, and no real users.
+产品需要知道正在说话的是谁：记忆、对话、偏好和反馈都是按人分开的，而一个把两
+个人的历史混在一起的陪伴者不是陪伴者。Phase 5 现在就需要一个东西，没有 auth
+provider，没有登录界面，也没有真实用户。
 
-There are two ways to get a per-person identifier before real auth exists, and
-they fail differently.
+在真实认证存在之前，拿到按人区分的标识符有两条路，而它们的失效方式不同。
 
-## Decision
+## 决定
 
-**The server mints a random UUID, sets it as a cookie, and treats every request
-carrying it as that person.** A client-supplied identifier is accepted only via
-an explicit `X-User-Id` header, and only if it is already a well-formed UUID;
-anything else — `X-User-Id: 1`, a stray string, a malformed cookie — is
-**replaced with a fresh identity** rather than trusted.
+**服务器生成一个随机 UUID，把它设为 cookie，并把每一个携带它的请求当作那个
+人。** 客户端提供的标识符只通过显式的 `X-User-Id` header 接受，且仅当它本身
+就是一个格式良好的 UUID；其他一切——`X-User-Id: 1`、一段随意的字符串、一个畸
+形 cookie——都会被**替换成一个全新的身份**，而不是被信任。
 
-**This is stated plainly in the code as not being authentication.** No password,
-no expiry, no signature: anyone holding the cookie is that user, and cookies can
-be copied. It is acceptable only because this runs on a developer's machine with
-no real users and no real data. The module's own header names the minimum before
-any deployment: real authentication, and `HttpOnly; Secure; SameSite=Lax` at
-minimum.
+**代码里平实地写明：这不是认证。** 没有密码、没有过期、没有签名：任何持有该
+cookie 的人就是那个用户，而 cookie 是可以被复制的。它之所以可以接受，仅仅是因
+为它跑在开发者的机器上，没有真实用户，也没有真实数据。该模块自己的文件头写明
+了任何部署之前的最低要求：真实认证，以及至少
+`HttpOnly; Secure; SameSite=Lax`。
 
-## Alternatives
+## 备选方案
 
-1. **Let the client choose its identifier.** Rejected — this is the failure mode
-   worth naming. If the client picks, `X-User-Id: 1` reads someone else's
-   memories, and that bug survives into production far more often than a missing
-   login does, because it looks like it works. A server-minted UUID is at least
-   not enumerable.
-2. **Auth now (a provider, sessions, password reset).** Rejected as premature by
-   spec §0: no users exist yet, and the mini-program migration will bring its own
-   flow (`wx.login` → code → server session). Building a login screen for nobody
-   is the unnecessary framework the spec warns against.
-3. **Cookie-only, no header.** Rejected: the mini-program has no browser cookie
-   jar, so the header is the seam the migration needs. It exists before it is
-   needed, which is why ADR 006's boundary was drawn where it was.
-4. **Trust any `X-User-Id` string.** Rejected: it removes the only property the
-   handle has (unguessability) while looking like a feature.
+1. **让客户端自己选标识符。** 否决——这是值得点名的失效模式。如果由客户端来
+   选，`X-User-Id: 1` 就会读到别人的记忆，而这个 bug 活到生产环境的概率远高于
+   一个缺失的登录，因为它看起来是能工作的。服务器生成的 UUID 至少是不可枚举
+   的。
+2. **现在就上认证（一个 provider、会话、密码重置）。** 被 spec §0 认定为过早而
+   否决：目前还没有用户，而小程序迁移会带来它自己的流程（`wx.login` → code →
+   服务端 session）。为没有人做一个登录界面，正是 spec 警告的那种多余框架。
+3. **只用 cookie，不要 header。** 否决：小程序没有浏览器 cookie jar，所以
+   header 是迁移所需的那道接缝。它在被需要之前就存在了，这也是 ADR 006 的边界
+   被画在那里的原因。
+4. **信任任何 `X-User-Id` 字符串。** 否决：它在看起来像一个功能的同时，去掉了
+   这个句柄唯一的属性（不可猜）。
 
-## Consequences
+## 后果
 
-- The mini-program's auth layer produces the UUID and passes it in the header;
-  no server-side change is needed when it arrives. This is the seam ADR 006
-  promised.
-- Deleting the cookie loses the identity and with it every memory. That is a real
-  consequence of having no login, and it is why the memory panel exists: what
-  the system believes is visible and deletable by the person it is about.
-- **Before any deployment**: replace with real authentication, set
-  `HttpOnly; Secure; SameSite=Lax`, and expire sessions. Until then this must not
-  hold anyone's real data — a constraint, not a preference.
-- Two identities are isolated by test, and an unrecognised id is proven to be
-  replaced rather than honoured (`tests/api/server.test.ts`).
+- 小程序的认证层负责生成 UUID 并通过 header 传入；它到来时不需要服务端的改
+  动。这就是 ADR 006 承诺的那道接缝。
+- 删掉 cookie 就丢失身份，连同所有记忆一起。这是没有登录的一项真实后果，也正
+  是记忆面板存在的原因：系统相信的东西是可见的，并且可以被它所述的那个人删
+  除。
+- **任何部署之前**：替换为真实认证，设置 `HttpOnly; Secure; SameSite=Lax`，并
+  让会话过期。在那之前，它不得承载任何人的真实数据——这是一项约束，不是一种偏
+  好。
+- 两个身份之间的隔离有测试，一个无法识别的 id 被证明是被替换而不是被采信
+  （`tests/api/server.test.ts`）。

@@ -1,13 +1,12 @@
-# ADR 010 — The reasoning phase is forwarded, not discarded
+# ADR 010 — 推理阶段被转发，而不是被丢弃
 
-Extends [ADR 006](006-client-server-separation.md) (the event contract) and
-[ADR 008](008-safety-buffered-turns.md) (buffered crisis turns).
+延伸 [ADR 006](006-client-server-separation.md)（事件契约）与
+[ADR 008](008-safety-buffered-turns.md)（缓冲的危机轮次）。
 
-## Context
+## 背景
 
-A complaint that the product "was not streaming" turned out to be false in the
-literal sense and correct in every sense that mattered. Measured against the
-live endpoint, a single turn produced:
+一个抱怨说产品 "没有在流式输出"，结果它在字面意义上不成立，而在所有要紧的意义
+上都成立。对着线上 endpoint 实测，单次一轮产生的是：
 
 ```
     536  thinking_delta   first +1.65s   last +9.07s
@@ -16,89 +15,74 @@ live endpoint, a single turn produced:
       1  completed        +10.06s
 ```
 
-The transport was streaming perfectly. The reply was arriving at roughly
-160 characters per second, each delta in its own HTTP write. But **nothing was
-sent to the client between +0s and the first visible character** — a window
-measured at 3.67 seconds once and 17.83 seconds another time, entirely occupied
-by the model reasoning, and entirely invisible.
+传输层的流式完全没有问题。回复以大约每秒 160 个字符的速率到达，每个 delta 各占
+一次 HTTP 写入。但**在 +0s 与第一个可见字符之间，没有向客户端发送任何东西**
+——这个窗口一次测得 3.67 秒，另一次 17.83 秒，完全被模型的推理占据，并且完全看
+不见。
 
-The cause was one matcher. The SDK normalises text deltas — DeepSeek's wire type
-`response.output_text.delta` arrives as `output_text_delta` — so the code
-matched that name. It does **not** normalise reasoning: the provider event is
-passed through raw, wrapped under a generic `model` type, with the useful fields
-one level deeper:
+起因是一个匹配器。SDK 会规范化文本 delta——DeepSeek 的线上类型
+`response.output_text.delta` 到达时是 `output_text_delta`——所以代码匹配的是那
+个名字。它**不**规范化推理：provider 的事件原样透传，包在一个通用的 `model`
+类型下，有用的字段在深一层：
 
 ```jsonc
 {"type":"model","event":{"type":"response.reasoning_text.delta","delta":"我们需要", ...}}
 ```
 
-A matcher written by analogy with the text one therefore found nothing, and 536
-events per turn were dropped on the floor. The reply still completed, which is
-why every offline test stayed green: the only symptom was a person watching a
-static `…`.
+于是，照文本匹配器类推写出的匹配器什么都找不到，每一轮的 536 个事件被丢在地
+上。回复仍然完成了，这就是所有离线测试都是绿的原因：唯一的症状是一个人盯着一个
+静止的 `…`。
 
-## Decision
+## 决定
 
-**Add `thinking_delta` / `thinking_done` to the event contract, and forward the
-reasoning to the client.** Do not change the model's reasoning effort.
+**在事件契约中增加 `thinking_delta` / `thinking_done`，并把推理转发给客户端。**
+不改模型的 reasoning effort。
 
-The reasoning is model-authored text that reaches a client, so it is a first
-class member of `AgentEvent` and appears in `CONTENT_EVENT_TYPES` — a caller
-counting what the model produced (a fingerprint, a length cap, a redaction pass)
-has to know about it.
+推理是由模型撰写、并且会到达客户端的文本，所以它是 `AgentEvent` 的一等成员，
+出现在 `CONTENT_EVENT_TYPES` 中——任何统计模型产出了什么的调用方（一个指纹、
+一个长度上限、一次脱敏处理）都必须知道它。
 
-Three properties are part of the contract, not incidental:
+有三个属性是契约的一部分，而非偶然：
 
-- **`thinking_done` is sent at most once per turn, and only after at least one
-  `thinking_delta`.** It is emitted on whichever comes first: the provider's own
-  end-of-reasoning signal, the first character of the reply, or the end of the
-  stream. A model that reasons and then calls a tool produces no reply text
-  before the call, so the stream-end case is load-bearing. A client never has to
-  guess whether a thinking block is still live.
-- **A client may ignore it.** Dropping every `thinking_delta` yields exactly the
-  previous behaviour; the reply is complete without it. This is what keeps a
-  future mini-program adapter free to not render it.
-- **It is never persisted.** Reasoning is not written to the conversation, is
-  not replayed as history, and is not fed back to the model as something it
-  said. Only a character count reaches the log — never the text (spec §14).
+- **`thinking_done` 每轮至多发一次，且只在至少一个 `thinking_delta` 之后。** 它
+  在以下三者中先到者上触发：provider 自己的推理结束信号、回复的第一个字符，或
+  流的结束。一个先推理、再调用工具的模型，在调用之前不产生任何回复文本，所以流
+  结束这一分支是承重的。客户端永远不必猜一个 thinking 块是否还活着。
+- **客户端可以忽略它。** 丢弃每一个 `thinking_delta`，得到的正是之前的行为；没
+  有它，回复也是完整的。这一点让未来的小程序适配器可以自由地不渲染它。
+- **它从不被持久化。** 推理不写进对话，不作为历史回放，也不作为 "它说过的话"
+  回喂给模型。只有字符数进入日志——绝不包括文本（spec §14）。
 
-Crisis turns buffer it exactly as they buffer the reply, for the same reason: a
-rendered thought cannot be un-rendered either. Reasoning that argued toward a
-reply the safety check then discards is the last thing anyone should be shown.
+危机轮次对它做的缓冲，与它们对回复做的缓冲完全一样，理由相同：一个被渲染出来
+的想法同样收不回来。一段导向了随后被安全检查丢弃的回复的推理，是最不该被展示
+给任何人的东西。
 
-## Alternatives considered
+## 备选方案
 
-**Reduce `reasoning.effort`.** Measured on the live endpoint, this works
-mechanically — `effort: 'none'` cut time-to-first-character from 15.56s to
-1.91s. Rejected as the fix, because it changes the product rather than its
-presentation: at `none` the reply was 332 characters against 615 at the default,
-and a companion whose defining behaviour is *thinking carefully about what you
-said before answering* is the wrong place to buy speed by thinking less. Per
-spec §20 any such change needs an evaluation run to justify it, and none has
-been run. The setting is real and available; if latency ever needs to come down
-further, that is the lever, and it needs a measured quality comparison first.
+**调低 `reasoning.effort`。** 在线上 endpoint 实测，这在机制上是有效的——
+`effort: 'none'` 把首字时间从 15.56s 降到 1.91s。但它被否决为修复方案，因为它
+改变的是产品，而不是产品的呈现：在 `none` 下回复是 332 个字符，而默认是 615 个
+字符；而一个其定义性行为就是*在回答之前仔细想过你说的话*的陪伴者，正是最不该
+靠少想一点来换速度的地方。按 spec §20，任何这类改动都需要一次评测运行来证明其
+合理性，而目前一次也没跑过。这个设置是真实且可用的；如果延迟以后还需要再降，
+那就是那根杠杆，而它需要先有一次可度量的质量对比。
 
-**Show a content-free progress signal** (a pulse, "正在想…") instead of the
-reasoning text. This was the lower-risk option and was rejected on the user's
-explicit instruction that the thinking may be shown. It remains the fallback if
-the raw reasoning proves distracting in use — and because a client may ignore
-`thinking_delta`, reverting to it is a client-side change only.
+**显示一个无内容的进度信号**（一个脉冲、"正在想…"），而不是推理文本。这是风险
+更低的选项，被否决是因为用户明确指示可以展示思考过程。如果在实际使用中原始推
+理被证明会分散注意力，它仍然是退路——而且因为客户端可以忽略 `thinking_delta`，
+退回它只是一次客户端改动。
 
-**Merge the reasoning into `text_delta`.** Rejected: they are different things
-to a client. The reply is the product; the reasoning is a working-out that a
-client may collapse, hide, or drop. Merging them would make the reply
-inseparable from a part of it that is not the reply, and would put the model's
-notes into the transcript.
+**把推理合并进 `text_delta`。** 否决：对客户端而言它们是不同的东西。回复是产
+品；推理是一段推导过程，客户端可以折叠、隐藏或丢弃。合并它们，会让回复无法与
+"其中不属于回复的那一部分" 分离，还会把模型的笔记写进对话记录。
 
-## Consequences
+## 后果
 
-- **The perceived-latency bug is fixed without touching the model.** Time to
-  first frame went from 17.83s to 1.65s on the same prompt and the same settings.
-- **The reasoning text is now visible to the person.** This is a real change in
-  what the product shows, and it may read as stranger than the reply does. The
-  mitigation is presentational (collapsed, subdued, closed automatically) rather
-  than substantive.
-- **A wire-shape dependency is now pinned by a live test.** The offline test
-  asserts the parser against a captured fixture; only `npm run smoke` can notice
-  that the provider or the SDK changed the shape underneath it. That asymmetry
-  is the same one that produced this bug.
+- **感知延迟的 bug 被修好了，且没有碰模型。** 在同一个 prompt、同样的设置下，
+  首帧时间从 17.83s 降到 1.65s。
+- **推理文本现在对当事人可见。** 这是产品所展示内容的一次真实改变，而且它读起
+  来可能比回复本身更奇怪。缓解手段是呈现层面的（折叠、弱化、自动收起），而不
+  是实质层面的。
+- **一个线上报文形态的依赖，现在由一个 live 测试钉住。** 离线测试是拿一份捕获
+  的 fixture 来断言解析器的；只有 `npm run smoke` 才能发现 provider 或 SDK 在
+  底下改了形态。这种不对称，正是制造出这个 bug 的同一种不对称。

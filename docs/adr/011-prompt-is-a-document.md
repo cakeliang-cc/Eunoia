@@ -1,84 +1,73 @@
-# ADR 011 — The prompt is a document; only the composition is code
+# ADR 011 — prompt 是一份文档；只有组装部分是代码
 
-Extends [ADR 001](001-single-agent.md) (one agent, one policy) and touches
-[ADR 008](008-safety-buffered-turns.md) (the directive that stayed in code).
+延伸 [ADR 001](001-single-agent.md)（一个 agent，一套策略），并触及
+[ADR 008](008-safety-buffered-turns.md)（留在代码里的那条指令）。
 
-## Context
+## 背景
 
-The user asked, in passing and without elaborating:
+用户顺口提了一句，没有再展开：
 
 > 另外你的提示词应该从代码中抽离，放到一个单独的md文件中。
 
-They are the person who will tune this. The observable consequence of the old
-structure, for them, was that changing a sentence the companion says required
-opening TypeScript.
+他们就是将来调这份 prompt 的人。旧结构对他们而言可观察到的后果是：想改一句陪
+伴者说的话，得先打开 TypeScript。
 
-The old structure was not accidental. It had a real argument behind it: the
-behavioural policy lived as **data** in `behavioral-policy.ts` (`INTERACTION_PRINCIPLES`,
-`FUNCTION_HEURISTICS`), `instructions.ts` rendered that data into prose, and a
-test asserted that every principle's `rule` appeared in the rendered prompt. The
-stated purpose was to stop the prompt and the assertions drifting apart.
+旧结构不是偶然形成的。它背后有一个真实的论证：行为策略以**数据**的形式存在于
+`behavioral-policy.ts`（`INTERACTION_PRINCIPLES`、`FUNCTION_HEURISTICS`），
+`instructions.ts` 把这些数据渲染成散文，而一个测试断言每条原则的 `rule` 都出
+现在渲染出的 prompt 里。其声明的目的是阻止 prompt 与那些断言彼此漂移。
 
-That guarantee was real, and it cost something that was not noticed until the
-measurement was taken. Two representations of one sentence means the sentence is
-written twice, and the test exists to check the two copies match. It buys
-*detection of a duplicate*, not the absence of one.
+那项保证是真实的，而它是有代价的，只是直到做测量时才被注意到。一句话的两种表
+示，意味着这句话被写了两遍，而那个测试的存在只是为了检查两份拷贝是否一致。它
+买到的是*对重复的检测*，而不是没有重复。
 
-It also produced a specific defect. When the prompt was translated to Chinese,
-the data and the renderer were edited separately, and the renderer kept emitting
-`不急于解决（dont_rush_to_solve）` — the id, parenthesised, into the prompt. A
-prompt asking the model to hold two names for one rule. That is what a rendering
-layer between the prose and the model buys: a place for the two to disagree.
+它还造成了一个具体的缺陷。当 prompt 被翻译成中文时，数据和渲染器是分开编辑的，
+而渲染器继续把 `不急于解决（dont_rush_to_solve）` 输出到 prompt 里——连同括号
+里的 id。一份要求模型为同一条规则记住两个名字的 prompt。这就是在散文与模型之间
+放一层渲染所买来的东西：一个让两者产生分歧的地方。
 
-## Decision
+## 决定
 
-**The standing system prompt is `src/agent/prompts/companion.md`.** It is read
-once at startup, its leading HTML comment (a note to whoever edits it) is
-stripped, and the result *is* `STABLE_INSTRUCTIONS`. `PROMPT_VERSION` hashes the
-loaded bytes rather than a constant.
+**常驻 system prompt 就是 `src/agent/prompts/companion.md`。** 它在启动时被读取
+一次，开头的 HTML 注释（写给编辑它的人的说明）被剥掉，剩下的*就是*
+`STABLE_INSTRUCTIONS`。`PROMPT_VERSION` 哈希的是加载到的字节，而不是一个常量。
 
-`src/agent/instructions.ts` keeps only the composition: what goes around the
-prompt (retrieved memory, a per-turn safety directive) and in what order.
+`src/agent/instructions.ts` 只保留组装：prompt 周围放什么（检索到的记忆、每轮
+的安全指令），以及以什么顺序。
 
-`src/agent/behavioral-policy.ts` is gone. What remains of it is
-`prompt-contract.ts`: the spec's own labels and ids — §3's five principles, §2's
-four lenses, §12 case 05's rumination signals — as **a checklist the document is
-checked against**, holding no prose of its own.
+`src/agent/behavioral-policy.ts` 已经删除。它剩下的是 `prompt-contract.ts`：
+spec 自己的标签与 id——§3 的五条原则、§2 的四个视角、§12 case 05 的反刍信号
+——作为**一份用来核对文档的清单**，自身不持有任何散文。
 
-Three things deliberately **stay in code**, and the boundary is worth stating
-because "the prompt" could be read to include them:
+有三样东西刻意**留在代码里**，这条边界值得说明，因为 "the prompt" 可能被读成
+包含它们：
 
-| Stays | Why |
+| 留下 | 原因 |
 |---|---|
-| Tool descriptions (`agents/tools.ts`, `tools/memory-tools.ts`) | They sit next to the schema they describe and are read from it by the SDK. A lookup table would put a tool's description somewhere other than the tool. |
-| Per-turn safety directives (`safety/response.ts`) | Selected by a branch, and read together with the checks that verify compliance with them. Editing the wording without the check is the hazard; one file makes that harder. Safety text that fails to load is also the one load failure worth designing out. |
-| Enum-keyed labels and reasons | Data matched by code, not voice. |
+| 工具描述（`agents/tools.ts`、`tools/memory-tools.ts`） | 它们紧挨着自己所描述的 schema，并且由 SDK 从该 schema 读取。换成一张查找表，会把工具的说明放到工具之外的地方。 |
+| 每轮的安全指令（`safety/response.ts`） | 由分支选择，并与验证其合规性的检查放在一起读。只改措辞而不改检查，正是危险所在；放在一个文件里让这更难发生。安全文案加载失败，也是唯一一种值得在设计上排除的加载失败。 |
+| 以枚举为键的标签与原因 | 由代码匹配的数据，不是由语感匹配的。 |
 
-The line is **the standing prompt**, not "anything the model reads" — the latter
-would be a rule about a boundary nobody is trying to cross.
+这条线是**常驻 prompt**，而不是 "模型读到的任何东西"——后者会是一条关于没人试
+图越过的边界的规则。
 
-## Consequences
+## 后果
 
-- A prompt change is a document change. It is reviewable as a diff of prose, by
-  someone who does not read TypeScript, and it cannot break the module that
-  hashes it.
-- **The extraction is verifiable, and was verified.** The migration was done by
-  dumping the existing `STABLE_INSTRUCTIONS` to the file and loading it back:
-  `PROMPT_VERSION` before and after is `e9eb3bc57a41` in both cases, and the
-  string is 4121 characters in both cases. The model receives byte-identical
-  instructions, so this change needs no evaluation run — which is a claim the
-  version makes checkable rather than a claim to be taken on trust.
-- The drift test is replaced by a narrower one. It can no longer assert that two
-  copies agree, because there is one copy. What it asserts instead is what the
-  *spec* requires of the document — the five principles in order, a boundary
-  phrase inside each lens's own section, safety stated as outranking personality.
-  These are section-scoped, so `焦虑` appearing in an example is not evidence
-  that Ne is bounded.
-- The prompt is read with `readFileSync` at import time. A missing or empty
-  document throws rather than silently sending an empty system message. The
-  build story (`tsconfig.build.json`, which does not currently exist) will need
-  the document copied alongside the emitted module; this is noted in the
-  CHANGELOG rather than papered over.
-- `RUMINATION_SIGNALS` survives the move with no consumer in `src/`. It was dead
-  before this decision too; it is now recorded as dead rather than filed under a
-  module name that implied it was live.
+- 一次 prompt 改动就是一次文档改动。它可以作为一段散文的 diff 被审阅，由不读
+  TypeScript 的人来审，而且它无法弄坏给它做哈希的那个模块。
+- **这次抽取是可验证的，而且已经验证过。** 迁移的做法是把既有的
+  `STABLE_INSTRUCTIONS` 导出到文件，再加载回来：迁移前后的 `PROMPT_VERSION`
+  都是 `e9eb3bc57a41`，字符串长度也都是 4121 个字符。模型收到的指令逐字节相
+  同，所以这次改动不需要评测运行——版本号让这一主张可被检查，而不是一个需要被
+  信任的主张。
+- 漂移测试被一个更窄的测试取代。它不能再断言两份拷贝一致，因为只剩一份。它改
+  为断言的是 *spec* 对这份文档的要求——五条原则按顺序出现、每个视角自己的小节
+  内有一句边界表述、安全被写成高于人格。这些都是按小节限定的，所以 `焦虑` 出
+  现在某个示例里，并不构成 Ne 有边界的证据。
+- prompt 在 import 时用 `readFileSync` 读取。文档缺失或为空会抛错，而不是悄悄
+  发出一条空的 system message。构建方案（`tsconfig.build.json`，目前还不存
+  在）将需要把这份文档与产出的模块一起拷贝；这一点记在 CHANGELOG 里，而不是被
+  糊过去。
+- `RUMINATION_SIGNALS` 在这次搬移中存活了下来，在 `src/` 中没有任何消费者。
+  在这项决定之前它也已经是死代码；现在它被记录为死代码，而不是归档在一个暗示
+  它还活着的模块名下。

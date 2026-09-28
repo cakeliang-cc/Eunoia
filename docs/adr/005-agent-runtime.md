@@ -1,13 +1,12 @@
-# ADR 005 — Agent runtime: OpenAI Agents SDK over DeepSeek
+# ADR 005 — Agent 运行时：在 DeepSeek 之上使用 OpenAI Agents SDK
 
-## Context
+## 背景
 
-Spec §8 recommends the OpenAI Agents SDK. The model provider is DeepSeek, the
-only provider for which this environment holds credentials
-(`ANTHROPIC_BASE_URL=https://api.deepseek.com`, `ANTHROPIC_AUTH_TOKEN`; a working
-DeepSeek API key).
+spec §8 推荐 OpenAI Agents SDK。模型提供方是 DeepSeek，这是本环境唯一持有凭据
+的提供方（`ANTHROPIC_BASE_URL=https://api.deepseek.com`、
+`ANTHROPIC_AUTH_TOKEN`；一个可用的 DeepSeek API key）。
 
-DeepSeek documents itself as compatible with both the OpenAI and Anthropic SDKs:
+DeepSeek 自称同时兼容 OpenAI 与 Anthropic 两个 SDK：
 
 ```
 base_url (OpenAI)    = https://api.deepseek.com
@@ -15,33 +14,28 @@ base_url (Anthropic) = https://api.deepseek.com/anthropic
 models               = deepseek-flash, deepseek-v4-pro
 ```
 
-### Correction to an earlier revision of this ADR
+### 对本 ADR 早前修订的更正
 
-An earlier revision of this ADR concluded that the OpenAI Agents SDK was
-**unusable** here, because the endpoint's OpenAI-format route was believed to
-return 404. **That was wrong, and the decision built on it is retracted.**
+本 ADR 的早前修订曾判定 OpenAI Agents SDK 在此处**不可用**，理由是端点的
+OpenAI 格式路由被认为返回 404。**那是错的，建立在它之上的那个决定被撤回。**
 
-The false negative had two compounding causes:
+这个假阴性有两个叠加的成因：
 
-1. **A transient 404 was treated as a structural fact.** During the first probe
-   window the endpoint was returning 404s for several routes, including
-   `GET /v1/models`. All of them work. A control probe (8 consecutive calls,
-   8/8 HTTP 200) confirms the endpoint is stable; the 404s were transient.
-2. **An unknown model name was mistaken for a missing route.** Bad model names
-   return HTTP 404 on the Anthropic route but HTTP 400 on the OpenAI route. The
-   first probe used `deepseek-v4-flash` against a model namespace that was not
-   yet resolving, and the resulting 404 was read as "this route does not exist"
-   rather than "that call failed".
+1. **一次瞬时的 404 被当成了结构性事实。** 在第一个探测窗口期间，该端点对若干
+   路由返回 404，包括 `GET /v1/models`。它们全都正常工作。一次对照探测
+   （连续 8 次调用，8/8 HTTP 200）确认端点是稳定的；那些 404 是瞬时的。
+2. **一个未知的模型名被误认为缺失的路由。** 错误的模型名在 Anthropic 路由上
+   返回 HTTP 404，但在 OpenAI 路由上返回 HTTP 400。第一次探测针对一个尚未解析
+   的模型命名空间使用了 `deepseek-v4-flash`，由此产生的 404 被读作"该路由不
+   存在"，而不是"那次调用失败了"。
 
-The lesson is recorded here because it shaped a real decision: **one observation
-is not a finding.** Re-probe before concluding, and when a probe fails, check
-whether a *control* probe fails too before attributing the failure to the thing
-being tested.
+这个教训记录在此，因为它塑造了一个真实的决定：**一次观测不等于一个结论。**
+下结论前重新探测；当一次探测失败时，先检查*对照*探测是否也失败，再把失败归因
+于被测的那个东西。
 
-## Decision
+## 决定
 
-Use the **OpenAI Agents SDK** (spec §8) with `AsyncOpenAI` configured against
-DeepSeek:
+使用 **OpenAI Agents SDK**（spec §8），以 `AsyncOpenAI` 针对 DeepSeek 配置：
 
 ```ts
 new AsyncOpenAI({
@@ -50,67 +44,62 @@ new AsyncOpenAI({
 })
 ```
 
-The SDK drives DeepSeek through the **Responses API** (`/v1/responses`), which
-DeepSeek implements natively — so the SDK's default model path works, and the
-`OpenAIChatCompletionsModel` workaround is *not* needed.
+SDK 通过 **Responses API**（`/v1/responses`）驱动 DeepSeek，而 DeepSeek 原生
+实现了它——因此 SDK 的默认模型路径可用，*不需要* `OpenAIChatCompletionsModel`
+这一变通做法。
 
-Verified against the live endpoint before adoption:
+采纳前已针对线上端点验证：
 
-| Capability | Route | Result |
+| 能力 | 路由 | 结果 |
 |---|---|---|
-| Responses API | `POST /v1/responses` | works, `status: completed` |
-| Tool calling | Responses API | `function_call` output item with `call_id` + JSON-string `arguments` |
-| Reasoning | Responses API | `reasoning` item with `reasoning_text` |
+| Responses API | `POST /v1/responses` | 可用，`status: completed` |
+| Tool calling | Responses API | `function_call` 输出项，带 `call_id` + JSON 字符串形式的 `arguments` |
+| Reasoning | Responses API | `reasoning` 项，带 `reasoning_text` |
 | Tool calling | `POST /v1/chat/completions` | `finish_reason: tool_calls` |
-| Streaming | both | SSE deltas |
-| Prompt caching | both | reported via `*_tokens_details.cached_tokens` |
+| Streaming | 两者 | SSE 增量 |
+| Prompt caching | 两者 | 通过 `*_tokens_details.cached_tokens` 报告 |
 | Stability | — | 8/8 HTTP 200 |
 
-Provider construction is confined to **one module**. The agent core, memory
-services, tools, guardrails, and evaluation never import a vendor SDK directly.
+提供方的构造被限定在**一个模块**中。Agent 核心、记忆服务、工具、guardrails 与
+评测从不直接导入厂商 SDK。
 
-Model IDs must be the canonical `deepseek-flash` / `deepseek-v4-pro`. The aliases
-`deepseek-chat`, `deepseek-reasoner`, and `deepseek-v4-flash` all silently resolve
-to `deepseek-flash`; configuring `deepseek-reasoner` would therefore quietly run
-the wrong model with no error.
+模型 ID 必须是规范的 `deepseek-flash` / `deepseek-v4-pro`。别名
+`deepseek-chat`、`deepseek-reasoner` 与 `deepseek-v4-flash` 都会静默解析为
+`deepseek-flash`；因此配置 `deepseek-reasoner` 会在毫无报错的情况下悄悄运行
+错误的模型。
 
-## Alternatives
+## 备选方案
 
-1. **Hand-rolled loop over the Anthropic Messages API.** Viable — verified
-   working. Rejected as the default: the SDK supplies the loop, tool dispatch,
-   guardrails, and tracing that §10 and §14 ask for, and rebuilding them is the
-   unnecessary work §0 warns against. Retained as the fallback if the SDK proves
-   incompatible in practice.
-2. **Format-translation shim (OpenAI SDK ↔ Anthropic route).** Rejected. An
-   extra fragile layer that would silently mistranslate tool-call and streaming
-   semantics — the two capabilities most relied upon.
-3. **Obtain an OpenAI account and run on OpenAI models.** Rejected as
-   unnecessary: it adds a second vendor, a second credential, and a second bill
-   to satisfy an SDK preference that DeepSeek's compatibility already satisfies.
+1. **在 Anthropic Messages API 上手写循环。** 可行——已验证可用。作为默认方案
+   被否决：SDK 提供了 §10 与 §14 所要求的循环、工具分发、guardrails 与
+   tracing，重建它们正是 §0 所警告的不必要的工作。保留作为 SDK 在实践中被证明
+   不兼容时的后备方案。
+2. **格式转换适配层（OpenAI SDK ↔ Anthropic 路由）。** 已否决。一层额外且脆弱
+   的中间层，会静默地错误转换工具调用与流式语义——而这两者正是最被依赖的
+   能力。
+3. **申请一个 OpenAI 账号并在 OpenAI 模型上运行。** 因没有必要而否决：它会为了
+   满足一个 DeepSeek 的兼容性已经满足的 SDK 偏好，而引入第二个厂商、第二份
+   凭据和第二笔账单。
 
-## Why
+## 理由
 
-The SDK's preference in §8 is about the *harness* — loop, tools, tracing,
-guardrails — not about whose weights are behind it. DeepSeek's OpenAI-compatible
-surface lets the project take the harness without taking the vendor, which is
-strictly better than either alternative: spec §8 is honored, no new credential is
-needed, and the provider stays swappable behind one module.
+§8 对 SDK 的偏好针对的是*harness*——循环、工具、tracing、guardrails——而不是
+背后是谁的权重。DeepSeek 的 OpenAI 兼容表面让本项目可以取走 harness 而不取走
+厂商，这严格优于另外两个方案：spec §8 得到遵守，不需要新的凭据，而提供方在
+单个模块之后保持可替换。
 
-## Consequences
+## 后果
 
-- **The former "OpenAI API key" blocker is withdrawn.** The existing
-  `ANTHROPIC_AUTH_TOKEN` is a working DeepSeek key on all routes.
-- **Tracing must be configured deliberately.** The Agents SDK's tracing backend
-  is OpenAI-hosted by default; with no OpenAI credentials, the default exporter
-  will fail. Tracing must be either disabled or pointed at a custom processor.
-  Spec §14 wants traceable runs, so a custom processor plus application-level
-  structured logs is the path — not disabling tracing.
-- Model choice is a two-way decision (`deepseek-flash` vs `deepseek-v4-pro`), not
-  a family. Both have a 1,048,576-token context window, which does **not** relax
-  the §6 retrieval budget: the budget exists to control cost, latency, and
-  attention dilution, not merely to fit the window.
-- Prompt caching is available and reports hit/miss token counts. Long, stable
-  instruction prefixes (the §11 prompt) should be ordered to benefit from it.
-- Because the endpoint's Anthropic surface is unused by the runtime, the earlier
-  Anthropic-route findings are retained in `CURRENT_STACK.md` only as the
-  fallback path for alternative 1.
+- **原先的"OpenAI API key"阻塞项已撤回。** 现有的 `ANTHROPIC_AUTH_TOKEN` 是
+  一个在所有路由上都可用的 DeepSeek key。
+- **tracing 必须有意识地配置。** Agents SDK 的 tracing 后端默认托管在 OpenAI；
+  没有 OpenAI 凭据时，默认 exporter 会失败。tracing 必须要么禁用，要么指向一个
+  自定义 processor。spec §14 要求运行可追踪，因此路径是自定义 processor 加上
+  应用层的结构化日志——而不是禁用 tracing。
+- 模型选择是二选一的决定（`deepseek-flash` 对 `deepseek-v4-pro`），而不是一个
+  家族。两者的上下文窗口都是 1,048,576 token，这**不会**放松 §6 的检索预算：
+  预算的存在是为了控制成本、延迟与注意力稀释，而不只是为了塞进窗口。
+- Prompt caching 可用，并报告命中/未命中的 token 数。长而稳定的指令前缀
+  （§11 的 prompt）应当按顺序排列，以从中受益。
+- 由于运行时不使用该端点的 Anthropic 表面，早前关于 Anthropic 路由的发现仅作为
+  备选方案 1 的后备路径保留在 `CURRENT_STACK.md` 中。

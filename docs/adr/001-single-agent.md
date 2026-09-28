@@ -1,45 +1,40 @@
-# ADR 001 — Single agent, not multi-agent
+# ADR 001 — 单 Agent，而非多 Agent
 
-## Context
+## 背景
 
-The product models its interaction policy on Fi / Ne / Si / Te heuristics
-(spec §2). The obvious-looking implementation is four collaborating agents, one
-per function. The spec explicitly forbids this for the MVP (anti-pattern 4).
+产品按 Fi / Ne / Si / Te 启发式（spec §2）来建模它的交互策略。表面上显然的
+实现方式是四个协作的 Agent，每个功能一个。spec 明确禁止在 MVP 中这样做
+（反模式 4）。
 
-## Decision
+## 决定
 
-Ship exactly one agent: `INFPCompanionAgent`. Fi / Ne / Si / Te are implemented
-as **behavioral heuristics inside that agent's instructions and decision policy**,
-not as separate agents, and not as separate LLM calls.
+只交付一个 Agent：`INFPCompanionAgent`。Fi / Ne / Si / Te 作为**该 Agent 指令
+与决策策略内部的行为启发式**来实现，而不是独立的 Agent，也不是独立的 LLM
+调用。
 
-## Alternatives
+## 备选方案
 
-1. **Four agents with a handoff/orchestration layer.** Rejected. Handoffs
-   multiply latency and cost per turn, make behavior non-deterministic in ways
-   that are hard to evaluate, and give no capability the single agent lacks.
-   The four functions are not independent task domains — they are lenses on one
-   conversation.
-2. **One agent, four sequential LLM calls (one per function).** Rejected. Same
-   cost/latency problem, and it fragments a single conversational turn into four
-   incoherent pieces.
-3. **One agent, functions as prompt sections.** Chosen.
+1. **四个 Agent，加一层 handoff/编排。** 已否决。Handoff 会让每轮的延迟与成本
+   成倍增加，使行为以难以评估的方式变得不确定，并且没有提供单 Agent 所不具备
+   的任何能力。这四个功能不是彼此独立的任务域——它们是同一次对话上的四个视角。
+2. **一个 Agent，四次顺序 LLM 调用（每个功能一次）。** 已否决。同样的成本/延迟
+   问题，而且它把单个对话轮次割裂成四个不连贯的片段。
+3. **一个 Agent，功能作为 prompt 段落。** 采纳。
 
-## Why
+## 理由
 
-The four functions describe *how to attend to a message* (what it means to the
-user, what else could be true, what happened before, what small action is
-available) — they are not separable jobs with separable inputs and outputs. A
-single agent holding all four as heuristics can weigh them against each other in
-one pass, which is precisely the behavior the eval cases in §12 test.
+这四个功能描述的是*如何关注一条消息*（它对用户意味着什么、还可能有什么别的
+解释、之前发生过什么、有什么小行动是可用的）——它们不是输入输出彼此可分离的
+工作。单个 Agent 把四者都作为启发式持有，可以在一次处理中相互权衡，而这正是
+§12 的 eval 用例所测试的行为。
 
-## Consequences
+## 后果
 
-- One `instructions.ts` with clearly separated heuristic sections (§11), not one
-  prompt per function.
-- Evaluation measures *behavioral* outcomes (does it avoid unsolicited advice?),
-  not routing accuracy between agents.
-- If a future phase needs genuine specialization, the `ModelClient` and agent
-  boundary are already abstracted, so a handoff can be added without rewriting
-  memory or tools.
-- Trade-off accepted: a single agent must fit all heuristics in one context. This
-  is a real constraint and is the reason §6's retrieval budget matters.
+- 一个 `instructions.ts`，其中启发式段落清晰分隔（§11），而不是每个功能一个
+  prompt。
+- 评测衡量的是*行为*结果（它是否避免了未经请求的建议？），而不是 Agent 之间的
+  路由准确率。
+- 如果未来的某个阶段需要真正的专门化，`ModelClient` 与 Agent 的边界已经抽象好，
+  因此可以在不改写记忆或工具的前提下加入 handoff。
+- 接受的取舍：单个 Agent 必须把所有启发式装进同一个上下文。这是真实的约束，
+  也是 §6 的检索预算之所以重要的原因。
