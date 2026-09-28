@@ -1,0 +1,32 @@
+{
+  "name": "designfree",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A long-term INFP companion agent: stable personality behaviour, layered personal memory, and narrative continuity.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "dev": "node --experimental-strip-types src/api/server.ts",
+    "smoke": "vitest run --dir tests/smoke"
+  },
+  "dependencies": {
+    "@openai/agents": "^0.18.0",
+    "openai": "^7.2.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.0.0"
+  }
+}
