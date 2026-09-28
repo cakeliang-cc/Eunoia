@@ -176,6 +176,19 @@ none of the three "can be closed without a decision the user has not made", and
 that was true of two of them and a false equation of the third: retention needed
 no decision, only a mark that already existed in the schema.
 
+**A fourth item was on the list less visibly and is now done: `npm run build`
+was a script that could not run.** It was a known issue rather than a blocker —
+nothing in development depends on it, because `npm run dev` runs the sources
+through Node's type stripping — which is exactly why it sat there for the whole
+project. `tsconfig.build.json` and `scripts/copy-assets.ts` close it, and the
+copy step is the part the known issue had already predicted: `tsc` does not emit
+the prompt document, and `instructions.ts` resolves it relative to itself.
+
+**Still not a deployment.** `npm run build && npm start` produces a runnable
+server, which is not the same as a server you would put in front of people: the
+two blockers above are unchanged, there is no CI to run the build, and Docker is
+not written. The build removed one excuse, not the reasons.
+
 ## Deliberately not doing
 
 | Not doing | Why |

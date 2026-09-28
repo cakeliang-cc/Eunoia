@@ -229,6 +229,39 @@ project evolved without reading the full diff history.
 
 ### Fixed
 
+- **`npm run build` now exists.** It was a script in `package.json` that failed
+  for anyone who tried it — `tsc -p tsconfig.build.json`, against a file that had
+  never been in the repository — and it had been recorded here as a known issue
+  rather than left to be discovered.
+  - `tsconfig.build.json` is the emitting half of the config: the existing one
+    covers `src/` and `tests/` together and sets `noEmit`, which is right for
+    `npm run typecheck` and for every editor and fatal for a build that inherits
+    it silently. `rootDir: "src"` with `outDir: "dist"` keeps the emitted depth
+    equal to the source depth, which is load-bearing rather than tidy: the server
+    locates the web client with `join(import.meta.dirname, '..', '..', 'web')`,
+    so an `outDir` one level deeper would serve a 404 for the page instead of
+    failing in a way that looks like a build problem.
+  - **`tsc` does not emit the prompt document, and the known issue predicted what
+    that would cost.** `src/agent/instructions.ts` resolves `companion.md`
+    relative to itself, so a `dist/` without it is a server that starts and then
+    throws on the first turn. `scripts/copy-assets.ts` carries every non-`.ts`
+    file under `src/`, by walking the tree rather than by holding a list someone
+    has to remember to update.
+  - **Verified by building and running it, not by reasoning about it.** The
+    emitted server started against Postgres, reported the same `prompt_version`
+    as the development server (so the prompt had in fact been loaded, not
+    defaulted), served the web client from `web/`, completed a real streaming
+    turn end to end, and answered `DELETE /api/me` with `Max-Age=0`. The
+    alternative — a test that runs `tsc` — would have doubled the offline suite
+    for something that changes twice a year.
+  - **What the suite checks instead** (`tests/architecture/build.test.ts`) is the
+    pair that can silently rot back: that the config exists and emits `src/`, and
+    that the assets land at the paths the modules resolve at runtime — asserted
+    against `PROMPT_FILE` rather than a hardcoded `dist/…` string, so moving the
+    prompt moves the expectation with it. The asset walk is fed a synthetic tree
+    it has never seen, because a walk that had quietly become a list would still
+    pass on today's `src/`.
+
 - **The identity cookie was readable by any script on the page.** `Set-Cookie`
   carried no `HttpOnly`, no `SameSite` and no `Secure` — the handle was set as a
   plain cookie, so `document.cookie` returned it and one injected script was
@@ -523,15 +556,13 @@ project evolved without reading the full diff history.
   list, and this category should grow from real usage the way the safety
   patterns did. The `the checks can fail` block does not change that — it makes
   the four known failures stay visible, and says nothing about the fifth.
-- **`npm run build` cannot work: `tsconfig.build.json` does not exist.** The
-  script is `tsc -p tsconfig.build.json` and the file has never been in the
-  repository. Nothing depends on the build today — development runs the sources
-  through Node's type stripping and the Docker/CI story is not written yet — but
-  it is a command in `package.json` that fails for anyone who tries it. When it
-  is written, the prompt document has to be copied alongside the emitted module:
-  `src/agent/instructions.ts` resolves it relative to itself, so a `dist/` without
-  `prompts/companion.md` throws on startup rather than sending an empty system
-  message.
+- ~~**`npm run build` cannot work: `tsconfig.build.json` does not exist.**~~
+  **Closed.** The entry is kept because it called the shot: it said that "when it
+  is written, the prompt document has to be copied alongside the emitted module",
+  and that is exactly the thing `scripts/copy-assets.ts` exists for. What is still
+  true is the part it was careful about — nothing in development depends on the
+  build, and the Docker/CI story is still not written. `npm run build && npm start`
+  is a working command now, not a deployment.
 - **`RUMINATION_SIGNALS` has no consumer.** It is checked by a test and described
   by the prompt's own §12 case-05 example, and nothing in `src/` branches on it —
   the Te lens is not yet wired to detect that introspection has stopped producing

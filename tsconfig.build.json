@@ -1,0 +1,23 @@
+{
+  /* The emitting build. `tsconfig.json` is the checking build: it covers `src/`
+     and `tests/` together and sets `noEmit`, which is what `npm run typecheck`
+     and every editor want. This one covers `src/` alone and writes `dist/`.
+
+     `rootDir: "src"` with `outDir: "dist"` puts `src/api/server.ts` at
+     `dist/api/server.js`, which matters beyond tidiness: the server finds the
+     web client relative to itself (`join(import.meta.dirname, '..', '..', 'web')`),
+     so a stray `dist/src/` would resolve to a directory that has no `web/` in it.
+
+     `rewriteRelativeImportExtensions` comes from the base config and is why the
+     sources can import `./x.ts` and still run from `dist/` — see the note there. */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true
+  },
+  /* `src/` only. The tests are not shipped, and `scripts/` is the tool that runs
+     the build rather than anything the build produces. */
+  "include": ["src/**/*.ts"]
+}

@@ -45,8 +45,17 @@ See `.env.example`.
 | `npm run smoke` | Live turns against DeepSeek (`RUN_SMOKE=1` required) |
 | `npm run eval` | The personality evaluation, live; records a replayable file |
 | `npm run eval:replay` | Re-score the last recording, free and instant |
+| `npm run cleanup` | Retention sweep — sees what it would delete with `--dry-run` |
 | `npm run typecheck` / `npm run lint` | The other two gates |
 | `npm run migrate` | Apply migrations |
+| `npm run build` / `npm start` | Compile to `dist/`, then run it. Development does not need this |
+
+`npm run build` is not part of the day-to-day loop: `npm run dev` runs the
+sources directly through Node's type stripping, so the file on disk is what the
+model gets. The build exists for the deployment that does not have that, and it
+copies the prompt document alongside the emitted modules — `tsc` has no opinion
+about `.md` files, and `src/agent/instructions.ts` resolves the prompt relative
+to itself.
 
 The Postgres integration tests self-skip unless `DATABASE_URL` is set, because a
 suite that needs a container is a suite that gets skipped by whoever is in a

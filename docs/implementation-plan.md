@@ -204,6 +204,21 @@ against Postgres, because that column is a `uuid` while the in-memory store
 accepts any string — so no offline test could have caught it. The second time,
 the mark went into the `text` column that had been there for it all along.
 
+**`npm run build` was a command that could not run** (2026-09-29). It had been
+recorded as a known issue since Phase 1 rather than left to be discovered, and
+the entry did the useful thing a known issue can do: it named the trap in
+advance. `tsc` does not emit the prompt document, `instructions.ts` resolves it
+relative to itself, so the naive `tsconfig.build.json` produces a build that
+succeeds and a server that throws on the first turn. `scripts/copy-assets.ts`
+walks `src/` for anything `tsc` will not produce, and the two facts that keep it
+working — the config emits, the assets land where the code looks — are pinned by
+`tests/architecture/build.test.ts` against `PROMPT_FILE` rather than a hardcoded
+path. The gate was a real build **run**: emitted server, live Postgres, same
+`prompt_version` as the development server, a streaming turn, and
+`DELETE /api/me`. Running `tsc` in the suite would have doubled it for something
+that changes twice a year; the honest cost of that choice is that a broken build
+is caught by a person rather than by CI, and there is no CI yet.
+
 **The other direction turned out to be the worse one.** A second live run at the
 *same* prompt, made to tell a wobble from a regression, found `relationship-01`
 being **failed by its own check on a correct reply**: `no-diagnosis` listed the
@@ -238,7 +253,7 @@ re-adding the pattern fails the suite.
 
 | Suite | Count | Requires |
 |---|---|---|
-| Offline (`npm test`) | 485 passed, 36 skipped | nothing |
+| Offline (`npm test`) | 493 passed, 36 skipped | nothing |
 | Postgres (`tests/db/`) | 32 | `DATABASE_URL` |
 | Live smoke (`npm run smoke`) | 4 | `RUN_SMOKE=1` + credential |
 | Evaluation (`npm run eval`) | 30 cases, mean 0.966–0.969 (two samples at one prompt) | credential |

@@ -9,7 +9,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node --experimental-strip-types scripts/copy-assets.ts",
+    "start": "node dist/api/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
