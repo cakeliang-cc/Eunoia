@@ -18,6 +18,7 @@ import type {
   EvaluationCaseRecord,
   EvaluationResultRecord,
   FeedbackRecord,
+  HistoryStats,
   MemoryListOptions,
   Store,
 } from '../memory/store.ts';
@@ -385,6 +386,33 @@ export class PostgresStore implements Store {
       [conversationId, userId, limit],
     );
     return rows.map(toMessage);
+  }
+
+  async historyStats(userId: string): Promise<HistoryStats> {
+    // Four scalar subqueries in one round trip, rather than four queries or a
+    // join that would multiply the counts against each other.
+    const { rows } = await this.#pool.query<{
+      conversations: string;
+      messages: string;
+      first_at: Date | null;
+      last_at: Date | null;
+    }>(
+      `SELECT (SELECT count(*) FROM conversations WHERE user_id = $1) AS conversations,
+              (SELECT count(*) FROM messages      WHERE user_id = $1) AS messages,
+              (SELECT min(started_at) FROM conversations WHERE user_id = $1) AS first_at,
+              (SELECT max(created_at) FROM messages      WHERE user_id = $1) AS last_at`,
+      [userId],
+    );
+
+    const row = rows[0];
+    // `count(*)` comes back as a string: Postgres bigint does not fit a JS
+    // number, so the driver hands over the text rather than silently rounding.
+    return {
+      conversations: Number(row?.conversations ?? 0),
+      messages: Number(row?.messages ?? 0),
+      firstAt: row?.first_at ?? null,
+      lastAt: row?.last_at ?? null,
+    };
   }
 
   // ---------------------------------------------------------------- runs -----

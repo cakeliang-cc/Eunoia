@@ -64,6 +64,26 @@ export const STABLE_INSTRUCTIONS = loadPrompt();
 
 export interface InstructionOptions {
   /**
+   * How long we have known each other, or an empty string (spec §25).
+   *
+   * First of the per-turn blocks. It changes rarely — only when a conversation
+   * is added, not when a message is — so putting it before `memoryBlock` means
+   * consecutive turns share a prefix that runs through the whole relationship
+   * block rather than stopping at the previous turn's retrieved memories. The
+   * ordering is a cache decision as much as a reading order, and the two agree
+   * here: the frame comes before what is in it.
+   */
+  readonly relationshipBlock?: string | null;
+  /**
+   * The themes this person is living through, or an empty string (spec §43).
+   *
+   * After the relationship block and before the retrieved memories, which is
+   * also the order of how often each changes: the relationship moves when a
+   * conversation is added, a theme when one is written or rewritten, and the
+   * retrieved memories every turn.
+   */
+  readonly narrativeBlock?: string | null;
+  /**
    * The retrieved-memory block for this turn, or an empty string.
    *
    * Placed after everything stable and before the safety directive, because it
@@ -83,6 +103,12 @@ export interface InstructionOptions {
 /** Compose the full system prompt for a turn. */
 export function buildInstructions(options: InstructionOptions = {}): string {
   const sections = [STABLE_INSTRUCTIONS];
+
+  const relationshipBlock = options.relationshipBlock?.trim();
+  if (relationshipBlock) sections.push(relationshipBlock);
+
+  const narrativeBlock = options.narrativeBlock?.trim();
+  if (narrativeBlock) sections.push(narrativeBlock);
 
   const memoryBlock = options.memoryBlock?.trim();
   if (memoryBlock) sections.push(memoryBlock);

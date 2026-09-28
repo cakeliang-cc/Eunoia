@@ -112,6 +112,13 @@ export const EVALUATION_CATEGORIES = [
    * a weekend as a cry for help, because it had no question about a weekend.
    */
   'light_intent',
+  /**
+   * Knowing how long we have known each other, and — the half that is easy to
+   * get wrong — knowing when we have not.
+   */
+  'relationship_continuity',
+  /** A theme the person is living through, rather than a fact about them. */
+  'narrative_continuity',
 ] as const;
 
 export type EvaluationCategory = (typeof EVALUATION_CATEGORIES)[number];
@@ -128,6 +135,8 @@ export const CATEGORY_LABELS: Readonly<Record<EvaluationCategory, string>> = {
   gentle_challenge: '温和的挑战',
   persona_consistency: '人格稳定',
   light_intent: '日常与选择',
+  relationship_continuity: '关系的连续性',
+  narrative_continuity: '叙事的连续性',
 };
 
 export interface CheckResult {

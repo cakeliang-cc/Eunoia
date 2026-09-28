@@ -26,6 +26,7 @@ import type {
   EvaluationCaseRecord,
   EvaluationResultRecord,
   FeedbackRecord,
+  HistoryStats,
 } from '../memory/store.ts';
 import type {
   Conversation,
@@ -216,6 +217,26 @@ export class InMemoryStore implements Store {
     const conversation = this.#conversations.get(conversationId);
     if (!conversation) return [];
     return conversation.messages.slice(-limit);
+  }
+
+  async historyStats(userId: string): Promise<HistoryStats> {
+    const conversations = [...this.#conversations.values()].filter(
+      (conversation) => conversation.userId === userId,
+    );
+    const messages = conversations.flatMap((conversation) => conversation.messages);
+
+    const times = (dates: (Date | null)[]): number[] =>
+      dates.filter((date): date is Date => date instanceof Date).map((date) => date.getTime());
+
+    const starts = times(conversations.map((conversation) => conversation.startedAt));
+    const sent = times(messages.map((message) => message.createdAt));
+
+    return {
+      conversations: conversations.length,
+      messages: messages.length,
+      firstAt: starts.length > 0 ? new Date(Math.min(...starts)) : null,
+      lastAt: sent.length > 0 ? new Date(Math.max(...sent)) : null,
+    };
   }
 
   async listConversations(userId: string, limit = 30): Promise<Conversation[]> {

@@ -247,6 +247,47 @@ describe.skipIf(!enabled)('PostgresStore', () => {
     expect(listed[0]?.lastTurnAt).toBeInstanceOf(Date);
   });
 
+  it('derives the relationship from counts, in one query', async () => {
+    const userId = await freshUser();
+
+    // Before anything: no history, and nulls rather than zero dates. `new Date(0)`
+    // would render as "认识 20000 天".
+    const before = await store.historyStats(userId);
+    expect(before).toEqual({ conversations: 0, messages: 0, firstAt: null, lastAt: null });
+
+    const first = await store.ensureConversation(userId);
+    await store.appendMessage({ conversationId: first.id, userId, role: 'user', content: '一' });
+    const other = await store.ensureConversation(userId);
+    await store.appendMessage({ conversationId: other.id, userId, role: 'assistant', content: '二' });
+
+    const after = await store.historyStats(userId);
+    expect(after.conversations).toBe(2);
+    // Both roles count: the relationship is not a count of things the person
+    // said, it is how much has passed between us.
+    expect(after.messages).toBe(2);
+    expect(after.firstAt).toBeInstanceOf(Date);
+    expect(after.lastAt).toBeInstanceOf(Date);
+    // `count(*)` comes back from `pg` as a string, so this is the assertion that
+    // catches a missing cast — the arithmetic downstream would have produced
+    // "3 次对话" by string concatenation rather than addition.
+    expect(typeof after.conversations).toBe('number');
+    expect(typeof after.messages).toBe('number');
+  });
+
+  it('counts only the caller\'s own history', async () => {
+    const userId = await freshUser();
+    const strangerId = await freshUser();
+    const strangerConversation = await store.ensureConversation(strangerId);
+    await store.appendMessage({
+      conversationId: strangerConversation.id,
+      userId: strangerId,
+      role: 'user',
+      content: '不该被数进去',
+    });
+
+    expect((await store.historyStats(userId)).conversations).toBe(0);
+  });
+
   it('reuses a conversation when given its id, and makes a new one otherwise', async () => {
     const userId = await freshUser();
     const first = await store.ensureConversation(userId);

@@ -147,6 +147,27 @@ causes were in the document (six examples, all hard moments; an unscoped
 "不替用户做决定"), so the fix was there too. New baseline at `prompt 1e0d7fcd97a2`;
 `CHANGELOG.md` → Evaluation has the before-and-after and the residual gap.
 
+**The companion knows how long it has known you** (2026-09-29). The relationship
+half of Phase 8 in `docs/REFACTORING_PLAN.md`, closing two §43 dimensions that had
+no case and no feature behind them. The trigger was measured rather than assumed:
+asked *"我们之前聊过吧？"* with no history, the companion answered with a report on
+a database query, because with retrieval as its only instrument a question about
+the relationship had to be read as a retrieval problem.
+`src/memory/relationship.ts` derives the state from counts that already exist and
+renders it into every turn — deliberately not relevance-gated, because a gated
+block would be missing on exactly the turn it is needed.
+
+**The narrative half went the other way, twice.** The first version of
+[ADR 012](adr/012-relationship-and-narrative.md) deferred it on a single
+observation — the model had reached a running theme on its own through
+`search_memory`. Four more runs did not replicate that, and the mechanism turned
+out to be deterministic: the theme and the message share no terms, so the
+similarity gate drops the memory before the model ever sees it (`selected 0,
+dropped {below_min_similarity: 1}`). `src/memory/narrative.ts` is the block the
+plan proposed, built once the evidence supported it rather than in the same pass
+as the relationship one. **The reversal is recorded in the ADR**, not just the
+outcome — the interesting part is how thin the first decision's evidence was.
+
 Remaining:
 
 - Anything else the first real usage suggests.
@@ -177,10 +198,10 @@ Remaining:
 
 | Suite | Count | Requires |
 |---|---|---|
-| Offline (`npm test`) | 417 passed, 27 skipped | nothing |
-| Postgres (`tests/db/`) | 23 | `DATABASE_URL` |
+| Offline (`npm test`) | 453 passed, 29 skipped | nothing |
+| Postgres (`tests/db/`) | 25 | `DATABASE_URL` |
 | Live smoke (`npm run smoke`) | 4 | `RUN_SMOKE=1` + credential |
-| Evaluation (`npm run eval`) | 28 cases, mean 0.981 | credential |
+| Evaluation (`npm run eval`) | 30 cases, mean 0.966 | credential |
 
 The offline suite is the one that runs on every change: no network, no container,
 about 1.5 seconds. Everything that needs the outside world self-skips, which is a

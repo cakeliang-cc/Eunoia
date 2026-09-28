@@ -178,6 +178,8 @@ export async function* runTurn(
       sourceMessageId: userMessageId,
       now: deps.now?.(),
     }),
+    relationshipBlock: context.relationshipBlock,
+    narrativeBlock: context.narrativeBlock,
     memoryBlock: context.memoryBlock,
     safetyDirective: safetyDirectiveFor(riskLevel),
   };

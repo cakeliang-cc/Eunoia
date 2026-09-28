@@ -312,11 +312,35 @@ export async function loadRecording(path: string): Promise<Recording> {
   return JSON.parse(await readFile(path, 'utf8')) as Recording;
 }
 
+/**
+ * The most recent recording.
+ *
+ * Sorted by the **timestamp**, not by the filename. The name is
+ * `<promptVersion>-<recordedAt>.json` and the version comes first, so a plain
+ * `.sort()` orders the files by hash — which is to say, arbitrarily, and
+ * stably so. It picked the right file for months by luck, and then a run at
+ * `372297600bf1` was shadowed by one at `e9eb3bc57a41`, because `'3' < 'e'`.
+ * The failure was quiet: `--replay` scored a two-generation-old recording
+ * against the current checks, and the only reason it was noticed is that the
+ * gap-filling count came back as six cases instead of zero.
+ *
+ * The timestamp half of the name is a fixed-width ISO-8601 string with `:` and
+ * `.` replaced by `-`, so comparing those halves as text is comparing them as
+ * dates. A file that does not have the separator is not a recording this
+ * function wrote, and sorts first rather than throwing.
+ */
 export async function latestRecording(dir = RECORDINGS_DIR): Promise<string | null> {
   const { readdir } = await import('node:fs/promises');
   try {
-    const files = (await readdir(dir)).filter((name) => name.endsWith('.json')).sort();
-    return files.length === 0 ? null : join(dir, files[files.length - 1] as string);
+    const files = (await readdir(dir)).filter((name) => name.endsWith('.json'));
+    if (files.length === 0) return null;
+
+    const stampOf = (name: string): string => {
+      const dash = name.indexOf('-');
+      return dash === -1 ? '' : name.slice(dash + 1);
+    };
+    files.sort((a, b) => stampOf(a).localeCompare(stampOf(b)));
+    return join(dir, files[files.length - 1] as string);
   } catch {
     return null;
   }

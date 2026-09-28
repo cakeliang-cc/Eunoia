@@ -46,6 +46,10 @@ export interface AgentOptions {
   readonly safetyDirective?: string | null;
   /** Retrieved memories, already rendered. See `src/memory/render.ts`. */
   readonly memoryBlock?: string | null;
+  /** How long we have known each other. See `src/memory/relationship.ts`. */
+  readonly relationshipBlock?: string | null;
+  /** The themes they are living through. See `src/memory/narrative.ts`. */
+  readonly narrativeBlock?: string | null;
 }
 
 /**
@@ -59,6 +63,8 @@ export function createCompanionAgent(options: AgentOptions = {}): Agent {
   return new Agent({
     name: AGENT_NAME,
     instructions: buildInstructions({
+      relationshipBlock: options.relationshipBlock,
+      narrativeBlock: options.narrativeBlock,
       memoryBlock: options.memoryBlock,
       safetyDirective: options.safetyDirective,
     }),

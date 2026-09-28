@@ -73,8 +73,35 @@ export interface MemoryStore {
   logMemoryEvent(event: MemoryEvent): Promise<void>;
 }
 
+/**
+ * How much has passed between us (spec §25, §43).
+ *
+ * Counts and two dates, not a state machine: the companion needs to know whether
+ * this is a first conversation or a two-hundredth, and that question is answered
+ * by arithmetic rather than by a category someone invented.
+ */
+export interface HistoryStats {
+  readonly conversations: number;
+  readonly messages: number;
+  /** When the first conversation started, or null if there has never been one. */
+  readonly firstAt: Date | null;
+  /** The most recent message, or null in the same case. */
+  readonly lastAt: Date | null;
+}
+
 export interface ConversationStore {
   ensureConversation(userId: string, conversationId?: string | null): Promise<Conversation>;
+
+  /**
+   * The relationship, derived in one query rather than by loading rows.
+   *
+   * Deliberately not a stored table. A `relationship` row would need a
+   * migration, would say something different from the conversations it
+   * summarises the moment one was deleted, and would be a cache of an
+   * aggregate — which is the definition of a thing that goes stale to save
+   * nothing.
+   */
+  historyStats(userId: string): Promise<HistoryStats>;
   /**
    * Give a conversation a name, from its first user message.
    *

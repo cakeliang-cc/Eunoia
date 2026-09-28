@@ -89,6 +89,131 @@ describe('buildTurnContext', () => {
   });
 });
 
+describe('the relationship block', () => {
+  it('says nothing before there has been a conversation', async () => {
+    // Nothing has happened between us, so there is nothing to describe. The
+    // block is absent rather than empty-headed — a header announcing an absence
+    // is prompt text spent on nothing.
+    const context = await buildTurnContext(store, USER, '在吗');
+    expect(context.relationshipBlock).toBe('');
+  });
+
+  it('states that this is the beginning, once there is one message', async () => {
+    const conversation = await store.ensureConversation(USER);
+    await store.appendMessage({
+      conversationId: conversation.id,
+      userId: USER,
+      role: 'user',
+      content: '我们之前聊过吧？',
+    });
+
+    const context = await buildTurnContext(store, USER, '我们之前聊过吧？');
+    expect(context.relationshipBlock).toContain('刚开始');
+  });
+
+  it('is not relevance-gated, which is the whole point', async () => {
+    // The asymmetric half of the design. "Is knowing you for three months
+    // relevant to this turn?" answers itself, and a block that appeared only
+    // when the message happened to be about the relationship would be absent
+    // exactly when it was needed — the turn where someone asks whether you
+    // remember them mentions no topic at all.
+    const conversation = await store.ensureConversation(USER);
+    for (let i = 0; i < 8; i += 1) {
+      await store.appendMessage({
+        conversationId: conversation.id,
+        userId: USER,
+        role: 'user',
+        content: `第 ${i} 句话`,
+      });
+    }
+
+    const context = await buildTurnContext(store, USER, '我今天中午吃了拉面');
+    expect(context.memoryBlock).toBe('');
+    expect(context.relationshipBlock).not.toBe('');
+  });
+
+  it('survives a store that cannot answer, because context is optional', async () => {
+    // Same reasoning as the fire-and-forget access accounting: a count query is
+    // not worth failing a person's message over.
+    class NoHistoryStore extends InMemoryStore {
+      override async historyStats(): Promise<never> {
+        throw new Error('history is down');
+      }
+    }
+
+    const context = await buildTurnContext(new NoHistoryStore(), USER, '在吗');
+    expect(context.relationshipBlock).toBe('');
+    expect(context.risk.level).toBe('none');
+  });
+
+  it('arrives even when retrieval is switched off', async () => {
+    // Evaluation cases and any future "just answer this" path set `retrieve:
+    // false`. Continuity is not retrieval, so it is not switched off with it.
+    const conversation = await store.ensureConversation(USER);
+    await store.appendMessage({
+      conversationId: conversation.id,
+      userId: USER,
+      role: 'user',
+      content: '我们之前聊过吧？',
+    });
+
+    const context = await buildTurnContext(store, USER, '我们之前聊过吧？', { retrieve: false });
+    expect(context.relationshipBlock).toContain('刚开始');
+  });
+});
+
+describe('the narrative block', () => {
+  const THEME = '用户正在纠结要不要离开现在的城市、回老家生活，这件事反复出现过好几次，一直没有结论';
+
+  it('carries a theme the similarity gate would have dropped', async () => {
+    // The measurement this feature was built from, at the level where it
+    // matters: the same turn, the same memory, and the two blocks disagree.
+    await seed(THEME, { type: 'narrative', importance: 0.9 });
+
+    const context = await buildTurnContext(store, USER, '最近老是梦见小时候住的那个院子。');
+
+    expect(context.memoryBlock).toBe('');
+    expect(context.narrativeBlock).toContain('回老家');
+  });
+
+  it('does not render the same memory twice', async () => {
+    // A narrative that *does* pass the gate would otherwise appear both as a
+    // theme and as a retrieved fragment. Two voices saying one thing read as two
+    // things, and the block that says "you are living through this" is the one
+    // worth keeping.
+    await seed(THEME, { type: 'narrative', importance: 0.9 });
+
+    const context = await buildTurnContext(store, USER, `我还在纠结回老家的事`);
+    expect(context.narrativeBlock).toContain('回老家');
+    expect(context.memoryBlock).not.toContain('回老家');
+    expect(context.memoryCount).toBe(0);
+  });
+
+  it('says nothing when nothing is being lived through', async () => {
+    await seed('用户养了一只叫团子的猫');
+    const context = await buildTurnContext(store, USER, '团子最近有点不吃饭');
+    expect(context.narrativeBlock).toBe('');
+  });
+
+  it('goes away when memory is switched off, unlike the relationship block', async () => {
+    // `retrieve: false` is the person's memory switch. A companion that stopped
+    // citing facts but kept narrating someone's life back to them would have
+    // ignored the request in the way that matters most.
+    const conversation = await store.ensureConversation(USER);
+    await store.appendMessage({
+      conversationId: conversation.id,
+      userId: USER,
+      role: 'user',
+      content: '我们之前聊过吧？',
+    });
+    await seed(THEME, { type: 'narrative', importance: 0.9 });
+
+    const context = await buildTurnContext(store, USER, '随便说点什么', { retrieve: false });
+    expect(context.narrativeBlock).toBe('');
+    expect(context.relationshipBlock).not.toBe('');
+  });
+});
+
 describe('the automatic budget', () => {
   it('caps the number of memories injected', async () => {
     for (let i = 0; i < 10; i += 1) await seed(`用户喜欢跑步，这是关于跑步的第 ${i} 条`);

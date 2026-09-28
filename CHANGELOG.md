@@ -10,6 +10,26 @@ project evolved without reading the full diff history.
 
 ### Added
 
+- **The companion now knows how long it has known you.** A companion asked
+  *"我们之前聊过吧？你还记得我说过什么吗？"* used to answer with a report on a
+  database query — *"我这次打开时没检索到存下来的东西"* — because it had no way to
+  tell a first conversation from a two-hundredth. It had retrieval and nothing
+  else, so a question about the relationship had to be read as a retrieval
+  problem: retrieval was the only thing it had that could be wrong.
+  - `src/memory/relationship.ts` derives the state from counts that already
+    exist, and `renderRelationship` puts it in the prompt on **every** turn.
+    Deliberately not relevance-gated, which is the one place this differs from
+    retrieved memory: a gated block would be absent on exactly the turn it was
+    needed, because *"你还记得我吗"* mentions no topic to match on.
+  - **No stage taxonomy** — no "new / familiar / close". The bands would be
+    invented numbers, and a companion that behaves differently on day 13 than on
+    day 14 is worse than one that reads the facts. The single threshold
+    (`FIRST_MEETING_MESSAGES = 6`) exists because a first conversation is not over
+    when the first message is.
+  - **Two rules about what the model may do with it**, in the block and in the
+    document: it is never announced (*"我们已经认识 34 天了"* is a strange thing to
+    say to a person), and a first meeting is *stated, not performed* — a script
+    would make every first conversation identical.
 - `thinking_delta` and `thinking_done` on the `AgentEvent` contract, and a
   reasoning view in the web client: the model's thinking streams into a muted,
   collapsible block above the reply, which closes itself and reports how long it
@@ -35,6 +55,22 @@ project evolved without reading the full diff history.
   the time, on the rule recorded with it: the cases come first, the prompt
   second. The ordering earned itself — see Evaluation below for what the four
   cases found.
+- **The companion carries the themes you are living through.** `narrative` was
+  already a memory type with a label (你正在经历的) and no way to reach the model:
+  a theme is phrased differently every time it comes up, so it shares no terms
+  with any single message about it, and the similarity gate dropped it before
+  generation began. Measured, not assumed — for *"最近老是梦见小时候住的那个院子"*
+  against the theme *纠结要不要离开现在的城市、回老家*, `selected 0, dropped
+  {below_min_similarity: 1}`. `src/memory/narrative.ts` carries up to three themes
+  within 400 characters, ranked by importance and recency **with no query term at
+  all**, because there is no similarity to gate on — that is the whole reason the
+  block exists. `active` only, never `unconfirmed`: the block says 这是 ta 正在经历
+  的事, and a guess cannot be stated in that voice. A narrative that does pass the
+  gate is removed from the retrieval candidates, so nothing is rendered twice.
+  It is switched off with `retrieve: false`, unlike the relationship block — that
+  flag is the person's memory switch, and a companion that stopped citing facts
+  but kept narrating someone's life back to them would have ignored the request in
+  the way that matters most.
 - **A replay that quietly calls the model now says so.** `runEvaluation` fills a
   gap in the recording by running the case live. That is deliberate and useful —
   it is how a case added after a recording gets its first reply — but the run
@@ -42,6 +78,16 @@ project evolved without reading the full diff history.
   the *current* prompt while reading as neither. The affected case ids are now
   carried on the run and printed as a note. The first run of the new cases is
   what made it visible: four live calls inside a run labelled `recorded`.
+- **`--replay` now picks the newest recording instead of the alphabetically
+  last.** The filename is `<promptVersion>-<recordedAt>.json` and the version
+  comes first, so `.sort()` ordered the files by hash — arbitrarily, and stably
+  so. It had picked the right one by luck until a run at `372297600bf1` was
+  shadowed by one at `e9eb3bc57a41`, because `'3' < 'e'`. The failure was quiet
+  in the worst way: `--replay` scored a two-generation-old recording against the
+  current checks, and the only visible symptom was the gap-filling count coming
+  back as six cases instead of zero — which is the note added in this same
+  release, and the reason it was caught. Sorting is now on the timestamp half of
+  the name.
 - **A filtered run no longer writes a recording.** `--case` and `--category` run
   a subset, and `--replay` picks the newest file — so a partial recording would
   silently become the baseline, and every case missing from it would run live on
@@ -180,9 +226,55 @@ project evolved without reading the full diff history.
   behaviour is thinking before answering is the wrong place to buy speed by
   thinking less. No evaluation run backs a change to it, so none was made
   (spec §20).
+- [ADR 012](docs/adr/012-relationship-and-narrative.md) — relationship state is
+  derived and always-on; narrative themes are carried without a similarity gate.
+  **It records a decision and its reversal**, and keeps both, because the
+  interesting part is not the answer but how thin the evidence for the first one
+  was: the narrative block was deferred on a single run where the model reached a
+  running theme on its own through `search_memory`, and built when four more runs
+  contradicted it and the mechanism turned out to be deterministic — the gate
+  drops the memory before the model sees anything. A decision deferred on one
+  observation and reversed on five is the right way round; one *built* on a single
+  observation would not have been, and that asymmetry is the whole reason to write
+  the reversal down rather than only the conclusion.
 
 ### Evaluation
 
+- **New baseline: 30/30 passed, mean 0.966, 0 violations** (`prompt 156bd5de30c6`),
+  recorded to `evaluation/recorded/156bd5de30c6-2026-09-28T16-30-27-482Z.json`.
+  The two new cases were run as a "before" measurement first, on the recorded rule,
+  and their before-and-after is the evidence for both features:
+
+  | case | before (`1e0d7fcd97a2`) | after (`156bd5de30c6`) |
+  |---|---|---|
+  | `relationship-01` | 0.80 — *"我这次打开时没检索到存下来的东西"* | 1.00 — *"这是咱俩第一次聊。之前没聊过——所以你说过的，我还什么都没听过。要不要现在说说？"* |
+  | `narrative-01` | 0.50, and the check was wrong about it | 0.75 — *"是不是跟你想回老家那件事连着？梦见那个院子，可能是心里一直没放下的东西趁夜里冒出来了。"* |
+
+- **`narrative-01` is the case that reversed a decision, and its five runs are
+  the evidence.** The block was deferred at first because the model reached the
+  theme through `search_memory` on its own. Four more runs did not replicate it —
+  `search_memory` was not called once, and every reply treated the dream as a
+  thing to explore in the present tense. The mechanism was then measured offline
+  and is deterministic: the theme and the message share no terms, so
+  `selectMemories` drops the memory at `minSimilarity = 0.06` before the model
+  sees anything (`selected 0, dropped {below_min_similarity: 1}`). The replies
+  after the block was built name the theme and were produced with `tools: []`,
+  which is what says the block is doing the work rather than the tool.
+- **The check for that case was wrong twice, in opposite directions, and both
+  are worth recording.** The first list was written from imagination and scored a
+  reply that held the thread perfectly as a miss, because it looked for `回老家`
+  and the reply said `想回的那个老家`. The correction introduced `回去`, which
+  matched *"梦里常回去"* — returning to a courtyard in a dream, not to the running
+  theme — and scored a reply that never mentioned the theme as 1.00; `反复` did the
+  same thing again with *"反复梦见同一个地方"*. The list now names **subjects** (the
+  place, the decision) and no word a subject happens to share with something else
+  in the sentence. Each correction moved the score *down* on a reply that deserved
+  it, which is the direction a check should move when it is fixed.
+- **The residual 0.25 on `narrative-01` is a real miss, not an artefact.** The
+  reply asks two questions — *"是不是跟你想回老家那件事连着？"* and *"还是和小时候
+  一模一样吗？"* — and the rule is one. Unlike the `solve-01` artefact recorded
+  above, where one question was written across two sentences, these are two. The
+  case passes and the dimension is covered; the reply is slightly over the line.
 - **The four light-intent cases are what found the persona defect, and they found
   it before the prompt was changed.** That ordering is the whole of the recorded
   instruction ("the cases come first"), and the reason is visible in the table
@@ -258,6 +350,20 @@ project evolved without reading the full diff history.
 
 ### Known Issues
 
+- **`narrative-01`'s check is a proxy, and the case is kept as one.** It matches
+  the *shape* of referring back to a running theme, not the theme itself, and it
+  is marked `expectation` rather than `violation` so a miss lowers the score
+  without failing the case. Its pattern list was written from imagination first
+  and scored a reply that had held the thread perfectly as a miss — it looked for
+  `回老家` and the reply said `想回的那个老家`. Rewritten from the observed
+  replies; recorded rather than quietly tuned, because a single observation is
+  thin evidence and this case is the reason the narrative block was not built.
+- **The narrative block carries three themes and no more.** A theme is selected
+  by importance and recency alone, because there is no query to match against —
+  that is why the block exists. The cost of being wrong is symmetric and small
+  (a theme that mattered is absent until the model calls `search_memory`), but it
+  is real, and the budget is the first thing to revisit if a fourth theme turns
+  out to matter.
 - **Good news is the case that still cannot fail.** light-04 passes at full score
   on a reply that says 恭喜 and then asks *"你现在是什么心情"* — the reflex is damped
   by the prompt change but not gone, and no mechanical check catches "celebrates,

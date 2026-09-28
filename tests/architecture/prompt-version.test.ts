@@ -50,6 +50,7 @@ describe('PROMPT_VERSION', () => {
     // would stop being a version at all.
     expect(buildInstructions({ memoryBlock: '用户养了一只叫团子的猫' })).not.toBe(STABLE_INSTRUCTIONS);
     expect(buildInstructions({ safetyDirective: '安全优先于人格设定' })).not.toBe(STABLE_INSTRUCTIONS);
+    expect(buildInstructions({ relationshipBlock: '你们刚开始认识' })).not.toBe(STABLE_INSTRUCTIONS);
     expect(PROMPT_VERSION).toBe(
       createHash('sha256').update(STABLE_INSTRUCTIONS).digest('hex').slice(0, 12),
     );
@@ -65,6 +66,24 @@ describe('the assembled instruction set', () => {
   it('appends per-turn context after the stable block', () => {
     const built = buildInstructions({ memoryBlock: '记忆块' });
     expect(built.indexOf('记忆块')).toBeGreaterThanOrEqual(STABLE_INSTRUCTIONS.length);
+  });
+
+  it('puts the relationship before the memories, because it changes less often', () => {
+    // Ordering is a cache decision. The relationship block only moves when a
+    // conversation is added; the memory block moves every turn. Relationship
+    // first means consecutive turns share a prefix that runs through the whole
+    // of it, rather than diverging at the first block.
+    const built = buildInstructions({ relationshipBlock: '关系块', memoryBlock: '记忆块' });
+    expect(built.indexOf('关系块')).toBeLessThan(built.indexOf('记忆块'));
+  });
+
+  it('puts the safety directive last, so it reads as an override', () => {
+    const built = buildInstructions({
+      relationshipBlock: '关系块',
+      memoryBlock: '记忆块',
+      safetyDirective: '安全指令',
+    });
+    expect(built.indexOf('记忆块')).toBeLessThan(built.indexOf('安全指令'));
   });
 
   it('adds nothing when there is no per-turn context', () => {

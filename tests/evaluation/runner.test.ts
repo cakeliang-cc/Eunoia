@@ -12,10 +12,18 @@
  * suite starts passing for reasons that have nothing to do with the product.
  */
 
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { InMemoryStore } from '../../src/db/in-memory-store.ts';
 import { PROMPT_VERSION } from '../../src/agent/instructions.ts';
-import { summarise, runEvaluation, type CaseExecutor } from '../../src/evaluation/runner.ts';
+import {
+  latestRecording,
+  summarise,
+  runEvaluation,
+  type CaseExecutor,
+} from '../../src/evaluation/runner.ts';
 import type { CaseResult, EvaluationCase } from '../../src/evaluation/types.ts';
 
 let store: InMemoryStore;
@@ -413,5 +421,39 @@ describe('summarise', () => {
 
   it('handles an empty run without dividing by zero', () => {
     expect(summarise([])).toMatchObject({ total: 0, passed: 0, failed: 0, meanScore: 0 });
+  });
+});
+
+describe('picking the recording to replay', () => {
+  it('picks the newest by timestamp, not by filename', async () => {
+    // The bug this exists for: the name is `<promptVersion>-<recordedAt>.json`,
+    // so a plain `.sort()` orders by hash. `'3' < 'e'`, so a run at
+    // `372297600bf1` was shadowed by a two-generation-old one at
+    // `e9eb3bc57a41` — and `--replay` scored old replies against new checks
+    // while reading as a normal replay.
+    const dir = await mkdtemp(join(tmpdir(), 'designfree-recordings-'));
+    try {
+      const older = join(dir, 'e9eb3bc57a41-2026-09-28T15-35-06-364Z.json');
+      const newer = join(dir, '372297600bf1-2026-09-28T16-22-37-136Z.json');
+      await writeFile(older, '{}', 'utf8');
+      await writeFile(newer, '{}', 'utf8');
+
+      expect(await latestRecording(dir)).toBe(newer);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns null for a directory with no recordings', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'designfree-recordings-'));
+    try {
+      expect(await latestRecording(dir)).toBeNull();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns null rather than throwing when the directory is missing', async () => {
+    expect(await latestRecording(join(tmpdir(), 'designfree-does-not-exist-xyz'))).toBeNull();
   });
 });

@@ -68,7 +68,7 @@ src/api/          ← the only HTTP-aware layer
 src/service/      ← turn orchestration: retrieve → assess → run → check → persist
         │
         ├── src/agent/          one agent, its prompt, its tools (ADR 001)
-        ├── src/memory/         four-layer memory, scoring, write policy (ADR 003, 004, 007)
+        ├── src/memory/         four-layer memory, scoring, write policy, relationship (ADR 003, 004, 007, 012)
         ├── src/safety/         risk detection, directives, output check (ADR 008)
         ├── src/db/             Store interface + Postgres and in-memory implementations
         └── src/evaluation/     cases, scorers, runner, report (ADR 004)
@@ -96,6 +96,7 @@ mini-program migration an adapter rather than a rewrite (ADR 006).
 | [009](docs/adr/009-identity-handle-not-auth.md) | Identity is an unguessable handle, explicitly **not** authentication. |
 | [010](docs/adr/010-reasoning-is-forwarded.md) | The model's reasoning is forwarded as its own event, not discarded. |
 | [011](docs/adr/011-prompt-is-a-document.md) | The system prompt is a markdown document (`src/agent/prompts/companion.md`); only its composition is code. |
+| [012](docs/adr/012-relationship-and-narrative.md) | Relationship state is derived from counts and rendered every turn; narrative themes are carried without a similarity gate, because a theme never shares words with the message about it. Records a decision **and its reversal**. |
 
 A few of these are worth stating in the README because they surprise people:
 
@@ -129,12 +130,21 @@ more `text_delta`.
 
 ## Evaluation
 
-28 cases across 11 categories, translated from the spec's canonical scenarios —
-ten of them hard moments, and one (`light_intent`) of ordinary turns, because a
-suite made only of hard moments certifies a companion that answers "周末去哪儿"
-with a question about your feelings. Scoring is mechanical where it can be
-(`CheckKind`s in `src/evaluation/scorers.ts`) and reported, not silently warned,
-when a forbidden behaviour appears.
+30 cases across 13 categories, translated from the spec's canonical scenarios —
+twenty-four of them hard moments, four (`light_intent`) ordinary turns, and two
+about continuity over time. The split is deliberate in both directions: a suite
+made only of hard moments certifies a companion that answers "周末去哪儿" with a
+question about your feelings, and a suite with no continuity case cannot see a
+companion that greets a stranger as an old friend. Scoring is mechanical where it
+can be (`CheckKind`s in `src/evaluation/scorers.ts`) and reported, not silently
+warned, when a forbidden behaviour appears.
+
+Both continuity cases earned their place the same way: they were written and run
+*before* the features they judge, so the "before" reply is the evidence that the
+feature was needed rather than a description of it. `relationship-01` answered
+*"我这次打开时没检索到存下来的东西"* — a report on a database query — and
+`narrative-01` is the measurement that reversed a deferral. See
+[ADR 012](docs/adr/012-relationship-and-narrative.md).
 
 ```
 npm run eval              # live; writes evaluation/recorded/<prompt>-<time>.json
