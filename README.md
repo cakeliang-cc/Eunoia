@@ -95,8 +95,9 @@ mini-program migration an adapter rather than a rewrite (ADR 006).
 | [008](docs/adr/008-safety-buffered-turns.md) | Crisis turns are buffered and checked before anything is rendered. |
 | [009](docs/adr/009-identity-handle-not-auth.md) | Identity is an unguessable handle, explicitly **not** authentication. |
 | [010](docs/adr/010-reasoning-is-forwarded.md) | The model's reasoning is forwarded as its own event, not discarded. |
+| [011](docs/adr/011-prompt-is-a-document.md) | The system prompt is a markdown document (`src/agent/prompts/companion.md`); only its composition is code. |
 
-Three of these are worth stating in the README because they surprise people:
+A few of these are worth stating in the README because they surprise people:
 
 - **A crisis turn does not stream.** Its reply is held until it passes a
   mechanical safety check. A rendered delta cannot be un-rendered, so the check
@@ -108,6 +109,12 @@ Three of these are worth stating in the README because they surprise people:
   several seconds before its first character, so the alternatives were a live
   view of that thinking or a long static `…`. See ADR 010 — and note that a
   client may ignore `thinking_delta` entirely and still be correct.
+- **The system prompt is a markdown file, not code.** It is
+  `src/agent/prompts/companion.md`, read once at startup; `instructions.ts` only
+  decides what goes around it. Editing the companion's voice is editing a
+  document — and `PROMPT_VERSION` hashes the bytes the model is actually sent, so
+  a recorded evaluation can be attributed to the prompt that produced it. See
+  ADR 011.
 - **The prompt is Chinese; the identifiers inside it are not.** Every word the
   model *reads* is Chinese, because the product is Chinese-facing. Tool names
   (`search_memory`), the enum values it must emit (`user_explicit`) and schema

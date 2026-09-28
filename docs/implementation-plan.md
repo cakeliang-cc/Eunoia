@@ -22,6 +22,7 @@ each phase actually shipped, including the bugs its gate caught.
 | D6 | Crisis handling | Crisis turns are buffered and mechanically checked before anything renders; failure substitutes fixed text | [008](adr/008-safety-buffered-turns.md) |
 | D7 | Identity | Server-minted unguessable UUID handle. Explicitly not authentication | [009](adr/009-identity-handle-not-auth.md) |
 | D8 | Reasoning phase | Forwarded as `thinking_delta`/`thinking_done`; model reasoning effort left at its default | [010](adr/010-reasoning-is-forwarded.md) |
+| D9 | Prompt source | The system prompt is a document read at startup; the policy it used to be rendered from is now a checklist the document is tested against | [011](adr/011-prompt-is-a-document.md) |
 
 ## Blockers requiring user action
 
@@ -158,7 +159,12 @@ Remaining:
   §20, anti-pattern 8).
 - **No prompt change without an evaluation run** (anti-pattern 7). `PROMPT_VERSION`
   is a hash of the stable instructions, so a prompt change is visible in the run
-  history — visible, not prevented. The rule is still a rule.
+  history — visible, not prevented. The rule is still a rule. The hash is taken
+  from the loaded document rather than from a constant, so the version describes
+  the bytes the model was sent and not a copy of them (ADR 011).
+- **The prompt is a document** (`src/agent/prompts/companion.md`), read at
+  startup. Editing the companion's voice is editing markdown; adding prose back
+  into the loader is a test failure (`tests/architecture/prompt-source.test.ts`).
 - One migration per schema change; applied migrations are immutable (ADR 002).
 - Retrieval changes must keep the budget cap test green.
 - **Only a composition root installs the model provider**, enforced by
@@ -169,8 +175,8 @@ Remaining:
 
 | Suite | Count | Requires |
 |---|---|---|
-| Offline (`npm test`) | 383 passed, 25 skipped | nothing |
-| Postgres (`tests/db/`) | 21 | `DATABASE_URL` |
+| Offline (`npm test`) | 415 passed, 27 skipped | nothing |
+| Postgres (`tests/db/`) | 23 | `DATABASE_URL` |
 | Live smoke (`npm run smoke`) | 4 | `RUN_SMOKE=1` + credential |
 | Evaluation (`npm run eval`) | 24 cases, mean 0.958 | credential |
 

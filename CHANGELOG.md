@@ -15,13 +15,56 @@ project evolved without reading the full diff history.
   collapsible block above the reply, which closes itself and reports how long it
   took ("思考了 12 秒") the moment the answer starts. Clicking it reopens it, and
   once the person has, the client stops collapsing it for them.
-- `tests/web/client.test.ts` — the client's first tests. Nine of them, driving
-  the real module out of `web/index.html` against a hand-written DOM. What they
-  can prove (event routing, ordering, the data attributes the stylesheet keys
-  off) and what they cannot (that it *looks* right) is stated in the file.
+- `tests/web/client.test.ts` — the client's first tests. Twenty-one of them,
+  driving the real module out of `web/index.html` against a hand-written DOM.
+  What they can prove (event routing, ordering, the data attributes the
+  stylesheet keys off) and what they cannot (that it *looks* right) is stated in
+  the file. `fetch` is routed by method and path and `localStorage` is a `Map`,
+  so the reload path is testable rather than assumed.
+- **The conversation comes back after a reload.** The id is kept in
+  `localStorage`, the transcript is rebuilt from `GET /api/conversations/:id/messages`
+  on load, and a `对话` drawer lists every conversation with its name and when it
+  was last used. Restored replies carry their rating buttons, because a history
+  you cannot rate is a read-only copy rather than the same conversation.
+- **Conversations are named after the message that opened them** — `conversationTitle()`
+  in `src/memory/types.ts`, cut at 24 characters with the cut marked. Derived
+  rather than asked for: a companion that opened by requesting a title would be
+  asking the person to do filing. Set once (`title IS NULL` is part of the
+  UPDATE), so the list does not become a rolling window onto whatever was said
+  last. Conversations written before this stay unnamed until they are written in
+  again, so the drawer has a fallback rather than a blank row.
 
 ### Changed
 
+- **The system prompt is now a document, not code.** Asked for as "你的提示词应该
+  从代码中抽离，放到一个单独的md文件中". It is `src/agent/prompts/companion.md`,
+  read once at startup; `src/agent/instructions.ts` keeps only the composition
+  (what goes around the prompt, and in what order).
+  - **The extraction is verified, not asserted.** The migration was done by
+    dumping the existing `STABLE_INSTRUCTIONS` into the file and loading it back:
+    the prompt is 4121 characters and `PROMPT_VERSION` is `e9eb3bc57a41` before
+    and after, so the model receives byte-identical instructions and this change
+    needs no evaluation run. `npm run eval:replay` confirms the recorded run and
+    the current prompt still agree.
+  - **`src/agent/behavioral-policy.ts` is gone**, and the duplicate it existed to
+    police is gone with it. The policy was data there and prose in the renderer,
+    with a test asserting the two agreed — which detects a duplicate rather than
+    removing one, and produced a defect when it let the two disagree: after the
+    Chinese translation the renderer was still emitting `不急于解决（dont_rush_to_solve）`,
+    handing the model two names for one rule. What replaces it is
+    `src/agent/prompt-contract.ts`: the spec's own ids and labels as a checklist
+    the document is tested against, holding no prose of its own.
+  - **Three things deliberately stayed in code**, and the boundary is recorded in
+    ADR 011 and enforced by `tests/architecture/prompt-source.test.ts`: tool
+    descriptions (they sit next to the schema the SDK reads them from), the
+    per-turn safety directives (selected by a branch, and read together with the
+    compliance checks that are their other half), and enum-keyed labels.
+  - **What the tests lost, and what they gained.** They can no longer assert that
+    two copies of a sentence agree. They now assert what the *spec* requires of
+    the document, and they assert it **section by section** — `焦虑` appearing in
+    an example is no longer evidence that Ne is bounded, because the check runs
+    inside Ne's own section. That is a stricter test of the thing that matters
+    than the drift check it replaced.
 - **The client no longer shows a static `…`.** It shows three pulsing dots for
   the ~1.5s before the first token, then the live reasoning, then the reply with
   a caret. Turns fade in.
@@ -50,6 +93,14 @@ project evolved without reading the full diff history.
 
 ### Fixed
 
+- **"现在的会话都丢失了" — nothing was lost, and the client had never asked.**
+  The database held 228 users, 120 conversations and 167 messages, and both
+  `GET /api/conversations` and `GET /api/conversations/:id/messages` returned the
+  right rows. The client held the conversation id in a variable that died with
+  the page and called neither endpoint. From the outside that is the same thing
+  as losing the conversation, which is why it read as a server bug; the fix is
+  the three `Added` entries above, and the tests that pin it are about a reload,
+  because that is the thing that was broken.
 - **The reasoning phase was being discarded, which made streaming look broken.**
   Reported as "需要改成流式输出" — but the transport was streaming correctly. A
   live turn produced 536 reasoning deltas starting at +1.65s and 56 reply deltas
@@ -119,7 +170,24 @@ project evolved without reading the full diff history.
   or ask the agent to pick for them, and expect a recommendation from someone who
   knows them — not a question about how that makes them feel. **Deferred by the
   user to a later change**, recorded here so it is not lost.
-  - Note *why* this went unnoticed: all 24 evaluation cases, and all seven §12
+- **`npm run build` cannot work: `tsconfig.build.json` does not exist.** The
+  script is `tsc -p tsconfig.build.json` and the file has never been in the
+  repository. Nothing depends on the build today — development runs the sources
+  through Node's type stripping and the Docker/CI story is not written yet — but
+  it is a command in `package.json` that fails for anyone who tries it. When it
+  is written, the prompt document has to be copied alongside the emitted module:
+  `src/agent/instructions.ts` resolves it relative to itself, so a `dist/` without
+  `prompts/companion.md` throws on startup rather than sending an empty system
+  message.
+- **`RUMINATION_SIGNALS` has no consumer.** It is checked by a test and described
+  by the prompt's own §12 case-05 example, and nothing in `src/` branches on it —
+  the Te lens is not yet wired to detect that introspection has stopped producing
+  anything. It was dead before the prompt moved to a document, and the move only
+  changed which file it is dead in.
+- **The persona gap above is the reason to be careful with the next prompt
+  edit.** The document is easier to change now, which makes it easier to change
+  something no case can see. The cases come first.
+
     canonical scenarios, are hard moments — distress, conflict, crisis. There is
     no light-intent case, so nothing in the suite can detect a persona that reads
     "周末去哪儿" as a cry for help. **The missing coverage is the evaluation

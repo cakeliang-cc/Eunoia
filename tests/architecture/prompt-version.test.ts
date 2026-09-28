@@ -22,13 +22,16 @@
 
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 import {
+  PROMPT_FILE,
   PROMPT_VERSION,
   STABLE_INSTRUCTIONS,
   buildInstructions,
+  stripComments,
 } from '../../src/agent/instructions.ts';
-import { INTERACTION_PRINCIPLES } from '../../src/agent/behavioral-policy.ts';
+import { REQUIRED_PRINCIPLES } from '../../src/agent/prompt-contract.ts';
 
 describe('PROMPT_VERSION', () => {
   it('is a hash of the stable sections', () => {
@@ -71,13 +74,27 @@ describe('the assembled instruction set', () => {
     expect(buildInstructions({ memoryBlock: '', safetyDirective: null })).toBe(STABLE_INSTRUCTIONS);
   });
 
-  it('carries the behavioural policy, so the prompt and the policy cannot drift', () => {
-    // The policy is rendered from a data structure rather than retyped into the
-    // instructions. If it were retyped, the two would diverge and the tests that
-    // assert on the policy would be testing a copy.
-    for (const principle of INTERACTION_PRINCIPLES) {
+  it('hashes the document that was loaded, not a copy of it', () => {
+    // The version is derived from the string the model is sent. If it were
+    // derived from anything else — a hand-maintained constant, a build-time
+    // inlining — it would be possible for the recorded version to describe
+    // instructions that are no longer the ones in use, which is the one thing it
+    // exists to prevent.
+    const onDisk = readFileSync(PROMPT_FILE, 'utf8');
+    expect(STABLE_INSTRUCTIONS).toBe(stripComments(onDisk).trim());
+    expect(PROMPT_VERSION).toBe(
+      createHash('sha256').update(stripComments(onDisk).trim()).digest('hex').slice(0, 12),
+    );
+  });
+
+  it('records the principles the spec requires, by the labels the document uses', () => {
+    // The full check is in tests/agent/prompt-document.test.ts. This one exists
+    // because the version's meaning depends on it: if the prompt can lose a
+    // principle without anything failing, the version is a version of something
+    // that is not the product.
+    for (const principle of REQUIRED_PRINCIPLES) {
       expect(STABLE_INSTRUCTIONS, `${principle.id} is missing from the prompt`).toContain(
-        principle.rule,
+        principle.label,
       );
     }
   });
