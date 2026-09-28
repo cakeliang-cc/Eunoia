@@ -19,6 +19,38 @@ export interface TextDeltaEvent {
   readonly text: string;
 }
 
+/**
+ * A chunk of the model's reasoning, before it starts answering.
+ *
+ * This exists because of a measurement, not a preference. DeepSeek's reasoning
+ * models spend 3–18 seconds thinking before the first visible character, and
+ * during that window the previous client showed a static "…" — so a streamed
+ * reply *looked* like a non-streamed one. The text was always arriving; nothing
+ * was forwarding it.
+ *
+ * It is a separate event from `text_delta` rather than being merged into it,
+ * because the two are not the same thing to a client: the reply is the product
+ * and the reasoning is a working-out. A client may collapse it, hide it, or
+ * ignore it entirely, and the reply is still complete without it. A client that
+ * ignores this event type is still correct.
+ */
+export interface ThinkingDeltaEvent {
+  readonly type: 'thinking_delta';
+  readonly text: string;
+}
+
+/**
+ * The reasoning phase ended — the reply follows, or a tool call does.
+ *
+ * Carries the elapsed time so a client can close the block with a summary
+ * ("思考了 12 秒") instead of leaving a collapsed mystery. Sent at most once per
+ * turn, and only if some `thinking_delta` preceded it.
+ */
+export interface ThinkingDoneEvent {
+  readonly type: 'thinking_done';
+  readonly elapsedMs: number;
+}
+
 /** The agent decided to call a tool. Emitted before the call resolves. */
 export interface ToolCallEvent {
   readonly type: 'tool_call';
@@ -92,6 +124,8 @@ export interface ErrorEvent {
 
 export type AgentEvent =
   | TextDeltaEvent
+  | ThinkingDeltaEvent
+  | ThinkingDoneEvent
   | ToolCallEvent
   | ToolResultEvent
   | MemoryRetrievedEvent
@@ -99,5 +133,13 @@ export type AgentEvent =
   | CompletedEvent
   | ErrorEvent;
 
-/** Event types that carry assistant-visible content. */
-export const CONTENT_EVENT_TYPES = ['text_delta', 'completed'] as const;
+/**
+ * Event types that carry model-authored text.
+ *
+ * `thinking_delta` is here because the reasoning is model-authored text that
+ * reaches a client, and a caller that is counting what the model produced —
+ * a fingerprint, a length cap, a redaction pass — has to know about it. It is
+ * deliberately *not* in any list of things to persist: reasoning is never
+ * written to the conversation, only to the person watching it arrive.
+ */
+export const CONTENT_EVENT_TYPES = ['text_delta', 'thinking_delta', 'completed'] as const;

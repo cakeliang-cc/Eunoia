@@ -21,6 +21,7 @@ each phase actually shipped, including the bugs its gate caught.
 | D5 | Retrieval gating | `minSimilarity` is the relevance gate; `minScore` is a sanity floor. The two retrieval paths differ in width on purpose | [007](adr/007-retrieval-gates.md) |
 | D6 | Crisis handling | Crisis turns are buffered and mechanically checked before anything renders; failure substitutes fixed text | [008](adr/008-safety-buffered-turns.md) |
 | D7 | Identity | Server-minted unguessable UUID handle. Explicitly not authentication | [009](adr/009-identity-handle-not-auth.md) |
+| D8 | Reasoning phase | Forwarded as `thinking_delta`/`thinking_done`; model reasoning effort left at its default | [010](adr/010-reasoning-is-forwarded.md) |
 
 ## Blockers requiring user action
 
@@ -124,8 +125,12 @@ consulted-and-hidden; feedback capture (upsert); conversation list and message
 history endpoints; a streaming web client with a memory drawer; `README.md`.
 The API layer passes 30 tests over real HTTP, including SSE framing and abort.
 
-Remaining: latency work, and anything the first real usage suggests. The
-mini-program adapter is not started — it is a later phase by design (ADR 006).
+Latency work is done for now: the wait was not the model's, it was a discarded
+event stream (ADR 010), and forwarding the reasoning took time-to-first-frame
+from 17.83s to 1.22s without touching the model's settings.
+
+Remaining: anything the first real usage suggests. The mini-program adapter is
+not started — it is a later phase by design (ADR 006).
 
 ---
 
@@ -146,9 +151,9 @@ mini-program adapter is not started — it is a later phase by design (ADR 006).
 
 | Suite | Count | Requires |
 |---|---|---|
-| Offline (`npm test`) | 349 passed, 22 skipped | nothing |
+| Offline (`npm test`) | 368 passed, 25 skipped | nothing |
 | Postgres (`tests/db/`) | 21 | `DATABASE_URL` |
-| Live smoke (`npm run smoke`) | 3 | `RUN_SMOKE=1` + credential |
+| Live smoke (`npm run smoke`) | 4 | `RUN_SMOKE=1` + credential |
 
 The offline suite is the one that runs on every change: no network, no container,
 about 1.5 seconds. Everything that needs the outside world self-skips, which is a

@@ -17,6 +17,12 @@
     --danger: #a4553f;
     --warn-bg: #fdf6ec;
     --warn-border: #e8d5b0;
+    /* The reasoning block gets its own tone rather than reusing the accent:
+       it is not part of the reply, and it should read as a margin note. */
+    --think: #b08a4a;
+    --think-bg: #fbf7f0;
+    --think-border: #e6d9c2;
+    --shadow: 0 1px 2px rgba(47, 44, 40, .05);
     --radius: 14px;
     --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
             "Microsoft YaHei", system-ui, sans-serif;
@@ -33,6 +39,10 @@
       --danger: #d08a72;
       --warn-bg: #33291d;
       --warn-border: #574430;
+      --think: #c9a468;
+      --think-bg: #2a251d;
+      --think-border: #443a2b;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .22);
     }
   }
 
@@ -76,14 +86,87 @@
     color: var(--muted); font-size: 14px; line-height: 2;
   }
 
-  .turn { margin-bottom: 20px; display: flex; flex-direction: column; }
+  .turn { margin-bottom: 20px; display: flex; flex-direction: column; animation: rise .26s ease-out; }
   .turn.user { align-items: flex-end; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
   .bubble {
     max-width: 84%; padding: 10px 14px; border-radius: var(--radius);
-    white-space: pre-wrap; word-break: break-word;
+    word-break: break-word;
   }
-  .user .bubble { background: var(--accent-soft); border-bottom-right-radius: 4px; }
-  .assistant .bubble { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+  .user .bubble { background: var(--accent-soft); border-bottom-right-radius: 4px; white-space: pre-wrap; }
+  .assistant .bubble {
+    background: var(--surface); border: 1px solid var(--border);
+    border-bottom-left-radius: 4px; box-shadow: var(--shadow);
+  }
+
+  /* The reply itself. `pre-wrap` lives here rather than on the bubble so the
+     thinking block above it is not affected by the reply's whitespace. */
+  .text { white-space: pre-wrap; }
+  .text[data-streaming="true"]::after {
+    content: ""; display: inline-block; width: 2px; height: 1em;
+    margin-left: 2px; vertical-align: -2px; background: var(--accent);
+    animation: caret 1s step-end infinite;
+  }
+  @keyframes caret { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+
+  /* Three dots for the gap before anything at all has arrived — the ~1.5s
+     between sending and the first reasoning token. */
+  .dots { display: flex; gap: 4px; align-items: center; padding: 4px 0; }
+  .dots span {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--muted);
+    animation: dot 1.4s ease-in-out infinite;
+  }
+  .dots span:nth-child(2) { animation-delay: .18s; }
+  .dots span:nth-child(3) { animation-delay: .36s; }
+  @keyframes dot { 0%, 100% { opacity: .3; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+
+  /* -------------------------------------------------------- thinking ------
+     The model thinks for several seconds before its first visible character.
+     This is that window, shown rather than hidden.
+
+     It is a margin note, not part of the reply: a separate muted tone, closed
+     the moment the answer starts, and openable if the person wants to read it.
+     See docs/adr/010-reasoning-is-forwarded.md. */
+  .thinking { margin: 0 0 10px; }
+  .thinking[data-open="false"] .thinking-body { display: none; }
+
+  .thinking-head {
+    display: flex; align-items: center; gap: 7px; width: 100%;
+    margin: 0; padding: 0; border: none; background: transparent;
+    font: inherit; font-size: 12.5px; color: var(--muted);
+    text-align: left; cursor: pointer;
+  }
+  .thinking-head:hover { color: var(--think); }
+  .thinking-head .label { flex: 1; }
+  .thinking-head .dot {
+    flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--think); animation: think 1.6s ease-in-out infinite;
+  }
+  @keyframes think { 0%, 100% { opacity: .3; transform: scale(.75); } 50% { opacity: 1; transform: scale(1.1); } }
+  .thinking[data-state="done"] .thinking-head .dot { animation: none; opacity: .45; transform: none; }
+
+  /* A chevron drawn from one border, so no markup has to carry an icon. */
+  .thinking-head .chev {
+    flex: 0 0 auto; width: 5px; height: 5px; margin-top: -3px;
+    border-right: 1.4px solid currentColor; border-bottom: 1.4px solid currentColor;
+    transform: rotate(45deg); transition: transform .18s ease;
+  }
+  .thinking[data-open="true"] .thinking-head .chev { margin-top: 2px; transform: rotate(-135deg); }
+
+  .thinking-body {
+    margin-top: 8px; padding: 9px 12px;
+    border-left: 2px solid var(--think-border); border-radius: 0 8px 8px 0;
+    background: var(--think-bg);
+    font-size: 13px; line-height: 1.75; color: var(--muted);
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 170px; overflow-y: auto; overscroll-behavior: contain;
+  }
+  .thinking[data-open="true"][data-state="live"] .thinking-body::after {
+    content: ""; display: inline-block; width: 2px; height: .95em;
+    margin-left: 2px; vertical-align: -2px; background: var(--think);
+    animation: caret 1s step-end infinite;
+  }
 
   .meta { font-size: 12px; color: var(--muted); margin: 6px 2px 0; display: flex; gap: 12px; align-items: center; min-height: 22px; }
   .meta button { border: none; padding: 2px 6px; font-size: 12px; }
@@ -95,7 +178,9 @@
     font-size: 13px; line-height: 1.6;
   }
 
-  .thinking { color: var(--muted); font-size: 13px; padding: 4px 2px; }
+  @media (prefers-reduced-motion: reduce) {
+    .turn, .dots span, .thinking-head .dot { animation: none; }
+  }
 
   footer { flex: 0 0 auto; padding: 10px 16px calc(14px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--border); }
   .composer { display: flex; gap: 8px; align-items: flex-end; }
@@ -190,16 +275,105 @@ function el(tag, className, text) {
   return node;
 }
 
+/** The three dots for the gap before any content at all has arrived. */
+function dots() {
+  const box = el('div', 'dots');
+  box.append(el('span'), el('span'), el('span'));
+  return box;
+}
+
 function addTurn(role, text = '') {
   transcript.classList.remove('empty');
   const turn = el('div', `turn ${role}`);
-  const bubble = el('div', 'bubble', text);
+  const bubble = el('div', 'bubble');
+  const body = el('div', 'text', text);
+  bubble.append(body);
   turn.append(bubble);
+
   const meta = el('div', 'meta');
+  const note = el('span');
+  const actions = el('span');
+  meta.append(note, actions);
   turn.append(meta);
+
   transcript.append(turn);
   scrollToEnd();
-  return { turn, bubble, meta };
+  return { turn, bubble, text: body, note, actions };
+}
+
+/**
+ * The reasoning block.
+ *
+ * The model thinks for several seconds before its first visible character, and
+ * without this the person watches a motionless `…` and cannot tell a slow reply
+ * from a stalled one. It is shown as a margin note rather than as part of the
+ * reply — its own muted tone, and closed the moment the answer begins — so the
+ * answer stays the thing being read. See ADR 010.
+ *
+ * Built from DOM nodes rather than markup because the text inside is model
+ * output, and the chevron is drawn from a border so no icon markup is needed.
+ */
+function addThinking(bubble) {
+  const box = el('div', 'thinking');
+  box.dataset.open = 'true';
+  box.dataset.state = 'live';
+
+  const label = el('span', 'label', '正在想…');
+  const head = el('button', 'thinking-head');
+  head.type = 'button';
+  head.setAttribute('aria-expanded', 'true');
+  head.append(el('span', 'dot'), label, el('span', 'chev'));
+
+  const stream = el('span');
+  const body = el('div', 'thinking-body');
+  body.append(stream);
+
+  box.append(head, body);
+  bubble.prepend(box);
+
+  let open = true;
+  // Once the person opens or closes it themselves, stop deciding for them.
+  let touched = false;
+  let tailing = true;
+  let closed = false;
+
+  const setOpen = (next) => {
+    open = next;
+    box.dataset.open = String(next);
+    head.setAttribute('aria-expanded', String(next));
+  };
+  head.onclick = () => {
+    touched = true;
+    setOpen(!open);
+  };
+
+  // Follow the tail while it streams, but do not fight someone who has
+  // scrolled up to read what was already said.
+  body.addEventListener('scroll', () => {
+    tailing = body.scrollHeight - body.scrollTop - body.clientHeight < 24;
+  });
+
+  return {
+    append(text) {
+      stream.textContent += text;
+      if (tailing) body.scrollTop = body.scrollHeight;
+    },
+    /** Idempotent: the first close wins, whichever path reached it. */
+    close(summary) {
+      if (closed) return;
+      closed = true;
+      box.dataset.state = 'done';
+      label.textContent = summary;
+      if (!touched) setOpen(false);
+    },
+    finish(elapsedMs) {
+      // Round up: "思考了 0 秒" reads as a bug even when it is accurate.
+      this.close(`思考了 ${Math.max(1, Math.round(elapsedMs / 1000))} 秒`);
+    },
+    abort() {
+      this.close('思考过程');
+    },
+  };
 }
 
 function scrollToEnd() {
@@ -259,14 +433,21 @@ async function send(text) {
   resize();
 
   addTurn('user', text);
-  const { bubble, meta } = addTurn('assistant');
-  bubble.textContent = '';
-  const thinking = el('div', 'thinking', '…');
-  bubble.append(thinking);
+  const { bubble, text: body, note, actions } = addTurn('assistant');
+  const waiting = dots();
+  body.append(waiting);
+  body.dataset.streaming = 'true';
 
+  let thinking = null;
   let reply = '';
   let messageId = null;
   let risk = 'none';
+  let toolNote = '';
+
+  /** Drop the placeholder the moment there is anything real to show. */
+  const settled = () => {
+    if (waiting.isConnected) waiting.remove();
+  };
 
   try {
     const response = await fetch('/api/chat', {
@@ -280,45 +461,62 @@ async function send(text) {
       throw new Error(detail.error || `HTTP ${response.status}`);
     }
 
-    thinking.remove();
-
     for await (const event of readFrames(response)) {
-      if (event.type === 'text_delta') {
+      if (event.type === 'thinking_delta') {
+        settled();
+        // Created on the first delta, so a turn the model answers without
+        // thinking never grows an empty block.
+        thinking ??= addThinking(bubble);
+        thinking.append(event.text);
+      } else if (event.type === 'thinking_done') {
+        thinking?.finish(event.elapsedMs);
+      } else if (event.type === 'text_delta') {
+        settled();
+        // The server always closes the block before the first reply delta, so
+        // this only fires if that ever stops being true.
+        thinking?.abort();
         reply += event.text;
-        bubble.textContent = reply;
+        body.textContent = reply;
+        scrollToEnd();
       } else if (event.type === 'memory_retrieved') {
-        meta.textContent = event.count > 0 ? `参考了 ${event.count} 条记忆` : '';
+        note.textContent = event.count > 0 ? `参考了 ${event.count} 条记忆` : '';
       } else if (event.type === 'safety_notice') {
         risk = event.level;
         if (event.replaced) notice('这一轮触发了安全回应。如果你现在很危险，请打 120 或 110。');
       } else if (event.type === 'completed') {
         reply = event.text;
-        bubble.textContent = reply;
+        body.textContent = reply;
         state.conversationId = event.conversationId ?? state.conversationId;
         messageId = event.messageId ?? null;
       } else if (event.type === 'error') {
         throw new Error(event.message);
       } else if (event.type === 'tool_call') {
-        meta.textContent = '（回想中…）';
+        note.textContent = '（回想中…）';
+        toolNote = '（回想中…）';
       }
     }
 
-    if (risk === 'none' && meta.textContent === '（回想中…）') meta.textContent = '';
-    if (messageId) addFeedback(meta, messageId);
+    // A tool note is transient: it described the moment, not the turn.
+    if (note.textContent === toolNote) note.textContent = '';
+    if (messageId) addFeedback(actions, messageId);
   } catch (error) {
-    thinking.remove();
-    bubble.textContent = '';
-    bubble.append(el('span', null, `出错了：${error.message}`));
-    bubble.style.color = 'var(--danger)';
+    // A half-shown thought with no ending is worse than none; close it.
+    thinking?.abort();
+    settled();
+    body.textContent = '';
+    body.append(el('span', null, `出错了：${error.message}`));
+    body.style.color = 'var(--danger)';
   } finally {
+    // Whether it finished, failed, or was cut off, nothing is arriving now.
+    delete body.dataset.streaming;
     state.sending = false;
     sendButton.disabled = false;
     scrollToEnd();
   }
 }
 
-function addFeedback(meta, messageId) {
-  meta.textContent = '';
+function addFeedback(actions, messageId) {
+  actions.textContent = '';
   const up = el('button', null, '有帮助');
   const down = el('button', null, '不太对');
   up.type = 'button';
@@ -337,7 +535,7 @@ function addFeedback(meta, messageId) {
 
   up.onclick = () => void rate('good');
   down.onclick = () => void rate('bad');
-  meta.append(up, down);
+  actions.append(up, down);
 }
 
 // -------------------------------------------------------------- memory ------

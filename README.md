@@ -94,15 +94,25 @@ mini-program migration an adapter rather than a rewrite (ADR 006).
 | [007](docs/adr/007-retrieval-gates.md) | Relevance is gated by `minSimilarity`, not `minScore`; the two retrieval paths are deliberately different widths. |
 | [008](docs/adr/008-safety-buffered-turns.md) | Crisis turns are buffered and checked before anything is rendered. |
 | [009](docs/adr/009-identity-handle-not-auth.md) | Identity is an unguessable handle, explicitly **not** authentication. |
+| [010](docs/adr/010-reasoning-is-forwarded.md) | The model's reasoning is forwarded as its own event, not discarded. |
 
-Two of these are worth stating in the README because they surprise people:
+Three of these are worth stating in the README because they surprise people:
 
 - **A crisis turn does not stream.** Its reply is held until it passes a
   mechanical safety check. A rendered delta cannot be un-rendered, so the check
-  has to happen first.
+  has to happen first. Its reasoning is held back with it.
 - **The two retrieval paths behave differently on purpose.** Automatic injection
   is narrow and gated; the `search_memory` tool is wider and ungated, because
   the model can judge a candidate and the automatic path cannot.
+- **The reasoning phase reaches the client.** A reasoning model thinks for
+  several seconds before its first character, so the alternatives were a live
+  view of that thinking or a long static `…`. See ADR 010 — and note that a
+  client may ignore `thinking_delta` entirely and still be correct.
+
+The reasoning shows as a muted block above the reply that closes itself with how
+long it took; open it to read what the model was working out. It is a margin
+note, not part of the answer, which is why it is a separate event rather than
+more `text_delta`.
 
 ## Evaluation
 

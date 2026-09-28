@@ -36,6 +36,8 @@ function collect(events: AgentEvent[]) {
   return {
     errors,
     deltas: events.filter((event) => event.type === 'text_delta'),
+    thinking: events.filter((event) => event.type === 'thinking_delta'),
+    thinkingDone: events.filter((event) => event.type === 'thinking_done'),
     toolCalls: events.filter((event) => event.type === 'tool_call'),
     text: completed?.type === 'completed' ? completed.text : '',
   };
@@ -56,6 +58,47 @@ describe.skipIf(!enabled)('live smoke turn', () => {
       const { errors, deltas, text } = collect(events);
       expect(errors, `run errored: ${JSON.stringify(errors)}`).toEqual([]);
       expect(deltas.length).toBeGreaterThan(0);
+      expect(text.length).toBeGreaterThan(0);
+    },
+    90_000,
+  );
+
+  it(
+    'forwards the reasoning phase, which is where the wait actually goes',
+    async () => {
+      // The wire shape this asserts cannot be checked offline. The SDK
+      // normalises `response.output_text.delta` to `output_text_delta` but
+      // passes reasoning through *unnormalised*, wrapped under a generic `model`
+      // type — so the fields sit one level deeper and a matcher written by
+      // analogy with the text one finds nothing at all. When that happened, the
+      // reply still completed and every offline test stayed green: the only
+      // symptom was a person watching a static "…" for twelve seconds.
+      installProvider();
+      const agent = createCompanionAgent();
+
+      const events: AgentEvent[] = [];
+      for await (const event of streamReply(agent, '你觉得人为什么会觉得累？')) {
+        events.push(event);
+      }
+
+      const { errors, thinking, thinkingDone, deltas, text } = collect(events);
+      expect(errors, `run errored: ${JSON.stringify(errors)}`).toEqual([]);
+
+      // Required, not reported: a reasoning model that produced no reasoning is
+      // a change in the wire contract, which is the entire subject of this test.
+      expect(
+        thinking.length,
+        'no thinking_delta arrived — the provider event name or nesting has changed',
+      ).toBeGreaterThan(0);
+
+      // At most once, and never before the reasoning it closes.
+      expect(thinkingDone).toHaveLength(1);
+      const types = events.map((event) => event.type);
+      expect(types.indexOf('thinking_done')).toBeGreaterThan(types.lastIndexOf('thinking_delta'));
+
+      // The reasoning is a preamble to the reply, not a substitute for it.
+      expect(deltas.length).toBeGreaterThan(0);
+      expect(types.indexOf('thinking_delta')).toBeLessThan(types.indexOf('text_delta'));
       expect(text.length).toBeGreaterThan(0);
     },
     90_000,

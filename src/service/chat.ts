@@ -17,6 +17,10 @@
  * un-show it. A crisis reply is three to five sentences, so the delay is not
  * perceptible, and correctness wins.
  *
+ * The reasoning is withheld with the reply and for the same reason — a rendered
+ * thought cannot be un-rendered either, and the thought behind a reply that was
+ * discarded is the last thing anyone should be shown.
+ *
  * ## Failure is contained
  *
  * Persisting a reply must never be able to fail a turn. The person already has
@@ -193,8 +197,13 @@ export async function* runTurn(
       usedTools = true;
       toolCalls.push(event.name);
     }
-    // Withholding deltas is the whole point of `buffer`.
-    if (buffer && event.type === 'text_delta') continue;
+    // Withholding deltas is the whole point of `buffer`. Reasoning is withheld
+    // alongside the reply: a person in crisis should not watch the model work
+    // its way toward them, and if the reply is then replaced by the safety
+    // fallback, reasoning that argued for the discarded reply is worse than
+    // nothing.
+    if (buffer && (event.type === 'text_delta' || event.type === 'thinking_delta')) continue;
+    if (buffer && event.type === 'thinking_done') continue;
     yield event;
   }
 

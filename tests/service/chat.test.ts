@@ -74,6 +74,51 @@ describe('a normal turn', () => {
     expect(completed?.type === 'completed' && completed.text).toBe('听起来真的很沉。');
   });
 
+  it('forwards the reasoning phase, which used to be dropped', async () => {
+    // The reason this event type exists: the model thinks for a dozen seconds
+    // before its first character, so without this the person watches a static
+    // "…" and a streamed reply looks exactly like a non-streamed one.
+    const withReasoning: TurnRunner = async function* () {
+      yield { type: 'thinking_delta', text: '他说累，' };
+      yield { type: 'thinking_delta', text: '但累可能不是重点。' };
+      yield { type: 'thinking_done', elapsedMs: 12_000 };
+      yield { type: 'text_delta', text: '听起来真的很沉。' };
+      yield { type: 'completed', text: '听起来真的很沉。' };
+    };
+
+    const events = await drain({ store, runner: withReasoning }, {
+      userId: USER,
+      message: '今天什么都不想做。',
+    });
+
+    const thinking = events.filter((event) => event.type === 'thinking_delta');
+    expect(
+      thinking.map((event) => (event.type === 'thinking_delta' ? event.text : '')).join(''),
+    ).toBe('他说累，但累可能不是重点。');
+
+    // Ordering is part of the contract: reasoning, then its close, then reply.
+    const types = events.map((event) => event.type);
+    expect(types.indexOf('thinking_done')).toBeGreaterThan(types.indexOf('thinking_delta'));
+    expect(types.indexOf('thinking_done')).toBeLessThan(types.indexOf('text_delta'));
+  });
+
+  it('never persists the reasoning as part of the conversation', async () => {
+    // The transcript is what the next turn is built from. Storing the model's
+    // working-out would feed its own notes back to it as things it had said.
+    const withReasoning: TurnRunner = async function* () {
+      yield { type: 'thinking_delta', text: '内部推理，不该被存下来' };
+      yield { type: 'thinking_done', elapsedMs: 900 };
+      yield { type: 'text_delta', text: '嗯，我在。' };
+      yield { type: 'completed', text: '嗯，我在。' };
+    };
+
+    await drain({ store, runner: withReasoning }, { userId: USER, message: '在吗' });
+
+    const conversationId = (await store.listConversations(USER))[0]?.id as string;
+    const messages = await store.listMessages(USER, conversationId);
+    expect(messages.map((message) => message.content)).toEqual(['在吗', '嗯，我在。']);
+  });
+
   it('persists the user message, the reply, and a run row', async () => {
     const events = await drain({ store, runner: fakeRunner('嗯。') }, {
       userId: USER,
@@ -256,6 +301,31 @@ describe('crisis turns buffer (ADR 008)', () => {
     expect(events.findIndex((event) => event.type === 'text_delta')).toBeGreaterThan(
       events.findIndex((event) => event.type === 'safety_notice'),
     );
+  });
+
+  it('withholds the reasoning too, not just the reply', async () => {
+    // Reasoning is withheld for the same reason the reply is: a rendered
+    // thought cannot be un-rendered, and reasoning that argued for a reply the
+    // safety check then discarded is the last thing anyone should be shown.
+    const reasoningThenReply: TurnRunner = async function* () {
+      yield { type: 'thinking_delta', text: '他说不想活了，' };
+      yield { type: 'thinking_delta', text: '我得先确认他此刻是否安全。' };
+      yield { type: 'thinking_done', elapsedMs: 4200 };
+      yield { type: 'text_delta', text: '别多想，加油。' };
+      yield { type: 'completed', text: '别多想，加油。' };
+    };
+
+    const events = await drain({ store, runner: reasoningThenReply }, {
+      userId: USER,
+      message: '我不想活了',
+    });
+
+    expect(events.some((event) => event.type === 'thinking_delta')).toBe(false);
+    expect(events.some((event) => event.type === 'thinking_done')).toBe(false);
+    // The only text that reaches the screen is the checked reply.
+    const deltas = events.filter((event) => event.type === 'text_delta');
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0]?.type === 'text_delta' && deltas[0].text).toBe(CRISIS_FALLBACK);
   });
 
   it('reports the substitution, so a caught regression is visible', async () => {

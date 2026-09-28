@@ -16,7 +16,7 @@
  */
 
 import { Agent, run, type Tool } from '@openai/agents';
-import type { AgentEvent } from './events.ts';
+import type { AgentEvent, ThinkingDoneEvent } from './events.ts';
 import { buildInstructions } from './instructions.ts';
 import { COMPANION_MODEL } from './model-client.ts';
 import { log } from '../observability/logging.ts';
@@ -98,6 +98,49 @@ export function textDeltaOf(data: unknown): string | null {
   return typeof event.delta === 'string' && event.delta.length > 0 ? event.delta : null;
 }
 
+/**
+ * The provider's reasoning events, which the SDK does *not* normalise.
+ *
+ * Measured against DeepSeek: a turn produced 648 of these and 438 text deltas,
+ * and the first one arrived 12 seconds before the first character of the reply.
+ * The SDK hands the whole provider event through under a generic `model` type,
+ * so the useful fields are one level deeper than they are for text — that
+ * asymmetry is the entire reason this needs its own function.
+ */
+const REASONING_DELTA_TYPE = 'response.reasoning_text.delta';
+const REASONING_DONE_TYPE = 'response.reasoning_text.done';
+
+export type ReasoningChunk =
+  | { readonly kind: 'delta'; readonly text: string }
+  | { readonly kind: 'done' };
+
+/**
+ * Narrow a raw stream event to a reasoning delta or the end of the reasoning.
+ *
+ * Both the wrapped shape the SDK actually sends and the flat shape it would
+ * send if it ever normalised this event are accepted, for the same reason
+ * `textDeltaOf` accepts two names: a silent rename is the failure mode this
+ * code has already had once, and the cost of tolerating both is one branch.
+ *
+ * Exported for test.
+ */
+export function reasoningChunkOf(data: unknown): ReasoningChunk | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const outer = data as { type?: unknown; delta?: unknown; event?: unknown };
+  const inner =
+    typeof outer.event === 'object' && outer.event !== null
+      ? (outer.event as { type?: unknown; delta?: unknown })
+      : outer;
+  if (typeof inner.type !== 'string') return null;
+
+  if (inner.type === REASONING_DONE_TYPE) return { kind: 'done' };
+  if (inner.type !== REASONING_DELTA_TYPE) return null;
+
+  return typeof inner.delta === 'string' && inner.delta.length > 0
+    ? { kind: 'delta', text: inner.delta }
+    : null;
+}
+
 /** Pull the tool name and call id out of a run item, defensively. */
 function toolInfoOf(item: unknown): { callId: string; name: string } | null {
   if (typeof item !== 'object' || item === null) return null;
@@ -174,7 +217,11 @@ export function buildRunInput(
  *
  * A non-streaming caller can ignore `text_delta` events and use the final
  * `completed` event, which carries the whole reply — so no separate
- * non-streaming code path is needed.
+ * non-streaming code path is needed. The same is true of `thinking_delta`,
+ * which a client may show, collapse, or drop without affecting correctness.
+ *
+ * The reasoning phase is forwarded rather than discarded because the wait is
+ * long enough to be mistaken for a broken stream. See `ThinkingDeltaEvent`.
  */
 export async function* streamReply(
   agent: Agent,
@@ -185,6 +232,25 @@ export async function* streamReply(
   let collected = '';
   let sawToolCall = false;
 
+  let thinkingStartedAt: number | null = null;
+  let thinkingClosed = false;
+  let reasoningChars = 0;
+
+  /**
+   * Close the reasoning block, once.
+   *
+   * Returns the event to yield rather than yielding it, because a generator
+   * cannot yield from inside a closure. Called on the provider's own
+   * end-of-reasoning signal, on the first character of the reply, and after the
+   * stream ends — whichever happens first — so a client never has to guess
+   * whether a thinking block is still live.
+   */
+  const closeThinking = (): ThinkingDoneEvent | null => {
+    if (thinkingStartedAt === null || thinkingClosed) return null;
+    thinkingClosed = true;
+    return { type: 'thinking_done', elapsedMs: Date.now() - thinkingStartedAt };
+  };
+
   try {
     const result = await run(agent, buildRunInput(message, options.history), {
       stream: true as const,
@@ -194,8 +260,23 @@ export async function* streamReply(
 
     for await (const event of result) {
       if (event.type === 'raw_model_stream_event') {
+        const reasoning = reasoningChunkOf(event.data);
+        if (reasoning !== null) {
+          if (reasoning.kind === 'delta') {
+            thinkingStartedAt ??= Date.now();
+            reasoningChars += reasoning.text.length;
+            yield { type: 'thinking_delta', text: reasoning.text };
+          } else {
+            const closed = closeThinking();
+            if (closed) yield closed;
+          }
+          continue;
+        }
+
         const delta = textDeltaOf(event.data);
         if (delta !== null) {
+          const closed = closeThinking();
+          if (closed) yield closed;
           collected += delta;
           yield { type: 'text_delta', text: delta };
         }
@@ -216,6 +297,11 @@ export async function* streamReply(
       }
     }
 
+    // A model that reasons and then calls a tool produces no reply text at all
+    // before the call, so this is the only place that can close the block.
+    const dangling = closeThinking();
+    if (dangling) yield dangling;
+
     // The iterator can finish before the run is marked complete, so awaiting
     // this is required — reading `finalOutput` early makes the SDK warn and can
     // yield a partial value.
@@ -228,11 +314,17 @@ export async function* streamReply(
     log.info('agent.turn_completed', {
       duration_ms: Date.now() - startedAt,
       reply_fingerprint: `len=${text.length}`,
+      // A count, never the text. The reasoning is the model's working-out and
+      // goes to the person watching it, not into a log line (spec §14).
+      reasoning_chars: reasoningChars,
       used_tools: sawToolCall,
     });
 
     yield { type: 'completed', text };
   } catch (error) {
+    const closed = closeThinking();
+    if (closed) yield closed;
+
     const message = error instanceof Error ? error.message : String(error);
     const retryable = !(error instanceof Error && error.name.includes('Guardrail'));
     log.error('agent.turn_failed', {

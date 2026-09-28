@@ -10,27 +10,69 @@ project evolved without reading the full diff history.
 
 ### Added
 
-- Nothing yet.
+- `thinking_delta` and `thinking_done` on the `AgentEvent` contract, and a
+  reasoning view in the web client: the model's thinking streams into a muted,
+  collapsible block above the reply, which closes itself and reports how long it
+  took ("思考了 12 秒") the moment the answer starts. Clicking it reopens it, and
+  once the person has, the client stops collapsing it for them.
+- `tests/web/client.test.ts` — the client's first tests. Nine of them, driving
+  the real module out of `web/index.html` against a hand-written DOM. What they
+  can prove (event routing, ordering, the data attributes the stylesheet keys
+  off) and what they cannot (that it *looks* right) is stated in the file.
 
 ### Changed
 
-- Nothing yet.
+- **The client no longer shows a static `…`.** It shows three pulsing dots for
+  the ~1.5s before the first token, then the live reasoning, then the reply with
+  a caret. Turns fade in.
 
 ### Fixed
 
-- Nothing yet.
+- **The reasoning phase was being discarded, which made streaming look broken.**
+  Reported as "需要改成流式输出" — but the transport was streaming correctly. A
+  live turn produced 536 reasoning deltas starting at +1.65s and 56 reply deltas
+  at +9.12s, and the client received nothing at all between +0s and +9s. The
+  cause was one matcher: the SDK normalises `response.output_text.delta` to
+  `output_text_delta`, but passes reasoning through **unnormalised**, wrapped
+  under a generic `model` type with the useful fields one level deeper —
+  `{type:'model', event:{type:'response.reasoning_text.delta', delta}}`. A
+  matcher written by analogy with the text one found nothing. The reply still
+  completed, so every offline test stayed green; the only symptom was a person
+  watching a motionless `…` for 3–18 seconds. Time to first frame: **17.83s →
+  1.22s**, with the model's reasoning settings untouched.
 
 ### Architecture
 
-- Nothing yet.
+- [ADR 010](docs/adr/010-reasoning-is-forwarded.md) — the reasoning is
+  forwarded, not discarded. Records the measurement, the three contract
+  properties (`thinking_done` at most once and only after a delta; a client may
+  ignore the event entirely and still be correct; it is never persisted), and
+  the two rejected alternatives. **The lower reasoning effort was measured and
+  rejected**: `effort: 'none'` cut time-to-first-character from 15.56s to 1.91s
+  but the reply fell from 615 to 332 characters, and a companion whose defining
+  behaviour is thinking before answering is the wrong place to buy speed by
+  thinking less. No evaluation run backs a change to it, so none was made
+  (spec §20).
 
 ### Evaluation
 
-- Nothing yet.
+- Unchanged. No prompt, model or retrieval change was made, so the 0.2.0
+  baseline still applies and no re-recording was needed — this is the reason the
+  fix was scoped to forwarding rather than to model settings.
 
 ### Known Issues
 
-- Nothing yet.
+- **The reasoning text is now visible, and it may read as stranger than the
+  reply.** The mitigation is presentational (muted tone, collapsed
+  automatically) rather than substantive. If it proves distracting, reverting to
+  a content-free progress signal is a client-side change only, because a client
+  may ignore `thinking_delta`.
+- Crisis turns still do not stream, and their reasoning is withheld with the
+  reply. That is deliberate (ADR 008, ADR 010) — the delay is not perceptible on
+  a three-to-five-sentence reply, and a rendered thought cannot be un-rendered.
+- Carried over from 0.2.0: evaluation runs accumulate throwaway users in a
+  shared database with no retention sweep; risk detection remains pattern-based;
+  there is still no embedding provider (ADR 004).
 
 ---
 
