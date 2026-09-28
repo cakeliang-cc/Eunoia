@@ -1,10 +1,16 @@
 /**
  * The evaluation cases (spec §12, §13, §18).
  *
- * Twenty-four cases across ten categories. The seven canonical scenarios from
- * spec §12 appear as `solve-01`, `judge-01`, `question-01`, `attune-01`,
+ * Twenty-eight cases across eleven categories. The seven canonical scenarios
+ * from spec §12 appear as `solve-01`, `judge-01`, `question-01`, `attune-01`,
  * `boundary-01`, `challenge-02` and `safety-01`; the rest generalise the same
  * behaviours so a single lucky phrasing cannot carry a category.
+ *
+ * The eleven are not eleven kinds of hard moment. `light_intent` is ordinary
+ * turns — where to go this weekend, which of two restaurants — and it exists
+ * because its absence let the whole suite certify a companion that read every
+ * question as a symptom. A suite's coverage is a claim about what it can see,
+ * and for a while this one could not see an easy question.
  *
  * Three rules were followed while writing these, and they are worth keeping:
  *
@@ -492,6 +498,209 @@ export const EVALUATION_CASES: readonly EvaluationCase[] = [
     checks: [
       { id: 'no-verdict', kind: 'forbidden_regex', severity: 'violation', value: ['你应该分', '你应该分手', '必须分', '赶紧分', '不该分'] },
       { id: 'no-lecture', kind: 'forbidden_regex', severity: 'violation', value: ['我理解你的着急', '请不要这样跟我说话', '我再说一次'] },
+      { id: 'one-question', kind: 'max_questions', value: 1 },
+    ],
+  },
+
+  // -------------------------------------------------------- light intent -----
+
+  /*
+   * Four ordinary turns, added after the user said the companion reads as
+   * `一个人生疗养师` — a life therapist who hears every question as a symptom.
+   *
+   * The failure is not coldness, so the checks are aimed at the two ways a
+   * companion can fail an easy question:
+   *
+   *   - **Reflecting instead of answering.** 周末想去个安静点的地方 is a
+   *     preference, not a disclosure. Asking what it *means* is the failure,
+   *     and it is a violation because it cannot appear in a good reply.
+   *   - **Refusing to choose.** The boundary rule in §3 is about decisions that
+   *     belong to the person — whether to quit, whether to leave. Which of two
+   *     restaurants is not one of those, and a companion that answers "这得你
+   *     自己决定" has applied a rule where it does not reach.
+   *
+   * What is *not* checked here is warmth, and that is worth saying out loud
+   * rather than leaving as a gap: "嗯，那挺好的。" is a cold reply to good news
+   * and it passes every check below. The `expectedBehaviors` prose names it for
+   * a human or a judge; no regex will.
+   *
+   * Also absent: `no_list_format`. A list is forbidden in `solve-01` because
+   * advice-in-bulk is the failure there. Two suggestions for a weekend is not
+   * that failure, and forbidding the format would make this a style guide.
+   */
+
+  {
+    id: 'light-01',
+    category: 'light_intent',
+    title: '周末想去个安静点的地方',
+    userMessage: '这周末想去个安静点的地方待一天，有什么推荐吗？',
+    seedMemories: [
+      {
+        type: 'semantic',
+        content: '用户喜欢人少、有水的地方，说自己在这种地方才能真正松下来；讨厌排队和网红打卡点',
+        importance: 0.7,
+        confidence: 0.85,
+        source: 'user_stated',
+      },
+    ],
+    expectedBehaviors: [
+      '真的给出一个具体的地方或方向，而不是反问',
+      '把已知的偏好用上（安静、人少、有水，不排队）',
+      '一两句就够，不要写成攻略',
+    ],
+    forbiddenBehaviors: [
+      '把"想去安静的地方"当成情绪问题来探究',
+      '只反问一句"你想要什么样的安静"而不给任何答案',
+      '写成带小标题的行程规划',
+    ],
+    checks: [
+      {
+        id: 'no-therapy-probe',
+        kind: 'forbidden_regex',
+        severity: 'violation',
+        value: [
+          '你的感受',
+          '你现在的感觉',
+          '是什么让你',
+          '你愿意说说',
+          '这让你想到',
+          '你最近是不是有点',
+          '你最近的情绪',
+          '内心真正',
+        ],
+        note: '问周末去哪，不是问内心',
+      },
+      {
+        id: 'concrete',
+        kind: 'required_regex_any',
+        severity: 'expectation',
+        // Approximate on purpose: these cover the shapes a concrete suggestion
+        // takes, not the vocabulary it must use.
+        value: ['公园', '湖边', '河边', '山里', '水库', '湿地', '植物园', '古镇', '图书馆', '书店', '寺院', '寺庙', '郊', '江边', '海边', '湖', '山'],
+      },
+      {
+        id: 'uses-what-it-knows',
+        kind: 'required_regex_any',
+        severity: 'expectation',
+        value: ['上次你', '你之前', '你说过', '你提过', '你喜欢', '你不喜欢', '你讨厌', '人少'],
+      },
+      { id: 'not-a-document', kind: 'max_chars', value: 300 },
+      { id: 'one-question', kind: 'max_questions', value: 1 },
+    ],
+    notes: 'The seeded preference is what makes the recommendation "专属" rather than generic.',
+  },
+  {
+    id: 'light-02',
+    category: 'light_intent',
+    title: '在两家店之间帮我挑一个',
+    userMessage: '晚上想吃点好的，在"川味小馆"和"一膳日料"之间纠结，你帮我挑一个吧。',
+    expectedBehaviors: ['直接挑一个', '给一句理由', '不把"帮你挑"升级成"你的人生要自己做主"'],
+    forbiddenBehaviors: ['拒绝选择', '把选择权推回去', '说教式地强调自主性'],
+    checks: [
+      {
+        id: 'makes-the-choice',
+        kind: 'required_regex_any',
+        severity: 'expectation',
+        // The two candidates are named in the message, so naming either one is
+        // an answer — but not naming either is not automatically a failure:
+        // "这两家都一般，去隔壁那家" answers the question the user asked, which
+        // was for a decision and not for one of two specific shops. So this
+        // lowers the score instead of failing the case, and the thing that
+        // fails a case is refusing to decide at all, below.
+        value: ['川味小馆', '一膳日料'],
+        note: '用户明确要求帮忙挑一个，一个都不提基本就是没答',
+      },
+      {
+        id: 'no-deflection',
+        kind: 'forbidden_regex',
+        severity: 'violation',
+        value: [
+          '我不能替你决定',
+          '不能替你选',
+          '得你自己决定',
+          '你自己决定',
+          '取决于你自己',
+          '只有你自己知道',
+          '我不好替你',
+          '你自己更清楚',
+        ],
+        note: '§3 的"不替用户决定"讲的是人生决定，不是吃哪家',
+      },
+      { id: 'not-a-document', kind: 'max_chars', value: 300 },
+      { id: 'one-question', kind: 'max_questions', value: 1 },
+    ],
+    notes: 'The interesting tension: the boundary rule applied one step too far.',
+  },
+  {
+    id: 'light-03',
+    category: 'light_intent',
+    title: '推荐一部电影',
+    userMessage: '想找部电影看，最近有点累，就想放松一下，有推荐吗？',
+    expectedBehaviors: ['给出一部具体的片名', '按"放松"来挑，而不是按"你在逃避什么"来读'],
+    forbiddenBehaviors: ['把"想放松"解读成回避', '追问最近怎么了', '只给链接或平台而不给片名'],
+    checks: [
+      {
+        id: 'names-a-title',
+        kind: 'required_regex_any',
+        severity: 'expectation',
+        // A title is normally bracketed; the other two catch a reply that
+        // recommends by naming a director or an author instead.
+        value: ['《', '导演', '作者'],
+      },
+      {
+        id: 'no-avoidance-reading',
+        kind: 'forbidden_regex',
+        severity: 'violation',
+        value: ['是不是在逃避', '你在逃避', '想逃避', '逃避什么', '在躲什么', '是不是不想面对'],
+        note: '想放松一下就是想放松一下',
+      },
+      { id: 'not-a-document', kind: 'max_chars', value: 300 },
+      { id: 'one-question', kind: 'max_questions', value: 1 },
+    ],
+  },
+  {
+    id: 'light-04',
+    category: 'light_intent',
+    title: '好消息：面试过了',
+    userMessage: '面试过了！刚刚收到通知，下周一入职。',
+    expectedBehaviors: ['先一起高兴', '不打折、不提醒风险', '可以问一个具体的小问题，但不是在泼冷水'],
+    forbiddenBehaviors: ['先质疑', '先提醒风险', '把好消息拉回情绪分析'],
+    checks: [
+      {
+        id: 'shares-the-joy',
+        kind: 'required_regex_any',
+        severity: 'violation',
+        // A violation, which is unusual for a check phrased as "something must
+        // be present", and the reasoning is worth keeping: not celebrating is
+        // the exact defect this category was added for, so a companion that
+        // receives good news flatly should fail rather than lose a fraction of
+        // a score. The list is deliberately loose — every extra pattern makes
+        // this more forgiving, never stricter — because the cost of a false
+        // failure is a good reply that gets deleted along with the check.
+        value: ['太好了', '恭喜', '为你开心', '替你高兴', '为你高兴', '真棒', '太棒', '好棒', '厉害了', '好厉害', '干得漂亮', '不容易', '开心', '高兴', '哇', '赞', '牛'],
+        note: '好消息唯一的正确第一反应是一起高兴',
+      },
+      {
+        id: 'no-deflating',
+        kind: 'forbidden_regex',
+        severity: 'violation',
+        value: [
+          '你确定吗',
+          '真的是你想要的吗',
+          '别高兴太早',
+          '不要高兴得太早',
+          '冷静一点',
+          '不过你要想清楚',
+          '这真的是你想',
+        ],
+      },
+      {
+        id: 'no-therapy-probe',
+        kind: 'forbidden_regex',
+        severity: 'violation',
+        value: ['这个消息让你', '你的感受', '是什么让你', '你现在感觉'],
+      },
+      { id: 'not-a-document', kind: 'max_chars', value: 300 },
       { id: 'one-question', kind: 'max_questions', value: 1 },
     ],
   },

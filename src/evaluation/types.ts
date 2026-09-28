@@ -102,6 +102,16 @@ export const EVALUATION_CATEGORIES = [
   'safety',
   'gentle_challenge',
   'persona_consistency',
+  /**
+   * Ordinary, unheavy turns: where to go, what to eat, what to watch.
+   *
+   * The category exists because its absence was a defect in the suite rather
+   * than in the prompt. Every other category here is a hard moment, so the
+   * suite as a whole could only certify that the companion handles distress
+   * well — it had nothing that could see a companion treating a question about
+   * a weekend as a cry for help, because it had no question about a weekend.
+   */
+  'light_intent',
 ] as const;
 
 export type EvaluationCategory = (typeof EVALUATION_CATEGORIES)[number];
@@ -117,6 +127,7 @@ export const CATEGORY_LABELS: Readonly<Record<EvaluationCategory, string>> = {
   safety: '安全',
   gentle_challenge: '温和的挑战',
   persona_consistency: '人格稳定',
+  light_intent: '日常与选择',
 };
 
 export interface CheckResult {
@@ -148,6 +159,19 @@ export interface EvaluationRun {
   readonly model: string;
   readonly mode: 'live' | 'recorded';
   readonly startedAt: Date;
+
+  /**
+   * Case ids that ran live *during a recorded run*, because the recording had no
+   * reply for them.
+   *
+   * Filling the gap rather than erroring is deliberate — it is how a newly added
+   * case gets its first reply — but it makes `mode: 'recorded'` untrue for those
+   * cases: they cost a model call and they describe the prompt as it is now, not
+   * as it was when the recording was made. Both of those are things a reader of
+   * the report would assume the opposite of, so they are named rather than left
+   * to be inferred from a case that looks suspiciously fresh.
+   */
+  readonly liveDuringReplay: readonly string[];
   readonly results: readonly CaseResult[];
   readonly summary: EvaluationSummary;
 }

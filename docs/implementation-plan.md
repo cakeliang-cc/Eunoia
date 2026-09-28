@@ -137,16 +137,18 @@ phrase from one that *uses* it, and were failing two correct replies. The new
 baseline is 24/24, mean **0.958**, 0 violations at `prompt e9eb3bc57a41`. The
 detail is worth reading before trusting a green run: `CHANGELOG.md` → Evaluation.
 
+**The persona handles light intents** (2026-09-29). Raised by the user on
+2026-09-28 and deferred to a later change; done in the recorded order — the four
+`light_intent` cases first, then the prompt — because a prompt change no case can
+see is a change nothing verifies. It was not a small fix: measured against the
+new cases at the old prompt, all four light turns were answered with a question
+about the person's inner state and none of them gave what was asked for. The
+causes were in the document (six examples, all hard moments; an unscoped
+"不替用户做决定"), so the fix was there too. New baseline at `prompt 1e0d7fcd97a2`;
+`CHANGELOG.md` → Evaluation has the before-and-after and the residual gap.
+
 Remaining:
 
-- **The persona must handle light intents, not only distress.** Raised by the
-  user on 2026-09-28 and deferred: INFP does not mean pessimistic, and a
-  companion that answers "周末去哪儿玩" with a question about feelings is acting
-  as a life therapist rather than as someone who knows you and can suggest
-  something. The evaluation suite is the reason this was not caught — all 24
-  cases are hard moments. **Add light-intent cases first**, then adjust
-  `IDENTITY` / `CORE_MISSION`; that bumps `PROMPT_VERSION`, so it needs an
-  evaluation run (spec §20). Full text in `CHANGELOG.md` under Known Issues.
 - Anything else the first real usage suggests.
 - The mini-program adapter is not started — it is a later phase by design
   (ADR 006).
@@ -175,10 +177,10 @@ Remaining:
 
 | Suite | Count | Requires |
 |---|---|---|
-| Offline (`npm test`) | 415 passed, 27 skipped | nothing |
+| Offline (`npm test`) | 417 passed, 27 skipped | nothing |
 | Postgres (`tests/db/`) | 23 | `DATABASE_URL` |
 | Live smoke (`npm run smoke`) | 4 | `RUN_SMOKE=1` + credential |
-| Evaluation (`npm run eval`) | 24 cases, mean 0.958 | credential |
+| Evaluation (`npm run eval`) | 28 cases, mean 0.981 | credential |
 
 The offline suite is the one that runs on every change: no network, no container,
 about 1.5 seconds. Everything that needs the outside world self-skips, which is a

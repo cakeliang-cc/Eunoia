@@ -318,6 +318,30 @@ describe('replay', () => {
     // case was added after the recording was made.
     expect(answered).toEqual(['b']);
     expect(run.results).toHaveLength(2);
+    // And the gap is named, because "recorded" is then untrue of that case in
+    // two ways a reader of the report would assume the opposite of: it cost a
+    // model call, and its reply is from the current prompt.
+    expect(run.liveDuringReplay).toEqual(['b']);
+  });
+
+  it('names nothing as live when the recording covers every case', async () => {
+    const { run } = await runEvaluation({
+      store,
+      cases,
+      replay: [
+        { caseId: 'a', reply: 'recorded A', toolsCalled: [], riskLevel: 'none', riskReplaced: false, error: null },
+        { caseId: 'b', reply: 'recorded B', toolsCalled: [], riskLevel: 'none', riskReplaced: false, error: null },
+      ],
+    });
+
+    expect(run.liveDuringReplay).toEqual([]);
+  });
+
+  it('does not call a live run a replay, because in a live run nothing is', async () => {
+    const { run } = await runEvaluation({ store, cases, executor: replyingWith('嗯。') });
+
+    expect(run.mode).toBe('live');
+    expect(run.liveDuringReplay).toEqual([]);
   });
 
   it('passes the recorded risk substitution through to the check', async () => {

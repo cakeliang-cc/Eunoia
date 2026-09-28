@@ -147,11 +147,19 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<{
   const replayById = new Map((options.replay ?? []).map((turn) => [turn.caseId, turn]));
   const results: CaseResult[] = [];
   const recorded: RecordedTurn[] = [];
+  const liveDuringReplay: string[] = [];
 
   for (const evaluationCase of cases) {
+    const replayed = replayById.get(evaluationCase.id);
+
+    // Filling a gap in the recording beats erroring — it is how a case added
+    // after the recording was made gets its first reply. It is also a model
+    // call inside a run that calls itself `recorded`, so the case is named on
+    // the run rather than left for someone to notice.
+    if (replayed === undefined && mode === 'recorded') liveDuringReplay.push(evaluationCase.id);
+
     const turn =
-      replayById.get(evaluationCase.id) ??
-      (await runCase(options.store, evaluationCase, executor, options.signal));
+      replayed ?? (await runCase(options.store, evaluationCase, executor, options.signal));
 
     recorded.push(turn);
 
@@ -173,6 +181,7 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<{
     model: COMPANION_MODEL,
     mode,
     startedAt: new Date(),
+    liveDuringReplay,
     results,
     summary: summarise(results),
   };

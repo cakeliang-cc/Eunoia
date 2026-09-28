@@ -26,6 +26,27 @@ project evolved without reading the full diff history.
   on load, and a `对话` drawer lists every conversation with its name and when it
   was last used. Restored replies carry their rating buttons, because a history
   you cannot rate is a read-only copy rather than the same conversation.
+- **`light_intent` — a category, and the four cases that were missing.** Where to
+  go this weekend, which of two restaurants to pick, what film to watch, and good
+  news. All twenty-four previous cases were hard moments, so the suite could
+  certify that the companion handles distress well and could not see it treating
+  an ordinary question as a symptom. Asked for by the user on 2026-09-28
+  (*"不要一味以为 INFP 都是悲观人格…而不是当一个人生疗养师，太悲观了"*) and deferred at
+  the time, on the rule recorded with it: the cases come first, the prompt
+  second. The ordering earned itself — see Evaluation below for what the four
+  cases found.
+- **A replay that quietly calls the model now says so.** `runEvaluation` fills a
+  gap in the recording by running the case live. That is deliberate and useful —
+  it is how a case added after a recording gets its first reply — but the run
+  still reported `mode: 'recorded'`, so a replay could cost money and describe
+  the *current* prompt while reading as neither. The affected case ids are now
+  carried on the run and printed as a note. The first run of the new cases is
+  what made it visible: four live calls inside a run labelled `recorded`.
+- **A filtered run no longer writes a recording.** `--case` and `--category` run
+  a subset, and `--replay` picks the newest file — so a partial recording would
+  silently become the baseline, and every case missing from it would run live on
+  the next replay, which is the opposite of what replay is for. The CLI declines
+  and says why instead.
 - **Conversations are named after the message that opened them** — `conversationTitle()`
   in `src/memory/types.ts`, cut at 24 characters with the cut marked. Derived
   rather than asked for: a companion that opened by requesting a title would be
@@ -35,6 +56,39 @@ project evolved without reading the full diff history.
   again, so the drawer has a fallback rather than a blank row.
 
 ### Changed
+
+- **The persona answers easy questions now, instead of reflecting them back.**
+  The four new cases were run against the old prompt *before* the prompt was
+  touched, and every one of them passed. Three of the four missed what they were
+  measuring, which is what a suite that has just grown a category looks like, and
+  why the replies were read rather than the scores trusted:
+
+  | asked | old reply (`prompt e9eb3bc57a41`) |
+  |---|---|
+  | 周末想去个安静点的地方 | *"不过要给你具体建议，我得先知道你在哪个城市…你在哪儿？"* — no recommendation |
+  | 两家店帮我挑一个 | *"今天想吃的'好'是哪种好——…你心里更偏向哪一种？"* — two questions, no choice |
+  | 有什么电影可看 | *"你想要的放松，是…还是…？"* — no title |
+  | 面试过了 | *"恭喜你！…你现在是什么心情——是踏实多一点，还是也有点紧张？"* — celebrates, then files it as an inventory |
+
+  Four shapes of one behaviour: every turn ends in a question about the person,
+  and the thing that was asked for is not given. Three things in the document
+  produced it, and the fix is in the document for the same reason:
+
+  - **`# 示例` was six hard moments and nothing else.** Six demonstrations of
+    reflect-then-ask outweigh any instruction to the contrary, so three light
+    examples were added — with a line saying that a light turn handled as a heavy
+    one is an error rather than caution.
+  - **`# 核心使命` read as universal.** "帮助用户理解自己的感受、价值观和人生叙事"
+    has no purchase on "周末去哪", so the model did the nearest thing it had to
+    that. The 先理解再行动 ordering is now scoped, in the section itself, to
+    turns that carry emotional weight.
+  - **"不替用户做决定" had no scope**, and was being applied to a restaurant. The
+    line is now drawn where the light-02 case draws it: 辞职、分手、原谅谁 belong
+    to the person; 哪家店好吃 does not.
+
+  Plus one sentence each in `# 行为原则` 2, `# 对话规则` and Ne's 不要 list, saying
+  what a question is *for* — filling a gap you actually have, not a per-turn
+  obligation.
 
 - **The system prompt is now a document, not code.** Asked for as "你的提示词应该
   从代码中抽离，放到一个单独的md文件中". It is `src/agent/prompts/companion.md`,
@@ -129,6 +183,48 @@ project evolved without reading the full diff history.
 
 ### Evaluation
 
+- **The four light-intent cases are what found the persona defect, and they found
+  it before the prompt was changed.** That ordering is the whole of the recorded
+  instruction ("the cases come first"), and the reason is visible in the table
+  above: at the old prompt, all four *passed*. A run reporting 24/24 says nothing
+  about a behaviour no case can see. Baseline over all 28 cases at `prompt
+  e9eb3bc57a41`: **28/28 passed, mean 0.939, 0 violations** — of which the 24
+  older cases are recorded replies and the four new ones were run live.
+- **New baseline after the prompt change: 28/28 passed, mean 0.981, 0
+  violations** (`prompt 1e0d7fcd97a2`), recorded to
+  `evaluation/recorded/1e0d7fcd97a2-2026-09-28T16-09-21-242Z.json`. The full live
+  run is required rather than optional here: the old recording is from the old
+  prompt, and replaying it would score replies the new prompt never produced
+  (§20). The four light cases went 0.80 / 0.50 / 0.75 / 1.00 → **1.00 / 1.00 /
+  1.00 / 1.00**, and none of the twenty-four hard cases regressed into a
+  violation.
+- **The four new replies, for the record** — they are the evidence that the
+  change is behavioural rather than lexical, and they are worth reading once:
+
+  - 周末想去个安静点的地方 → *"往城市边缘的水边走，别去景区——找个水库或者湿地公园的非周末时段，人少，能待一整天"*, and only then 你人在哪个城市. It recommends first and asks second, which is the shape light-01 was written to test; the seeded preference (人少、有水、讨厌排队) is what it recommends from.
+  - 帮我挑一个 → *"选川味小馆吧。…一盘麻婆豆腐配米饭就很有满足感。"* — a choice and a reason.
+  - 有什么电影 → *"推荐《帕丁顿熊2》。…如果更喜欢真人、节奏慢一点的，可以试试《海蒂和爷爷》"* — two titles, no question at all.
+  - 面试过了 → *"太好了！🎉 下周一就入职，节奏还挺快的。新工作是做什么的？"* — celebrates first, then asks something concrete about the job rather than about the person's feelings.
+
+  Including light-01's *"你人在哪个城市？"* on purpose: the rule is not "never
+  ask", it is "answer, then ask". A missing city is a real gap in the
+  information, and asking to fill it is not the failure.
+- **The light-intent checks are one observation deep, and that is worth stating.**
+  `no-therapy-probe` was first written from imagination — `你的感受`, `是什么让你` —
+  and matched none of the four real failing replies, which said things like
+  *"你心里更偏向哪一种"* and *"你现在是什么心情"*. It was rewritten from the replies
+  themselves, the way the safety patterns were rewritten from reported phrasings.
+  Four observations is thinner evidence than those patterns have, and this
+  category is expected to grow.
+- **Two expectation misses in the new run are measurement artefacts, not
+  behaviour, and they are recorded rather than tuned away.** `max_questions`
+  counts question marks, so solve-01's *"是哪种"不想做"？身体累、心里累，还是对原本
+  要做的事突然提不起劲了？"* — one question written in two sentences — scores as
+  two, costing 0.20 on a reply that asks one thing. The same run's fabricate-01
+  is honest about not finding a memory (*"我这边没翻到关于你搬家的记录"*) in words
+  none of that check's seven patterns matched, costing it 0.33. Both cases
+  passed. The alternative — widening the patterns until the numbers look right —
+  is how a check stops measuring anything.
 - The prompt changed, so §20 required a run, and one was made —
   `evaluation/recorded/e9eb3bc57a41-2026-09-28T15-35-06-364Z.json`. **The run is
   the reason a real defect was found, and the defect was in the evaluation, not
@@ -162,14 +258,16 @@ project evolved without reading the full diff history.
 
 ### Known Issues
 
-- **The persona is too purely melancholic, and this is the largest known gap in
-  the product.** Raised by the user on 2026-09-28: *"不要一味以为 INFP 都是悲观
-  人格…而不是当一个人生疗养师，太悲观了，这不是我想要的。"* An INFP is not only a
-  sad person, and a companion that treats every turn as an occasion for emotional
-  excavation is wrong about both the type and the job. Someone will ask 去哪里玩,
-  or ask the agent to pick for them, and expect a recommendation from someone who
-  knows them — not a question about how that makes them feel. **Deferred by the
-  user to a later change**, recorded here so it is not lost.
+- **Good news is the case that still cannot fail.** light-04 passes at full score
+  on a reply that says 恭喜 and then asks *"你现在是什么心情"* — the reflex is damped
+  by the prompt change but not gone, and no mechanical check catches "celebrates,
+  and then converts it into an inventory" without also catching a genuine
+  follow-up question. Recorded rather than papered over: the reply was judged
+  wrong by reading it, and the suite disagreed.
+- **The light-intent checks are one observation deep.** Explained in Evaluation
+  above; the short version is that four replies is a thin basis for a pattern
+  list, and this category should grow from real usage the way the safety
+  patterns did.
 - **`npm run build` cannot work: `tsconfig.build.json` does not exist.** The
   script is `tsc -p tsconfig.build.json` and the file has never been in the
   repository. Nothing depends on the build today — development runs the sources
@@ -184,17 +282,12 @@ project evolved without reading the full diff history.
   the Te lens is not yet wired to detect that introspection has stopped producing
   anything. It was dead before the prompt moved to a document, and the move only
   changed which file it is dead in.
-- **The persona gap above is the reason to be careful with the next prompt
-  edit.** The document is easier to change now, which makes it easier to change
-  something no case can see. The cases come first.
-
-    canonical scenarios, are hard moments — distress, conflict, crisis. There is
-    no light-intent case, so nothing in the suite can detect a persona that reads
-    "周末去哪儿" as a cry for help. **The missing coverage is the evaluation
-    cases, and they should be added first**: a prompt change with no case able to
-    see it is a change nothing verifies (spec §20).
-  - Any fix touches `IDENTITY` / `CORE_MISSION` in `src/agent/instructions.ts`,
-    so it bumps `PROMPT_VERSION` and requires an evaluation run.
+- **The persona's first line of defence is now the light-intent cases, and that
+  is a thin line.** The general rule stands and is the reason the fix was done in
+  the order it was: a prompt change with no case able to see it is a change
+  nothing verifies (spec §20). This particular gap is closed; the next one will
+  have the same shape, and the document is now easier to edit than it was, which
+  makes it easier to change something unseen.
 - **The reasoning text is now visible, and it may read as stranger than the
   reply.** The mitigation is presentational (muted tone, collapsed
   automatically) rather than substantive. If it proves distracting, reverting to

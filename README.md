@@ -129,14 +129,22 @@ more `text_delta`.
 
 ## Evaluation
 
-24 cases across 10 categories, translated from the spec's canonical scenarios.
-Scoring is mechanical where it can be (`CheckKind`s in `src/evaluation/scorers.ts`)
-and reported, not silently warned, when a forbidden behaviour appears.
+28 cases across 11 categories, translated from the spec's canonical scenarios —
+ten of them hard moments, and one (`light_intent`) of ordinary turns, because a
+suite made only of hard moments certifies a companion that answers "周末去哪儿"
+with a question about your feelings. Scoring is mechanical where it can be
+(`CheckKind`s in `src/evaluation/scorers.ts`) and reported, not silently warned,
+when a forbidden behaviour appears.
 
 ```
 npm run eval              # live; writes evaluation/recorded/<prompt>-<time>.json
 npm run eval:replay       # re-score that file against the current checks
 ```
+
+`--replay` is free for the cases the recording covers, and the ones it does not
+are named in the report rather than quietly re-run against the model. A filtered
+run (`--case`, `--category`) is not recorded at all: `--replay` picks the newest
+file, so a partial one would become the baseline.
 
 Recordings are committed: a live run is the expensive part, and its output is the
 only way to iterate on the checks for free afterwards. Each file records the

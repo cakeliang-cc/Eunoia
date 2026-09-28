@@ -61,6 +61,17 @@ export function formatReport(
     `${summary.passed}/${summary.total} passed · mean score ${summary.meanScore.toFixed(3)} · ` +
       `${summary.violations} violation(s)`,
   );
+
+  if (run.liveDuringReplay.length > 0) {
+    // Said out loud rather than left to be inferred from a case that looks
+    // suspiciously fresh: this run was not free, and those replies describe the
+    // current prompt rather than the one the recording was made with.
+    lines.push(
+      `note: ${run.liveDuringReplay.length} case(s) had no recorded reply and ran live ` +
+        `(${run.liveDuringReplay.join(', ')}); the rest are from the recording.`,
+    );
+  }
+
   lines.push('');
 
   const failing = run.results.filter((result) => !result.passed);

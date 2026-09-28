@@ -127,8 +127,20 @@ async function main(): Promise<void> {
     process.stdout.write(`\n${formatReport(run, { verbose: args.verbose })}\n`);
 
     if (!args.replay && args.record) {
-      const path = await saveRecording(recording);
-      process.stdout.write(`\nrecorded to ${path}\n`);
+      if (cases.length === EVALUATION_CASES.length) {
+        const path = await saveRecording(recording);
+        process.stdout.write(`\nrecorded to ${path}\n`);
+      } else {
+        // `--case` and `--category` are for looking at a few cases, and the
+        // recording they produce is not one. `--replay` picks the newest file,
+        // so a partial one would silently become the baseline and every case
+        // missing from it would run live on the next replay — which is the
+        // opposite of what replay is for.
+        process.stdout.write(
+          `\nnot recorded: ${cases.length} of ${EVALUATION_CASES.length} cases ran. ` +
+            'A partial recording would become the baseline `--replay` picks up.\n',
+        );
+      }
     }
 
     // Exit non-zero on failure so this can gate a change in CI without parsing
