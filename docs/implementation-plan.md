@@ -129,8 +129,26 @@ Latency work is done for now: the wait was not the model's, it was a discarded
 event stream (ADR 010), and forwarding the reasoning took time-to-first-frame
 from 17.83s to 1.22s without touching the model's settings.
 
-Remaining: anything the first real usage suggests. The mini-program adapter is
-not started — it is a later phase by design (ADR 006).
+The prompt was made fully Chinese (spec §11) and the §20-mandated evaluation run
+that followed **found a defect in the evaluation rather than in the prompt** — the
+mechanical checks could not distinguish a reply that *mentions* a forbidden
+phrase from one that *uses* it, and were failing two correct replies. The new
+baseline is 24/24, mean **0.958**, 0 violations at `prompt e9eb3bc57a41`. The
+detail is worth reading before trusting a green run: `CHANGELOG.md` → Evaluation.
+
+Remaining:
+
+- **The persona must handle light intents, not only distress.** Raised by the
+  user on 2026-09-28 and deferred: INFP does not mean pessimistic, and a
+  companion that answers "周末去哪儿玩" with a question about feelings is acting
+  as a life therapist rather than as someone who knows you and can suggest
+  something. The evaluation suite is the reason this was not caught — all 24
+  cases are hard moments. **Add light-intent cases first**, then adjust
+  `IDENTITY` / `CORE_MISSION`; that bumps `PROMPT_VERSION`, so it needs an
+  evaluation run (spec §20). Full text in `CHANGELOG.md` under Known Issues.
+- Anything else the first real usage suggests.
+- The mini-program adapter is not started — it is a later phase by design
+  (ADR 006).
 
 ---
 
@@ -147,13 +165,14 @@ not started — it is a later phase by design (ADR 006).
   `tests/architecture/boundaries.test.ts` in both directions: nothing else may,
   and every composition root must.
 
-## Test suite as of 0.2.0
+## Test suite as of [Unreleased]
 
 | Suite | Count | Requires |
 |---|---|---|
-| Offline (`npm test`) | 368 passed, 25 skipped | nothing |
+| Offline (`npm test`) | 383 passed, 25 skipped | nothing |
 | Postgres (`tests/db/`) | 21 | `DATABASE_URL` |
 | Live smoke (`npm run smoke`) | 4 | `RUN_SMOKE=1` + credential |
+| Evaluation (`npm run eval`) | 24 cases, mean 0.958 | credential |
 
 The offline suite is the one that runs on every change: no network, no container,
 about 1.5 seconds. Everything that needs the outside world self-skips, which is a

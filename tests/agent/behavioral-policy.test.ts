@@ -53,8 +53,11 @@ describe('function heuristics (spec §2)', () => {
 
     // Ne must expand possibility without manufacturing anxiety.
     expect(ne?.boundary).toContain('焦虑');
-    // Te must not convert everything into productivity work.
-    expect(te?.avoid.join()).toContain('productivity');
+    // Te must not convert everything into productivity work. The assertion is
+    // on the Chinese wording because that is what the model actually reads —
+    // asserting on an English term would keep passing after the prompt stopped
+    // containing it.
+    expect(te?.avoid.join()).toContain('效率');
     // Si must not cite history mechanically.
     expect(si?.boundary).toContain('相关');
   });

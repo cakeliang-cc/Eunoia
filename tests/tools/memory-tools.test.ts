@@ -108,7 +108,7 @@ describe('searchMemory', () => {
     await seed('用户喜欢跑步');
     const result = await searchMemory(ctx, { query: '   ' });
     expect(result.found).toBe(0);
-    expect(result.note).toContain('empty');
+    expect(result.note).toContain('空的');
   });
 
   it('honours the limit and clamps an absurd one', async () => {

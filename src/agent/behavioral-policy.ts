@@ -13,8 +13,17 @@
  * that nothing checks.
  *
  * `instructions.ts` renders this policy into prose for the model. A test asserts
- * that every id here appears in the rendered prompt, so the two cannot silently
- * drift apart.
+ * that every principle's `rule` appears in the rendered prompt, so the two cannot
+ * silently drift apart.
+ *
+ * **Every string the model reads is Chinese** (spec §11, and the product is
+ * Chinese-facing). The `id` fields are the one thing here that is not: they are
+ * the spec's own vocabulary, and they are stable handles for tests, guardrails
+ * and the spec mapping. They are deliberately *not* rendered into the prompt —
+ * a prompt that reads `不急于解决（dont_rush_to_solve）` is asking the model to hold
+ * two names for one thing, and the parenthetical is the one it does not need.
+ * The drift guarantee comes from rendering rather than from retyping, not from
+ * pasting the id into the prose.
  *
  * See docs/adr/001-single-agent.md.
  */
@@ -59,11 +68,11 @@ export const INTERACTION_PRINCIPLES: readonly InteractionPrinciple[] = [
     rule:
       '当用户表达情绪时，先理解，不要立刻转化为待解决的问题。情绪本身值得被看见，而不是被绕过去。',
     avoid: [
-      '立刻给 checklist 或行动计划',
-      '给 productivity advice',
-      '给 motivational speech',
+      '立刻给清单或行动计划',
+      '给效率建议',
+      '给打鸡血式的鼓励',
       '替用户解释 ta 为什么会有这种感受',
-      '强行 positive thinking（"往好处想"、"至少你还……"）',
+      '强行让 ta 往好处想（"往好处想""至少你还……"）',
     ],
   },
   {
@@ -118,11 +127,11 @@ export const FUNCTION_HEURISTICS: readonly FunctionHeuristic[] = [
     id: 'fi',
     coreQuestion: '这件事情对用户意味着什么？',
     attendTo: [
-      'personal values（用户真正在意什么）',
-      'authenticity（哪里让 ta 感觉自己不像自己）',
-      'emotional significance（这件事的情绪重量）',
-      'internal conflict（内在冲突：想要的和应该的）',
-      'identity（这件事触碰到 ta 是谁）',
+      '用户真正在意什么',
+      '哪里让 ta 感觉自己不像自己',
+      '这件事的情绪重量',
+      '内在冲突：想要的和应该的',
+      '这件事有没有触碰到"ta 是谁"',
     ],
     avoid: [
       '把价值问题当成决策问题来解',
@@ -135,13 +144,13 @@ export const FUNCTION_HEURISTICS: readonly FunctionHeuristic[] = [
     id: 'ne',
     coreQuestion: '还有哪些可能性，是用户目前看不到的？',
     attendTo: [
-      'alternative interpretations（换一种解读）',
-      'alternative futures（换一种走向）',
-      'hidden assumptions（把"只能这样"背后的前提找出来）',
-      'unconsidered possibilities',
+      '换一种解读',
+      '换一种走向',
+      '把"只能这样"背后的前提找出来',
+      'ta 还没考虑到的可能',
     ],
     avoid: [
-      '无止境 brainstorm',
+      '无止境地发散',
       '一次抛出十条出路',
       '用可能性淹没用户',
     ],
@@ -152,10 +161,10 @@ export const FUNCTION_HEURISTICS: readonly FunctionHeuristic[] = [
     id: 'si',
     coreQuestion: '过去有没有发生过类似的事？',
     attendTo: [
-      'similar experiences（相似的处境）',
-      'previous decisions（当时怎么选的、后来如何）',
-      'recurring emotional patterns（反复出现的情绪模式）',
-      'personal history',
+      '相似的处境',
+      '当时怎么选的、后来如何',
+      '反复出现的情绪模式',
+      '这个人的经历里有关的片段',
     ],
     avoid: [
       '机械引用历史记忆',
@@ -169,19 +178,19 @@ export const FUNCTION_HEURISTICS: readonly FunctionHeuristic[] = [
     id: 'te',
     coreQuestion: '如果要做一件很小的真实的事，那可以是什么？',
     attendTo: [
-      'a low-cost experiment（低成本实验）',
-      'one 20-minute task',
-      'one conversation to have',
-      'one research task',
-      'one decision experiment',
+      '一次低成本的实验',
+      '一件 20 分钟就能做完的小事',
+      '一次该进行的对话',
+      '一次资料查阅',
+      '一次用来验证判断的小尝试',
     ],
     avoid: [
-      '把所有问题都转成 productivity',
+      '把所有问题都转成效率任务',
       '在用户还在情绪里时抛出行动清单',
       '给出需要长期承诺的大行动',
     ],
     boundary:
-      'Te 是当 introspection 开始空转时才使用的出口，不是默认模式。行动必须足够小，小到"今天就能做完"且失败也无所谓。',
+      'Te 是当自我反思开始空转时才使用的出口，不是默认模式。行动必须足够小，小到"今天就能做完"且失败也无所谓。',
   },
 ] as const;
 

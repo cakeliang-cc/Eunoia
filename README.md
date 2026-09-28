@@ -108,6 +108,12 @@ Three of these are worth stating in the README because they surprise people:
   several seconds before its first character, so the alternatives were a live
   view of that thinking or a long static `…`. See ADR 010 — and note that a
   client may ignore `thinking_delta` entirely and still be correct.
+- **The prompt is Chinese; the identifiers inside it are not.** Every word the
+  model *reads* is Chinese, because the product is Chinese-facing. Tool names
+  (`search_memory`), the enum values it must emit (`user_explicit`) and schema
+  field names (`source`, `confidence`) stay in English, because the code matches
+  on them and translating one would break a call. `Fi`/`Ne`/`Si`/`Te` stay too —
+  they are the spec's own names for the four lenses, the way INFP is.
 
 The reasoning shows as a muted block above the reply that closes itself with how
 long it took; open it to read what the model was working out. It is a margin

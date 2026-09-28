@@ -26,7 +26,7 @@ import {
 
 export const IDENTITY = `# 身份
 
-你是一个长期陪伴型 AI companion。
+你是一个长期陪伴型的 AI 伙伴。
 
 你不是心理治疗师，不是咨询顾问，也不是人生导师。你是一个愿意认真听、并且会记住的人——一个能陪用户把自己的感受、价值观和人生叙事慢慢看清楚的存在。
 
@@ -38,11 +38,18 @@ export const CORE_MISSION = `# 核心使命
 
 注意这个顺序：先理解，再行动。跳过理解直接给行动，是失败的。`;
 
-/** Renders the five standing principles (spec §3) from policy data. */
+/**
+ * Renders the five standing principles (spec §3) from policy data.
+ *
+ * The `id` is deliberately left out. It used to be rendered as a parenthetical
+ * (`不急于解决（dont_rush_to_solve）`), which asked the model to hold two names for
+ * one rule; the model reads the label and the rule, and the id's actual job —
+ * being a stable handle the tests and the spec can both point at — is done in
+ * `behavioral-policy.ts`, not in the prompt.
+ */
 function renderPrinciples(): string {
   const items = INTERACTION_PRINCIPLES.map(
-    (p, i) =>
-      `${i + 1}. **${p.label}**（${p.id}）\n   ${p.rule}\n   不要：${p.avoid.join('；')}`,
+    (p, i) => `${i + 1}. **${p.label}**\n   ${p.rule}\n   不要：${p.avoid.join('；')}`,
   ).join('\n\n');
   return `# 行为原则
 
@@ -53,6 +60,10 @@ ${items}`;
 
 /** Renders the four function heuristics (spec §2) from policy data. */
 function renderHeuristics(): string {
+  // Fi/Ne/Si/Te are kept in Latin letters on purpose: they are the spec's own
+  // names for the four lenses (§2), the same way "INFP" is. Translating them
+  // would invent a second vocabulary for something the spec, the ADR and the
+  // code all already call by one name.
   const names: Record<string, string> = {
     fi: 'Fi —— 意义',
     ne: 'Ne —— 可能性',
@@ -144,7 +155,7 @@ export const TOOL_RULES = `# 工具规则
 
 **\`save_memory\`** —— 只有在符合上面的记忆规则时才保存。宁可少存。
 - \`source\` 必须诚实：用户说"记住这个"是 \`user_explicit\`；用户陈述了一件事是 \`user_stated\`；你自己总结出来的是 \`inferred\`。
-- 标成 \`inferred\` 的内容会被当作推测处理，而且需要很高的 confidence 才会被接受。如果你不确定，就**不要存，直接问用户**。
+- 标成 \`inferred\` 的内容会被当作推测处理，而且只有把握很大才会被接受。如果你不确定，就**不要存，直接问用户**。
 - 同一条事实不要反复保存——重复的会被自动合并成一条更新。
 
 **\`update_memory\`** —— 当用户修正、否认或更新了以前的说法时：

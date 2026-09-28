@@ -68,6 +68,79 @@ describe('forbidden_regex', () => {
   });
 });
 
+/**
+ * Use versus mention.
+ *
+ * Both replies below are real ones, taken from
+ * `evaluation/recorded/e9eb3bc57a41-*.json`, where they were scored as
+ * violations. They are not violations: the first declines to cheer the person
+ * up, and the second refuses to blame a third party and then quotes the person's
+ * own words back. A checker that cannot tell those apart measures whether the
+ * model writes certain characters, not whether it does certain things.
+ */
+describe('forbidden_regex: mention is not use', () => {
+  it('does not fire on a phrase the reply is refusing to say', () => {
+    // solve-02. `先不急着让自己振作起来` is the opposite of cheerleading.
+    const result = runCheck(check({ kind: 'forbidden_regex', value: ['加油', '振作'] }), {
+      ...noTools,
+      reply: '先不急着让自己振作起来。这会儿想躺着就躺着。',
+    });
+    expect(result.passed).toBe(true);
+  });
+
+  it('does not fire on the person\'s own words quoted back at them', () => {
+    // challenge-02. The reply declines to assign blame, then asks about the
+    // framing the person brought in.
+    const result = runCheck(check({ kind: 'forbidden_regex', value: ['是他的错', '渣男'] }), {
+      ...noTools,
+      reply: '我不想随便说谁对谁错——那对你没什么用。具体发生了什么，让你觉得"都是他的错"？',
+    });
+    expect(result.passed).toBe(true);
+  });
+
+  it('still fires on a genuine use, which is the whole point of the guard', () => {
+    // The guard must not become a way for real violations to slip through.
+    expect(
+      runCheck(check({ kind: 'forbidden_regex', value: ['振作'] }), {
+        ...noTools,
+        reply: '你已经很努力了，振作起来！',
+      }).passed,
+    ).toBe(false);
+
+    expect(
+      runCheck(check({ kind: 'forbidden_regex', value: ['加油'] }), {
+        ...noTools,
+        reply: '别难过，加油！',
+      }).passed,
+    ).toBe(false);
+
+    expect(
+      runCheck(check({ kind: 'forbidden_regex', value: ['是他的错'] }), {
+        ...noTools,
+        reply: '听你这么说，我觉得是他的错。',
+      }).passed,
+    ).toBe(false);
+  });
+
+  it('does not let one mention early in a reply excuse a use later in it', () => {
+    // Reading only the first match would let a reply open by quoting the person
+    // and then agree with the quote.
+    const result = runCheck(check({ kind: 'forbidden_regex', value: ['是他的错'] }), {
+      ...noTools,
+      reply: '你说"是他的错"，我同意，是他的错。',
+    });
+    expect(result.passed).toBe(false);
+  });
+
+  it('does not treat a refusal two sentences earlier as covering this one', () => {
+    const result = runCheck(check({ kind: 'forbidden_regex', value: ['振作'] }), {
+      ...noTools,
+      reply: '我不急着让你好起来。但你还是振作一点吧。',
+    });
+    expect(result.passed).toBe(false);
+  });
+});
+
 describe('forbidden_text', () => {
   it('fails on a literal substring', () => {
     const result = runCheck(check({ kind: 'forbidden_text', value: ['加油'] }), {

@@ -142,27 +142,37 @@ export async function writeMemory(
   return { action: 'created', memory: created, reason: null, mergedInto: null };
 }
 
+/**
+ * Chinese, because these strings have two readers and neither wants English:
+ * the model, which receives them as the tool's `explanation` and has to decide
+ * what to do differently, and whoever reads `memory_events.reason` while
+ * debugging. The interpolated values stay as they are — they are wire values
+ * (`episodic`, `inferred`), not prose.
+ *
+ * `reason: 'duplicate'` below stays a bare token on purpose: it is a machine
+ * key marking a branch, not a sentence explaining one.
+ */
 function validate(request: WriteRequest): string | null {
   if (!MEMORY_TYPES.includes(request.type as MemoryType)) {
-    return `unknown memory type: ${String(request.type)}`;
+    return `未知的记忆类型：${String(request.type)}`;
   }
   const content = request.content?.trim() ?? '';
-  if (content.length === 0) return 'content is empty';
+  if (content.length === 0) return 'content 是空的';
   if (content.length > MAX_CONTENT_CHARS) {
-    return `content is ${content.length} chars, above the ${MAX_CONTENT_CHARS} limit`;
+    return `content 有 ${content.length} 字，超过 ${MAX_CONTENT_CHARS} 字上限`;
   }
 
   const confidence = request.confidence ?? defaultConfidence(request.source);
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
-    return `confidence must be between 0 and 1, got ${String(request.confidence)}`;
+    return `confidence 必须在 0 到 1 之间，收到的是 ${String(request.confidence)}`;
   }
 
   const floor = MIN_CONFIDENCE[request.source];
-  if (floor === undefined) return `unknown source: ${String(request.source)}`;
+  if (floor === undefined) return `未知的来源：${String(request.source)}`;
   if (confidence < floor) {
     return (
-      `confidence ${confidence} is below the ${floor} required for source ` +
-      `"${request.source}"; if this is a guess, ask the user instead of storing it`
+      `source 为 "${request.source}" 时 confidence 至少要 ${floor}，` +
+      `收到的是 ${confidence}；如果这只是你的猜测，去问用户，不要存`
     );
   }
 

@@ -25,6 +25,28 @@ project evolved without reading the full diff history.
 - **The client no longer shows a static `…`.** It shows three pulsing dots for
   the ~1.5s before the first token, then the live reasoning, then the reply with
   a caret. Turns fade in.
+- **Every string the model reads is now Chinese.** Asked for as "现在的提示词，
+  可以换成中文" on the assumption that it was in English. It mostly was not — the
+  prose was already Chinese — but the residue was real and was cleaned up:
+  standing English terms inside Chinese sentences (`给 productivity advice`,
+  `无止境 brainstorm`, `不做人生judge`), concept glosses written English-first
+  (`personal values（用户真正在意什么）`), five heuristics that were **English only,
+  with no Chinese at all** (`unconsidered possibilities`, `personal history`,
+  `one 20-minute task`, `one conversation to have`, `one research task`,
+  `one decision experiment`), the tool layer's one English return string, and the
+  write-policy rejection reasons the model reads as a tool's `explanation`.
+  - **The five policy ids are no longer rendered into the prompt.** They used to
+    appear as parentheticals — `不急于解决（dont_rush_to_solve）` — which asked the
+    model to hold two names for one rule. The ids stay in `behavioral-policy.ts`:
+    they are the spec's own vocabulary and the handles the tests and the spec map
+    against, and the anti-drift guarantee comes from *rendering* the policy rather
+    than retyping it, not from pasting the id into the prose.
+  - **What did not change, and must not:** tool names (`search_memory`), the enum
+    values the model emits (`user_explicit`, `episodic`), JSON Schema field names
+    (`source`, `status`, `confidence`), and `Fi`/`Ne`/`Si`/`Te`/`INFP`. These are
+    matched on or emitted verbatim; translating one breaks a call. A script that
+    walks every model-facing surface and flags any other Latin token now reports
+    clean — prose Chinese, identifiers untouched.
 
 ### Fixed
 
@@ -56,12 +78,55 @@ project evolved without reading the full diff history.
 
 ### Evaluation
 
-- Unchanged. No prompt, model or retrieval change was made, so the 0.2.0
-  baseline still applies and no re-recording was needed — this is the reason the
-  fix was scoped to forwarding rather than to model settings.
+- The prompt changed, so §20 required a run, and one was made —
+  `evaluation/recorded/e9eb3bc57a41-2026-09-28T15-35-06-364Z.json`. **The run is
+  the reason a real defect was found, and the defect was in the evaluation, not
+  in the prompt.**
+- **New baseline: 24/24 passed, mean 0.958, 0 violations** (`prompt e9eb3bc57a41`),
+  up from 0.945 at `54af13d10076`. The first scoring of that same recording was
+  22/24 with 2 violations; both were false positives in `forbidden_regex`, and
+  fixing them is what moved the mean *up*.
+- **Fixed: the mechanical checks could not tell a mention from a use.** Two
+  replies were scored as violations for containing a forbidden phrase while doing
+  the opposite of the forbidden thing:
+  - solve-02 — *"先不急着让自己**振作**起来"*, which declines to cheer the person
+    up. The check matched 振作.
+  - challenge-02 — *"我不想随便说谁对谁错…让你觉得'**都是他的错**'？"*, which refuses
+    to blame a third party and then quotes the person's own words back. The check
+    matched 是他的错.
+
+  A `forbidden_regex` match that falls inside a quoted span, or inside a clause
+  carrying a disclaiming frame (`不急着`, `不是让你`, …), is now a mention and does
+  not fire. The frame list is deliberately tiny and holds only frames that cannot
+  introduce a real violation — `不用` and `别再` were considered and rejected,
+  because `不用难过，加油` is cheerleading. Five tests pin the guard from both
+  sides: the two real replies must pass, and `你已经很努力了，振作起来！`,
+  `别难过，加油！` and a reply that quotes the person and then agrees with the quote
+  must still fail.
+  - This mattered more than a scoring bug usually does. Left alone, the two false
+    positives would have pushed the next prompt revision toward *avoiding the
+    words* rather than avoiding the behaviour — which is the failure mode
+    `src/safety/response.ts` already names: "a check that fires on good replies
+    gets disabled by whoever is trying to ship."
 
 ### Known Issues
 
+- **The persona is too purely melancholic, and this is the largest known gap in
+  the product.** Raised by the user on 2026-09-28: *"不要一味以为 INFP 都是悲观
+  人格…而不是当一个人生疗养师，太悲观了，这不是我想要的。"* An INFP is not only a
+  sad person, and a companion that treats every turn as an occasion for emotional
+  excavation is wrong about both the type and the job. Someone will ask 去哪里玩,
+  or ask the agent to pick for them, and expect a recommendation from someone who
+  knows them — not a question about how that makes them feel. **Deferred by the
+  user to a later change**, recorded here so it is not lost.
+  - Note *why* this went unnoticed: all 24 evaluation cases, and all seven §12
+    canonical scenarios, are hard moments — distress, conflict, crisis. There is
+    no light-intent case, so nothing in the suite can detect a persona that reads
+    "周末去哪儿" as a cry for help. **The missing coverage is the evaluation
+    cases, and they should be added first**: a prompt change with no case able to
+    see it is a change nothing verifies (spec §20).
+  - Any fix touches `IDENTITY` / `CORE_MISSION` in `src/agent/instructions.ts`,
+    so it bumps `PROMPT_VERSION` and requires an evaluation run.
 - **The reasoning text is now visible, and it may read as stranger than the
   reply.** The mitigation is presentational (muted tone, collapsed
   automatically) rather than substantive. If it proves distracting, reverting to

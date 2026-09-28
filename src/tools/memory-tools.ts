@@ -77,7 +77,7 @@ export async function searchMemory(
 ): Promise<SearchMemoryResult> {
   const query = args.query?.trim() ?? '';
   if (query.length === 0) {
-    return { found: 0, memories: [], note: 'query was empty; nothing was searched for' };
+    return { found: 0, memories: [], note: '检索词是空的，没有检索任何内容。' };
   }
 
   const limit = clampInt(args.limit ?? 5, 1, 10);

@@ -27,12 +27,83 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-function toRegex(pattern: string): RegExp | null {
+function toRegex(pattern: string, flags = 'i'): RegExp | null {
   try {
-    return new RegExp(pattern, 'i');
+    return new RegExp(pattern, flags);
   } catch {
     return null;
   }
+}
+
+function countOccurrences(text: string, needle: string): number {
+  return text.split(needle).length - 1;
+}
+
+/** Quote marks a reply might use to attribute words to someone else. */
+const QUOTE_PAIRS: readonly { open: string; close: string }[] = [
+  { open: '“', close: '”' },
+  { open: '「', close: '」' },
+  { open: '『', close: '』' },
+  { open: '‘', close: '’' },
+  // Symmetric marks: open and close are the same character, so being inside one
+  // is a question of parity rather than of counting two different marks.
+  { open: '"', close: '"' },
+];
+
+/** True when the character at `index` sits inside a quoted span. */
+function isQuoted(text: string, index: number): boolean {
+  const before = text.slice(0, index);
+  return QUOTE_PAIRS.some(({ open, close }) => {
+    const opens = countOccurrences(before, open);
+    return open === close ? opens % 2 === 1 : opens > countOccurrences(before, close);
+  });
+}
+
+/**
+ * Frames in which the reply names a phrase in order to *refuse* it.
+ *
+ * `先不急着让自己振作起来` is a good reply to someone who feels hollow, and it
+ * contains 振作. Failing it would push the prompt toward never writing the word
+ * rather than toward never cheering anyone up — which is the failure mode this
+ * whole file exists to avoid, since a check that fires on good replies gets
+ * deleted by whoever is trying to ship.
+ *
+ * Built from observed replies, the same way the safety patterns were. Kept
+ * deliberately tiny: every entry is a frame that *cannot* introduce a real
+ * violation. `不用` and `别再` were considered and left out — `不用难过，加油` is
+ * cheerleading, and a cue that can precede cheerleading would hide it.
+ */
+const DISCLAIMING_FRAMES: readonly string[] = [
+  '不急着',
+  '不是让你',
+  '不是要你',
+  '没有让你',
+  '没有要你',
+];
+
+/** How far back a disclaiming frame can sit and still be talking about this match. */
+const DISCLAIM_WINDOW = 12;
+
+/** True when the match is inside a clause that disclaims it. */
+function isDisclaimed(text: string, index: number): boolean {
+  const window = text.slice(Math.max(0, index - DISCLAIM_WINDOW), index);
+  // Only the current clause counts. A refusal in an earlier sentence says
+  // nothing about this one.
+  const clause = window.split(/[。！？!?；;\n]/).pop() ?? '';
+  return DISCLAIMING_FRAMES.some((frame) => clause.includes(frame));
+}
+
+/**
+ * Is this occurrence a *mention* rather than a *use*?
+ *
+ * The mechanical checks match text, and text cannot tell the two apart on its
+ * own: a reply that asks `让你觉得"都是他的错"？` is quoting the person back to
+ * themselves, not agreeing that it is. The two guards below are the cases where
+ * the surrounding text makes the answer decidable without a model call — which
+ * is the property this whole file is built to keep.
+ */
+function isMention(text: string, index: number): boolean {
+  return isQuoted(text, index) || isDisclaimed(text, index);
 }
 
 function countMatches(text: string, pattern: RegExp): number {
@@ -69,8 +140,14 @@ export function runCheck(check: Check, context: CheckContext): CheckResult {
     case 'forbidden_regex': {
       const patterns = Array.isArray(check.value) ? check.value : [asString(check.value)];
       for (const pattern of patterns) {
-        const regex = toRegex(pattern);
-        if (regex?.test(reply)) return result(false, `matched /${pattern}/`);
+        const regex = toRegex(pattern, 'gi');
+        if (!regex) continue;
+        // Every occurrence, not just the first: one mention early in a reply
+        // must not excuse a genuine use later in it.
+        for (const match of reply.matchAll(regex)) {
+          if (isMention(reply, match.index ?? 0)) continue;
+          return result(false, `matched /${pattern}/`);
+        }
       }
       return result(true);
     }
