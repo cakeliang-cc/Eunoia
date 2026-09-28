@@ -4,6 +4,25 @@ Phase 0 reconnaissance output. All statements below were verified by probing the
 local machine and the configured model endpoint on 2026-09-28. Nothing here is
 assumed.
 
+> **Update — 2026-09-28, after 0.2.0.** This document is kept as the
+> reconnaissance record rather than rewritten, so the reasoning that produced the
+> architecture stays auditable. Three of the blockers it names are now resolved:
+>
+> | Was | Now |
+> |---|---|
+> | Docker daemon not running | **running**; `designfree-db` up and healthy |
+> | No Postgres server / pgvector | **provisioned** — PostgreSQL 17.11 + pgvector 0.8.6 in `pgvector/pgvector:pg17`, host port **5433** |
+> | No git identity | **configured** (`cakeliang-cc <xxwwliang@gmail.com>`) |
+>
+> **Still true, and load-bearing:** no embedding provider (re-probed, unchanged)
+> — hence the lexical similarity in ADR 004/007. And the endpoint's two-model
+> namespace is unchanged.
+>
+> The live stack is now: Node 24.7 + TypeScript (native type stripping, no build
+> step in development) + Postgres 17/pgvector via Docker + the OpenAI Agents SDK
+> over DeepSeek's OpenAI-compatible surface. `src/db/in-memory-store.ts` remains
+> as the no-container fallback, so the offline suite needs nothing installed.
+
 ---
 
 ## 1. Current stack
@@ -24,11 +43,14 @@ empty by fact, not by omission.
 | TypeScript | — | not installed (comes via `devDependencies`) |
 | Python | 3.13.5 (miniconda) | available |
 | PostgreSQL **client** (`libpq`) | 17.6 | available |
-| PostgreSQL **server** | — | **NOT INSTALLED** |
-| pgvector | — | **NOT INSTALLED** |
+| PostgreSQL **server** | — | ~~NOT INSTALLED~~ → **17.11, in Docker, port 5433** |
+| pgvector | — | ~~NOT INSTALLED~~ → **0.8.6, extension installed** |
 | Docker CLI | 28.3.3 | installed |
-| Docker daemon | — | **NOT RUNNING** |
-| git | — | available, but **no global `user.name` / `user.email` configured** |
+| Docker daemon | — | ~~NOT RUNNING~~ → **running** |
+| git | — | available; ~~no global identity~~ → **configured** |
+
+The struck-through cells were the state at reconnaissance and are kept so the
+blocker history is readable. The arrows are the state as of 0.2.0.
 
 `psql` resolves to `/opt/homebrew/opt/libpq/bin/psql`. `libpq` is the client
 library only; the `postgres` server binary does not exist on this machine
@@ -142,12 +164,12 @@ Everything the target architecture in the spec calls for, specifically:
 
 | Spec requirement | Status | Blocker |
 |---|---|---|
-| TypeScript / Node project | missing | none — can scaffold immediately |
-| OpenAI Agents SDK runtime | **viable** | none — SDK points at DeepSeek's OpenAI-compatible `baseURL` |
-| PostgreSQL server | missing | not installed; Docker daemon down |
-| pgvector extension | missing | follows from the above |
+| TypeScript / Node project | **built** | none |
+| OpenAI Agents SDK runtime | **built** | none — SDK points at DeepSeek's OpenAI-compatible `baseURL` |
+| PostgreSQL server | **running** — 17.11, Docker, port 5433 | none |
+| pgvector extension | **installed** — 0.8.6 | none |
 | Embedding provider | **missing** | no embeddings route on the endpoint (re-probed, stands) |
-| Tracing / observability | missing | SDK tracing available; app-level logs to be built |
+| Tracing / observability | **built** — structured span processor + content-free app logs | none |
 
 ## 5. Potential conflicts
 
@@ -179,10 +201,17 @@ This conflict was **raised in error** and is retracted.
 
 ### Conflict B — PostgreSQL + pgvector cannot be assumed
 
+**Resolved.** Docker was started, and the database runs from a pinned image.
+
 - **Spec (§5):** default to PostgreSQL + pgvector.
-- **Reality:** No server binary, no data dir, Docker daemon not running.
-- **Impact:** High *if unaddressed*, because the entire §4 memory architecture and
-  §6 retrieval policy sit on this. Requires a one-time install decision.
+- **Reality at reconnaissance:** no server binary, no data dir, Docker daemon not
+  running.
+- **Resolution:** `docker compose up -d` provisions `pgvector/pgvector:pg17` with
+  a healthcheck. Port **5433**, not 5432 — the default is usually already taken,
+  and a port collision produces a confusing failure rather than a clean one.
+- **The impact assessment was right**, which is why it was resolved before
+  Phase 2 rather than during it: the entire §4 memory architecture and §6
+  retrieval policy sit on this database.
 
 ### Conflict C — No embedding provider for semantic retrieval
 
@@ -242,10 +271,13 @@ both the original D3 and the hand-rolled-loop fallback, so it supersedes them.
 
 ### Blockers now
 
-1. **Docker daemon** — required for Phase 2 (Postgres + pgvector). Still open.
-2. **git identity** (`user.name` / `user.email`) — unset; commits cannot be
-   authored until configured.
+None. All three — Docker daemon, Postgres provisioning, git identity — are
+resolved as of 0.2.0 (see the update notice at the top).
 
-The former "OpenAI API key" blocker is **withdrawn**.
+The one constraint that remains is not a blocker but a boundary: **there is no
+embedding provider**, so retrieval runs on lexical similarity. That is a decision
+(ADR 004) with an escape hatch built in (an injected similarity function), not
+outstanding work.
 
-See `docs/implementation-plan.md` for the phase plan.
+See `docs/implementation-plan.md` for the phase plan and `CHANGELOG.md` for what
+each phase actually shipped.

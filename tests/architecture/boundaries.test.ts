@@ -9,8 +9,23 @@
 import { describe, expect, it } from 'vitest';
 import { importSpecifiers, readSources } from '../helpers/sources.ts';
 
-/** Directories that must stay transport-agnostic. */
-const CORE_DIRS = ['src/agent/', 'src/memory/', 'src/tools/', 'src/safety/', 'src/evaluation/'];
+/**
+ * Directories that must stay transport-agnostic.
+ *
+ * `src/service/` (turn orchestration) and `src/db/` (persistence) were added
+ * when Phase 2 introduced them. Both are product logic that a different client —
+ * a mini-program, a CLI, a batch job — would need to reuse verbatim, so neither
+ * may reach for HTTP.
+ */
+const CORE_DIRS = [
+  'src/agent/',
+  'src/memory/',
+  'src/tools/',
+  'src/safety/',
+  'src/evaluation/',
+  'src/service/',
+  'src/db/',
+];
 
 /** Modules the core must never reach for. */
 const FORBIDDEN_SPECIFIERS = [
@@ -27,6 +42,31 @@ const FORBIDDEN_SPECIFIERS = [
 
 function isCore(relativePath: string): boolean {
   return CORE_DIRS.some((dir) => relativePath.startsWith(dir));
+}
+
+/**
+ * The names a file imports from a given module.
+ *
+ * `import { type Store }` and `import { Store as S }` both yield `Store`: the
+ * guard asks which *things* a file depends on, and an alias is the same thing
+ * under another name.
+ */
+function importedNamesFrom(source: string, moduleSuffix: string): string[] {
+  const names: string[] = [];
+  const pattern = new RegExp(
+    `import\\s+(?:type\\s+)?\\{([^}]*)\\}\\s*from\\s*['"][^'"]*${moduleSuffix}['"]`,
+    'g',
+  );
+  for (const match of source.matchAll(pattern)) {
+    for (const entry of (match[1] ?? '').split(',')) {
+      const name = entry
+        .replace(/\btype\b/g, '')
+        .split(/\s+as\s+/)[0]
+        ?.trim();
+      if (name) names.push(name);
+    }
+  }
+  return names;
 }
 
 describe('core / transport boundary (ADR 006)', () => {
@@ -106,5 +146,54 @@ describe('core / transport boundary (ADR 006)', () => {
       );
       expect(sdkImports, `${relativePath} leaks an SDK import into transport`).toEqual([]);
     }
+  });
+
+  /**
+   * Only a process entry point may install the model provider.
+   *
+   * This guard exists because its absence cost a debugging session: `npm run
+   * eval` never called `installProvider()`, so the SDK fell back to its own
+   * default provider, which wants an OpenAI key this runtime does not have.
+   * Every one of the 24 cases failed with "Missing credentials", which reads
+   * like a misconfigured key and was in fact a missing line in an entry point.
+   *
+   * It is a rule about *where* a process-level side effect happens, so it is
+   * checked on the imports rather than on behaviour — a test that ran the CLI
+   * would need a live credential, and would therefore be skipped by exactly the
+   * people who need it.
+   */
+  const COMPOSITION_ROOTS = ['src/api/server.ts', 'src/evaluation/cli.ts'];
+
+  it('only composition roots install the model provider', async () => {
+    const sources = await readSources();
+    const violations = sources
+      .filter(
+        ({ relativePath, source }) =>
+          importedNamesFrom(source, 'model-client.ts').includes('installProvider') &&
+          !COMPOSITION_ROOTS.includes(relativePath),
+      )
+      .map(({ relativePath }) => relativePath);
+
+    expect(violations).toEqual([]);
+  });
+
+  it('every composition root installs it, which is the half that actually broke', async () => {
+    // The other half of the same rule. Without this, deleting the call from
+    // `cli.ts` would still pass the guard above — the failure mode is an
+    // omission, not an excess.
+    const sources = await readSources();
+    for (const root of COMPOSITION_ROOTS) {
+      const source = sources.find((entry) => entry.relativePath === root)?.source ?? '';
+      expect(source, `${root} is missing from the tree`).not.toBe('');
+      expect(source, `${root} never calls installProvider()`).toContain('installProvider()');
+    }
+  });
+
+  it('the composition-root guard would actually catch a violation', () => {
+    const synthetic = `import { installProvider } from '../agent/model-client.ts';`;
+    expect(importedNamesFrom(synthetic, 'model-client.ts')).toContain('installProvider');
+    expect(importedNamesFrom(`import { type Store } from './store.ts';`, 'store.ts')).toEqual([
+      'Store',
+    ]);
   });
 });

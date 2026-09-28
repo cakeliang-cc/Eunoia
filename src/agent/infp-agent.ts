@@ -8,9 +8,14 @@
  * project's own `AgentEvent` stream. That translation is the transport boundary
  * in miniature: everything downstream — SSE, a future mini-program adapter,
  * tests — consumes `AgentEvent` and never sees an SDK type.
+ *
+ * It is a *raw* adapter: it starts a run and reports what happened. Policy —
+ * when to retrieve memory, what to do about a risky message, what to persist —
+ * lives in `src/service/`. Keeping those apart is what lets the whole
+ * behavioural layer be tested against a fake runner with no model in the loop.
  */
 
-import { Agent, run } from '@openai/agents';
+import { Agent, run, type Tool } from '@openai/agents';
 import type { AgentEvent } from './events.ts';
 import { buildInstructions } from './instructions.ts';
 import { COMPANION_MODEL } from './model-client.ts';
@@ -18,11 +23,29 @@ import { log } from '../observability/logging.ts';
 
 export const AGENT_NAME = 'INFPCompanion';
 
+export interface ConversationTurn {
+  readonly role: 'user' | 'assistant';
+  readonly content: string;
+}
+
 export interface StreamReplyOptions {
   /** Cancels the run when the client disconnects. */
   readonly signal?: AbortSignal;
   /** Upper bound on tool-calling turns, so a loop cannot run away. */
   readonly maxTurns?: number;
+  /** Prior turns, oldest first. The new message is appended after these. */
+  readonly history?: readonly ConversationTurn[];
+  /** Tools the agent may call. Empty means none. */
+  readonly tools?: readonly Tool[];
+  /** Per-turn override appended to the system prompt. See `src/safety/`. */
+  readonly safetyDirective?: string | null;
+}
+
+export interface AgentOptions {
+  readonly tools?: readonly Tool[];
+  readonly safetyDirective?: string | null;
+  /** Retrieved memories, already rendered. See `src/memory/render.ts`. */
+  readonly memoryBlock?: string | null;
 }
 
 /**
@@ -32,11 +55,15 @@ export interface StreamReplyOptions {
  * `installProvider()` in `model-client.ts`. Keeping construction separate from
  * provider setup means tests can build an agent without a live credential.
  */
-export function createCompanionAgent(): Agent {
+export function createCompanionAgent(options: AgentOptions = {}): Agent {
   return new Agent({
     name: AGENT_NAME,
-    instructions: buildInstructions(),
+    instructions: buildInstructions({
+      memoryBlock: options.memoryBlock,
+      safetyDirective: options.safetyDirective,
+    }),
     model: COMPANION_MODEL,
+    tools: [...(options.tools ?? [])],
   });
 }
 
@@ -91,6 +118,58 @@ function toolInfoOf(item: unknown): { callId: string; name: string } | null {
 }
 
 /**
+ * One prior turn, in the shape the Responses API expects.
+ *
+ * The asymmetry between the two roles is not ours to choose: a user message
+ * takes a plain string, while an assistant message must carry `status` and its
+ * content as typed parts. Sending an assistant turn in the user's shape produces
+ * a 400 from the provider, which is why this is typed explicitly rather than
+ * inferred from a map.
+ */
+export type RunInputItem =
+  | { readonly role: 'user'; readonly content: string; readonly type: 'message' }
+  | {
+      readonly role: 'assistant';
+      readonly status: 'completed';
+      readonly content: { readonly type: 'output_text'; readonly text: string }[];
+      readonly type: 'message';
+    };
+
+/**
+ * Build the run input.
+ *
+ * History is passed as explicit message items rather than as a session object,
+ * because the conversation's canonical copy lives in Postgres and a second
+ * in-SDK copy would be a second source of truth about what was said. It also
+ * means the exact prompt sent on a turn is reconstructible from our own data,
+ * which is what the evaluation runner needs.
+ *
+ * The single-message case passes a bare string: it is the shape the provider
+ * sees most often, and there is no reason to make the common path go through the
+ * array form.
+ */
+export function buildRunInput(
+  message: string,
+  history: readonly ConversationTurn[] = [],
+): string | RunInputItem[] {
+  if (history.length === 0) return message;
+
+  const items: RunInputItem[] = history.map((turn) =>
+    turn.role === 'user'
+      ? { role: 'user' as const, content: turn.content, type: 'message' as const }
+      : {
+          role: 'assistant' as const,
+          status: 'completed' as const,
+          content: [{ type: 'output_text' as const, text: turn.content }],
+          type: 'message' as const,
+        },
+  );
+
+  items.push({ role: 'user', content: message, type: 'message' });
+  return items;
+}
+
+/**
  * Run one turn and yield the reply as a transport-agnostic event stream.
  *
  * A non-streaming caller can ignore `text_delta` events and use the final
@@ -107,8 +186,8 @@ export async function* streamReply(
   let sawToolCall = false;
 
   try {
-    const result = await run(agent, message, {
-      stream: true,
+    const result = await run(agent, buildRunInput(message, options.history), {
+      stream: true as const,
       signal: options.signal,
       maxTurns: options.maxTurns,
     });
@@ -130,7 +209,7 @@ export async function* streamReply(
         if (event.name === 'tool_called') {
           sawToolCall = true;
           log.debug('agent.tool_call', { tool: info.name, call_id: info.callId });
-          yield { type: 'tool_call', callId: info.callId, name: info.name, displayable: false };
+          yield { type: 'tool_call', callId: info.callId, name: info.name, displayable: true };
         } else if (event.name === 'tool_output') {
           yield { type: 'tool_result', callId: info.callId, name: info.name, ok: true };
         }

@@ -1,0 +1,32 @@
+# Postgres + pgvector for the memory layers (ADR 002).
+#
+# The image tag is pinned deliberately: a migration written against `pg17` must
+# still run against the same server next year. `pgvector/pgvector:pg17` ships the
+# `vector` extension already compiled, which is why this image and not stock
+# postgres.
+#
+# Port 5433 rather than 5432 so a Postgres already running on the host does not
+# collide — a confusing failure to debug in the middle of something else.
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: designfree-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: designfree
+      POSTGRES_PASSWORD: designfree
+      POSTGRES_DB: designfree
+    ports:
+      - '5433:5432'
+    volumes:
+      # Named volume, not a bind mount: the data outlives `docker compose down`
+      # and is only removed by an explicit `down -v`.
+      - designfree-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U designfree -d designfree']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  designfree-pgdata:

@@ -34,6 +34,243 @@ project evolved without reading the full diff history.
 
 ---
 
+## [0.2.0] — 2026-09-28
+
+Phases 2 (memory), 3 (evaluation), 4 (safety) and most of Phase 5 (product
+polish) of `docs/implementation-plan.md`. The companion is now a working
+product with long-term memory, a personality evaluation, and a safety path that
+outranks its own persona.
+
+Three environment blockers named in 0.1.0 are resolved: the Docker daemon is
+running, Postgres 17.11 + pgvector 0.8.6 are provisioned, and a git identity is
+configured. **The embedding blocker stands** — see Known Issues.
+
+### Added
+
+**Phase 2 — memory**
+
+- `docker-compose.yml` — `pgvector/pgvector:pg17`, pinned, on **port 5433**
+  (5432 is usually taken). Healthcheck included.
+- `migrations/001_init.sql` — the whole schema: `users`, `conversations`,
+  `messages`, `memories`, `memory_events`, `user_preferences`, `agent_runs`,
+  `evaluation_cases`, `evaluation_results`. `memories.embedding` exists as a
+  nullable `vector(384)` and is unused, so turning similarity on later is a
+  backfill rather than a migration (ADR 004).
+- `src/db/` — `pool.ts` (with `selectStore` and a credential-redacting
+  `describeTarget`), `migrate.ts`, `postgres-store.ts`, `in-memory-store.ts`.
+  Both stores satisfy one `Store` interface in domain types, which is what makes
+  the in-memory one a stand-in rather than a mock.
+- `src/memory/` — `types.ts`, `store.ts`, `retrieval.ts` (scoring, gating,
+  budget), `writer.ts` (§7 write policy: confidence floors per source, duplicate
+  detection, supersession), `render.ts`, `working-memory.ts`.
+- `src/tools/memory-tools.ts` + `src/agent/tools.ts` — `search_memory`,
+  `save_memory`, `update_memory`. Narrow and single-purpose (spec §9); the
+  SDK-facing schemas are separated from the decisions so the decision layer stays
+  free of the vendor SDK.
+- `src/service/chat.ts`, `src/service/context.ts` — turn orchestration. The only
+  place that knows the order: retrieve → assess risk → run → check → persist.
+- `npm run migrate`.
+
+**Phase 3 — personality evaluation**
+
+- `src/evaluation/` — `cases.ts` (**24 cases across all 10 categories**,
+  including the spec §12 canonical scenarios), `scorers.ts` (mechanical
+  `CheckKind`s with severity semantics), `runner.ts`, `report.ts`, `cli.ts`.
+- `npm run eval` and `npm run eval:replay`. Recordings land in
+  `evaluation/recorded/` and are committed.
+- Case integrity is itself tested: unique ids, all categories covered, the seven
+  canonical ids present, every regex compiles, every named tool exists.
+
+**Phase 4 — safety**
+
+- `src/safety/risk.ts` — three-level assessment (`none` / `elevated` / `crisis`)
+  with an explicit idiom guard. Detection is pattern-based and returns a
+  **category label, never the matched text**, because the assessment is logged
+  (spec §14).
+- `src/safety/response.ts` — per-turn directives that state they override the
+  persona, a mechanical output check, and a fixed `CRISIS_FALLBACK`. The fallback
+  passes its own check, by test.
+- Crisis turns are **buffered** — no delta reaches the client until the reply has
+  passed the check (ADR 008).
+
+**Phase 5 — product polish**
+
+- `src/api/identity.ts` — a server-minted UUID handle. Explicitly not
+  authentication (ADR 009).
+- Memory visibility and control: `GET /api/memory` backs a panel showing what the
+  system believes; `PATCH` and `DELETE` let the person correct or remove it, with
+  the actor recorded as `user` rather than the agent.
+- `GET`/`PUT /api/preferences` (including a memory on/off switch that is honoured
+  as *not consulted*, not consulted-and-hidden), `POST`/`GET /api/feedback`
+  (upsert, so changing your mind replaces the rating), `GET /api/conversations`
+  and `/api/conversations/:id/messages`.
+- `web/index.html` — streaming transcript, conversation continuation, memory
+  drawer with per-memory delete, memory on/off, and per-message good/bad
+  feedback.
+- `README.md` — setup, commands, architecture, the ADR index, and the two
+  design decisions most likely to surprise a reader.
+
+**Documentation**
+
+- ADRs [007](docs/adr/007-retrieval-gates.md) (two retrieval gates, two widths),
+  [008](docs/adr/008-safety-buffered-turns.md) (buffered crisis turns),
+  [009](docs/adr/009-identity-handle-not-auth.md) (identity is a handle).
+- `CHANGELOG.md`, `docs/implementation-plan.md`, `CURRENT_STACK.md` brought up to
+  date with what was actually built.
+
+### Changed
+
+- **`GET /api/memory` now filters soft-deleted rows.** Both stores return every
+  status when asked for nothing in particular — correct for a data layer, wrong
+  for a screen. `VISIBLE_MEMORY_STATUSES` lives at the call site that faces a
+  person.
+- **The evaluation user id is a plain UUID.** It previously embedded the case id
+  (`eval-solve-01-96c0ea29`) for greppability, which worked everywhere except
+  Postgres, where `users.id` is `uuid`. The case↔user pairing is logged instead.
+- **`npm run smoke` fixed**: `vitest run --dir tests/smoke` never matched the
+  configured `include` and exited 1 without running anything.
+- `eslint.config.js` ignores `reference/**`, a vendored clone of an unrelated
+  project. It was producing 339 of the 339 lint errors — a gate that noisy stops
+  being run.
+
+### Fixed
+
+Seven of these were found by tests written in this release, and each one is
+recorded with how it was found, because the finding is the useful part.
+
+- **Four real gaps in crisis detection** (`src/safety/risk.ts`), each found by a
+  test written against how people actually write:
+  - `我觉得活着没什么意思了` — the softener sits *between* `没` and `意思`; the
+    pattern required it to be absent.
+  - `我昨晚割了自己一下` — requiring the object to be a body part (`割腕`)
+    missed the sentence that matters most.
+  - `I keep thinking about killing myself` — only the bare `kill myself` matched.
+  - `他在家里打我` — reporting abuse is rarely phrased in the passive, and `被打`
+    is not in the sentence.
+- **Hedged self-diagnosis slipped through the output check**
+  (`src/safety/response.ts`). `你可能得了抑郁症` is both the commonest accidental
+  diagnosis and the exact phrasing the directive forbids; the pattern only caught
+  the unhedged form.
+- **A soft-deleted memory stayed in the memory panel** — the person deleted it and
+  it was still on screen. Caught by the API test.
+- **`ensureConversation` returned a 500 for a stale or foreign conversation id.**
+  A plain insert raised a duplicate-key error on an ordinary situation: a client
+  holding an id from somewhere else. The turn now gets a fresh conversation
+  rather than failing, and never silently inherits someone else's thread. Caught
+  by the Postgres integration test.
+- **`npm run eval` could not run at all.** The CLI never called
+  `installProvider()`, so the SDK fell back to its own default provider, which
+  wants an OpenAI key this runtime does not have. All 24 cases failed with
+  "Missing credentials" — which reads like a bad key and is actually a missing
+  line in an entry point.
+
+### Architecture
+
+- **Relevance is gated by `minSimilarity`, not `minScore`** (ADR 007). A score
+  floor cannot express relevance: an important, recent memory with no topical
+  connection still scores well, and it should. Overlap is a separate question
+  from prominence, so it gets a separate control — switched on only for automatic
+  injection, where nothing downstream can reject a bad match.
+- **The two retrieval paths are deliberately different widths.**
+  `AUTO_INJECT_BUDGET` (4 items / 900 chars / 2 per type / `minSimilarity` 0.06)
+  versus `DEFAULT_BUDGET` (6 / 1600 / 4 / `null`). A companion that volunteers
+  four loosely-related memories per turn is worse than one that volunteers none.
+  The asymmetry is asserted by tests, including one proving the tool has **no**
+  overlap gate.
+- **Similarity is lexical, and scored with the overlap coefficient, not
+  Jaccard.** CJK character bigrams, because Chinese is written without spaces.
+  Jaccard divides by the union and therefore punishes a short query matching one
+  clause of a long memory — the case that matters most.
+- **A status multiplier sits outside the score sum** (1.0 active, 0.85
+  unconfirmed), because it is a judgement about how much to trust the ranking,
+  not another relevance term.
+- **Crisis turns are buffered** (ADR 008). A rendered delta cannot be un-rendered,
+  so the check has to happen before the first byte. The cost — a few seconds of
+  lost streaming on a three-to-five sentence reply — is accepted knowingly.
+- **Identity is an unguessable handle, not authentication** (ADR 009). An
+  unrecognised identifier is *replaced* rather than trusted, because a
+  client-chosen id (`X-User-Id: 1`) reads someone else's memories and that bug
+  survives into production far more often than a missing login does.
+- **Installing the model provider is a composition-root act**, now enforced:
+  only `src/api/server.ts` and `src/evaluation/cli.ts` may call
+  `installProvider()`, and both must. The guard has two halves because the
+  failure mode is an omission, not an excess — deleting the call is exactly the
+  bug that shipped.
+- **`Store` is an interface in domain types**, so a behaviour proven against
+  `InMemoryStore` is a statement about the application rather than about a mock.
+  Only the SQL is untested by the behavioural suite, and `tests/db/postgres.test.ts`
+  targets precisely that gap.
+- **Tracing writes structured spans to the application log**, with tool arguments
+  fingerprinted rather than logged — for this product, tool arguments *are*
+  memory content, the most sensitive text in the system.
+
+### Evaluation
+
+**Live smoke verification — three tests, all passing** (`RUN_SMOKE=1 npm run smoke`):
+
+- a single turn streams a reply and terminates cleanly;
+- **the multi-turn input shape is accepted by the real endpoint.** Passing prior
+  turns to the Responses API requires an asymmetry that no offline test can
+  check: a user turn is a plain string, an assistant turn must carry `status` and
+  its content as typed parts, and sending the wrong one is a 400 from the
+  provider. The offline suite replaces the thing that would reject it, which is
+  exactly how the 0.1.0 streaming bug stayed invisible;
+- a full memory turn end to end — retrieval, the SDK tool loop, the output check
+  and persistence — with the model calling `save_memory` unprompted and two run
+  rows recorded.
+
+**Baseline recorded** — `evaluation/recorded/54af13d10076-2026-09-28T15-05-03-692Z.json`:
+
+```
+evaluation live · prompt 54af13d10076 · deepseek-v4-pro
+24/24 passed · mean score 0.945 · 0 violation(s)
+```
+
+All ten categories 100%. `memory-01/02/03` exercised `save_memory`,
+`search_memory` and `update_memory`; the three safety cases were assessed
+`crisis`, `crisis` and `elevated` respectively, and none was replaced by the
+fallback — the model's own replies passed the check.
+
+Two things this baseline does **not** say, recorded so it is not over-read:
+
+1. **A passing baseline is not a good companion.** The checks are mechanical and
+   deliberately shallow; they catch forbidden behaviours and missing required
+   ones. Tone, timing and warmth are not measured by any of them.
+2. **0.945 is not comparable across prompts.** Scores are relative to the
+   checks, and the checks changed several times during this session — four of
+   them because a test found a real detection gap. The number is a starting
+   point for the next run, not a grade.
+
+### Known Issues
+
+- **No embedding provider, unchanged from 0.1.0.** Re-probed and still true:
+  every `/v1/embeddings`-shaped path returns 404 and the model list contains no
+  embedding model. Retrieval ranks on lexical overlap instead (ADR 004, 007).
+  The similarity function is injected, so turning embeddings on later replaces
+  one function.
+- **The local identity is not authentication** (ADR 009). No password, no
+  expiry, no signature; a copied cookie is the account. Acceptable only because
+  no real data is behind it. Must be replaced before any deployment, with the
+  cookie upgraded to `HttpOnly; Secure; SameSite=Lax`.
+- **Evaluation runs accumulate throwaway users in a shared database.** Each of the
+  24 cases gets its own user, conversation, messages and run rows, and nothing
+  deletes them. Harmless at 24 rows a run against a development database, and
+  wrong in a shared one. The fix is a retention sweep or a `--cleanup` flag; it
+  has not been built.
+- **Postgres integration tests self-skip without `DATABASE_URL`.** Deliberate —
+  the suite must run with nothing installed — but it means CI is the only place
+  that reliably exercises the SQL unless someone remembers the variable.
+- **Risk detection is pattern-based**, so it has both false negatives (phrasing
+  nobody anticipated) and false positives. The idiom guard is the mitigation and
+  it is tested, but the honest statement is that this is a heuristic and the
+  fallback exists because the model's compliance cannot be assumed.
+- **No prompt change without an evaluation run** (spec §20, anti-pattern 7) is a
+  rule with no mechanical enforcement. `PROMPT_VERSION` makes a prompt change
+  visible in the run history, which is not the same as preventing one.
+- **`eslint` pinned to v9** — `@eslint/js@10` requires eslint 10. Unchanged.
+
+---
+
 ## [0.1.0] — 2026-09-28
 
 Phase 0 (reconnaissance) and Phase 1 (minimal agent) of

@@ -39,10 +39,48 @@ export interface ToolResultEvent {
   readonly ok: boolean;
 }
 
+/**
+ * Memories were pulled into context for this turn.
+ *
+ * Carries counts, never content. The client needs to know the companion looked
+ * — that is what the "回想中" affordance shows — but the memories themselves are
+ * the person's private history and putting them on the wire for a UI flourish
+ * would be the wrong trade. The one place they are shown is the memory panel,
+ * which reads them from an endpoint the person opened deliberately.
+ */
+export interface MemoryRetrievedEvent {
+  readonly type: 'memory_retrieved';
+  readonly count: number;
+  readonly considered: number;
+}
+
+/**
+ * A risk signal was detected, or a reply was replaced because it failed the
+ * output check.
+ *
+ * `level` is sent; the matched phrases are not, because this reaches a client
+ * and potentially a log.
+ */
+export interface SafetyNoticeEvent {
+  readonly type: 'safety_notice';
+  readonly level: 'elevated' | 'crisis';
+  readonly replaced: boolean;
+}
+
 /** The run finished normally. `text` is the complete assistant reply. */
 export interface CompletedEvent {
   readonly type: 'completed';
   readonly text: string;
+  /**
+   * The conversation this turn belongs to, so a client that started without one
+   * can continue the thread. Null when the turn was not persisted.
+   */
+  readonly conversationId?: string | null;
+  /**
+   * The stored assistant message, used as the target for feedback. Null when
+   * the turn was not persisted.
+   */
+  readonly messageId?: string | null;
 }
 
 /** The run failed. `retryable` distinguishes a transient fault from a real error. */
@@ -56,6 +94,8 @@ export type AgentEvent =
   | TextDeltaEvent
   | ToolCallEvent
   | ToolResultEvent
+  | MemoryRetrievedEvent
+  | SafetyNoticeEvent
   | CompletedEvent
   | ErrorEvent;
 

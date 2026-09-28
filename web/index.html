@@ -1,239 +1,457 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>陪伴</title>
-    <style>
-      :root {
-        --bg: #faf8f5;
-        --fg: #2f2b28;
-        --muted: #8a8177;
-        --accent: #7a6a5d;
-        --user-bg: #ece7e0;
-        --line: #e3ddd4;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #1c1a18;
-          --fg: #e8e3dc;
-          --muted: #948b80;
-          --accent: #b3a496;
-          --user-bg: #2b2724;
-          --line: #34302b;
-        }
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--fg);
-        font: 16px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI",
-          "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-        display: flex;
-        flex-direction: column;
-        height: 100dvh;
-      }
-      header {
-        padding: 20px 24px 12px;
-        border-bottom: 1px solid var(--line);
-        font-size: 14px;
-        color: var(--muted);
-      }
-      #log {
-        flex: 1;
-        overflow-y: auto;
-        padding: 24px;
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        max-width: 720px;
-        width: 100%;
-        margin: 0 auto;
-      }
-      .turn { display: flex; flex-direction: column; gap: 6px; }
-      .who { font-size: 12px; color: var(--muted); }
-      .bubble { white-space: pre-wrap; word-break: break-word; }
-      .user .bubble {
-        background: var(--user-bg);
-        padding: 10px 14px;
-        border-radius: 14px;
-        align-self: flex-start;
-        max-width: 85%;
-      }
-      .agent .bubble { padding: 2px 2px; }
-      .agent.streaming .bubble::after {
-        content: "▍";
-        color: var(--accent);
-        animation: blink 1.1s steps(2, start) infinite;
-      }
-      @keyframes blink { to { visibility: hidden; } }
-      .error .bubble { color: #b4553f; }
-      form {
-        border-top: 1px solid var(--line);
-        padding: 16px 24px 24px;
-        display: flex;
-        gap: 10px;
-        max-width: 720px;
-        width: 100%;
-        margin: 0 auto;
-      }
-      textarea {
-        flex: 1;
-        resize: none;
-        padding: 12px 14px;
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        background: transparent;
-        color: inherit;
-        font: inherit;
-        max-height: 160px;
-      }
-      textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-      button {
-        padding: 0 20px;
-        border: 0;
-        border-radius: 12px;
-        background: var(--accent);
-        color: var(--bg);
-        font: inherit;
-        cursor: pointer;
-      }
-      button:disabled { opacity: 0.45; cursor: default; }
-    </style>
-  </head>
-  <body>
-    <header>一个会记得你的对话</header>
-    <div id="log" aria-live="polite"></div>
-    <form id="composer">
-      <textarea id="input" rows="1" placeholder="说点什么…" autofocus></textarea>
-      <button id="send" type="submit">发送</button>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>陪伴</title>
+<style>
+  /* Tokens first, so a colour is changed in one place. */
+  :root {
+    --bg: #faf9f7;
+    --surface: #ffffff;
+    --border: #e8e4dd;
+    --text: #2f2c28;
+    --muted: #86807a;
+    --accent: #6b7f6e;
+    --accent-soft: #eef2ee;
+    --danger: #a4553f;
+    --warn-bg: #fdf6ec;
+    --warn-border: #e8d5b0;
+    --radius: 14px;
+    --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+            "Microsoft YaHei", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1b19;
+      --surface: #262421;
+      --border: #3a3733;
+      --text: #e8e4dd;
+      --muted: #948e87;
+      --accent: #93a896;
+      --accent-soft: #2f3630;
+      --danger: #d08a72;
+      --warn-bg: #33291d;
+      --warn-border: #574430;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 16px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app { display: flex; flex-direction: column; height: 100dvh; max-width: 760px; margin: 0 auto; }
+
+  header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    background: var(--surface); flex: 0 0 auto;
+  }
+  header h1 { font-size: 15px; font-weight: 600; margin: 0; flex: 1; }
+  header .sub { font-size: 12px; color: var(--muted); font-weight: 400; }
+
+  button {
+    font: inherit; color: var(--text); background: transparent;
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 5px 12px; font-size: 13px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { opacity: .9; color: #fff; }
+
+  main { flex: 1 1 auto; overflow-y: auto; padding: 20px 16px 8px; }
+  main.empty::before {
+    content: "说点什么吧。\A这里没有别人。";
+    white-space: pre-line;
+    display: block; margin-top: 22vh; text-align: center;
+    color: var(--muted); font-size: 14px; line-height: 2;
+  }
+
+  .turn { margin-bottom: 20px; display: flex; flex-direction: column; }
+  .turn.user { align-items: flex-end; }
+  .bubble {
+    max-width: 84%; padding: 10px 14px; border-radius: var(--radius);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .user .bubble { background: var(--accent-soft); border-bottom-right-radius: 4px; }
+  .assistant .bubble { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+
+  .meta { font-size: 12px; color: var(--muted); margin: 6px 2px 0; display: flex; gap: 12px; align-items: center; min-height: 22px; }
+  .meta button { border: none; padding: 2px 6px; font-size: 12px; }
+  .meta button[aria-pressed="true"] { color: var(--accent); }
+
+  .notice {
+    margin: 0 0 16px; padding: 10px 14px; border-radius: var(--radius);
+    background: var(--warn-bg); border: 1px solid var(--warn-border);
+    font-size: 13px; line-height: 1.6;
+  }
+
+  .thinking { color: var(--muted); font-size: 13px; padding: 4px 2px; }
+
+  footer { flex: 0 0 auto; padding: 10px 16px calc(14px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--border); }
+  .composer { display: flex; gap: 8px; align-items: flex-end; }
+  textarea {
+    flex: 1; resize: none; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px 12px; max-height: 160px; line-height: 1.6;
+  }
+  textarea:focus { outline: none; border-color: var(--accent); }
+
+  /* Memory drawer */
+  .drawer {
+    position: fixed; inset: 0; background: rgba(0,0,0,.32);
+    display: none; justify-content: flex-end; z-index: 20;
+  }
+  .drawer[data-open="true"] { display: flex; }
+  .drawer-panel {
+    width: min(440px, 92vw); height: 100%; background: var(--bg);
+    display: flex; flex-direction: column; border-left: 1px solid var(--border);
+  }
+  .drawer-panel header { border-bottom: 1px solid var(--border); }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 12px 16px 24px; }
+  .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .row:last-child { border-bottom: none; }
+  .memory { padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .memory p { margin: 0 0 6px; font-size: 14px; line-height: 1.6; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11px; color: var(--muted); }
+  .tag { border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+  .tag.unconfirmed { border-color: var(--warn-border); background: var(--warn-bg); }
+  .empty-note { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>陪伴 <span class="sub" id="prompt-version"></span></h1>
+    <button id="memory-toggle" type="button">记忆</button>
+    <button id="new-conversation" type="button">新对话</button>
+  </header>
+
+  <main id="transcript" class="empty" aria-live="polite"></main>
+
+  <footer>
+    <form class="composer" id="composer">
+      <label class="sr" for="input">说点什么</label>
+      <textarea id="input" rows="1" placeholder="说点什么…" autocomplete="off"></textarea>
+      <button class="primary" id="send" type="submit">发送</button>
     </form>
+  </footer>
+</div>
 
-    <script type="module">
-      const log = document.getElementById('log');
-      const form = document.getElementById('composer');
-      const input = document.getElementById('input');
-      const send = document.getElementById('send');
+<div class="drawer" id="drawer" data-open="false">
+  <div class="drawer-panel" role="dialog" aria-label="记忆">
+    <header>
+      <h1>记忆</h1>
+      <button id="drawer-close" type="button">关闭</button>
+    </header>
+    <div class="drawer-body">
+      <div class="row">
+        <div>
+          <div>让 ta 参考记忆</div>
+          <div class="sub" style="color:var(--muted);font-size:12px">关掉之后，新的对话不会读取任何记忆。已经存下的不会删除。</div>
+        </div>
+        <button id="memory-enable" type="button" aria-pressed="true">开</button>
+      </div>
+      <div id="memory-list"></div>
+    </div>
+  </div>
+</div>
 
-      /** Append a turn and return its bubble element. */
-      function addTurn(role, text = '') {
-        const turn = document.createElement('div');
-        turn.className = `turn ${role}`;
-        const who = document.createElement('div');
-        who.className = 'who';
-        who.textContent = role === 'user' ? '你' : '陪伴';
-        const bubble = document.createElement('div');
-        bubble.className = 'bubble';
-        bubble.textContent = text;
-        turn.append(who, bubble);
-        log.append(turn);
-        log.scrollTop = log.scrollHeight;
-        return bubble;
-      }
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const transcript = $('transcript');
+const input = $('input');
+const sendButton = $('send');
 
-      /**
-       * Parse SSE frames out of a byte stream.
-       *
-       * The endpoint is POST, so `EventSource` is not usable — it only issues
-       * GET, and putting a message in a URL would leak it into access logs and
-       * browser history. Reading the body and parsing frames by hand is also
-       * exactly what the mini-program client will do, so the logic transfers.
-       */
-      async function* readFrames(response) {
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          // Frames are separated by a blank line; a partial tail stays buffered.
-          let boundary;
-          while ((boundary = buffer.indexOf('\n\n')) !== -1) {
-            const raw = buffer.slice(0, boundary);
-            buffer = buffer.slice(boundary + 2);
-            const dataLine = raw
-              .split('\n')
-              .find((line) => line.startsWith('data: '));
-            if (!dataLine) continue; // heartbeat comment
-            try {
-              yield JSON.parse(dataLine.slice(6));
-            } catch {
-              /* ignore a malformed frame rather than killing the stream */
-            }
-          }
-        }
-      }
+const state = {
+  conversationId: null,
+  sending: false,
+  memoryEnabled: true,
+  feedback: new Map(),
+};
 
-      async function sendMessage(message) {
-        addTurn('user', message);
-        const bubble = addTurn('agent');
-        const turn = bubble.parentElement;
-        turn.classList.add('streaming');
+// ---------------------------------------------------------------- render ----
 
-        send.disabled = true;
-        input.disabled = true;
+/** Everything user- or model-authored goes in via textContent, never HTML. */
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
 
+function addTurn(role, text = '') {
+  transcript.classList.remove('empty');
+  const turn = el('div', `turn ${role}`);
+  const bubble = el('div', 'bubble', text);
+  turn.append(bubble);
+  const meta = el('div', 'meta');
+  turn.append(meta);
+  transcript.append(turn);
+  scrollToEnd();
+  return { turn, bubble, meta };
+}
+
+function scrollToEnd() {
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+function notice(text) {
+  const box = el('div', 'notice', text);
+  transcript.append(box);
+  scrollToEnd();
+}
+
+// ------------------------------------------------------------ transport ----
+
+/**
+ * Parse an SSE byte stream by hand.
+ *
+ * `EventSource` cannot be used: it only issues GET, and the chat endpoint is
+ * POST — putting a person's message in a URL would leak it into access logs and
+ * browser history. Reading the body as a stream is also exactly what the
+ * mini-program client has to do, so this logic transfers rather than being
+ * thrown away.
+ */
+async function* readFrames(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary >= 0) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const line = frame.split('\n').find((l) => l.startsWith('data: '));
+      if (line) {
         try {
-          const response = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message }),
-          });
-
-          if (!response.ok) {
-            const detail = await response.json().catch(() => ({}));
-            throw new Error(detail.error ?? `HTTP ${response.status}`);
-          }
-
-          let text = '';
-          for await (const event of readFrames(response)) {
-            if (event.type === 'text_delta') {
-              text += event.text;
-              bubble.textContent = text;
-              log.scrollTop = log.scrollHeight;
-            } else if (event.type === 'completed') {
-              // The completed event is authoritative; deltas are for the effect.
-              bubble.textContent = event.text || text;
-            } else if (event.type === 'error') {
-              throw new Error(event.message);
-            }
-          }
-        } catch (error) {
-          turn.classList.add('error');
-          bubble.textContent =
-            error instanceof Error ? `出错了：${error.message}` : '出错了。';
-        } finally {
-          turn.classList.remove('streaming');
-          send.disabled = false;
-          input.disabled = false;
-          input.focus();
+          yield JSON.parse(line.slice(6));
+        } catch {
+          // A malformed frame is dropped rather than killing the stream; the
+          // next one is probably fine.
         }
       }
+      boundary = buffer.indexOf('\n\n');
+    }
+  }
+}
 
-      form.addEventListener('submit', (event) => {
-        event.preventDefault();
-        const message = input.value.trim();
-        if (!message) return;
-        input.value = '';
-        input.style.height = 'auto';
-        void sendMessage(message);
-      });
+async function send(text) {
+  if (state.sending) return;
+  state.sending = true;
+  sendButton.disabled = true;
+  input.value = '';
+  resize();
 
-      // Enter sends; Shift+Enter makes a newline.
-      input.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' && !event.shiftKey) {
-          event.preventDefault();
-          form.requestSubmit();
-        }
-      });
+  addTurn('user', text);
+  const { bubble, meta } = addTurn('assistant');
+  bubble.textContent = '';
+  const thinking = el('div', 'thinking', '…');
+  bubble.append(thinking);
 
-      // Grow the textarea with its content.
-      input.addEventListener('input', () => {
-        input.style.height = 'auto';
-        input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
-      });
-    </script>
-  </body>
+  let reply = '';
+  let messageId = null;
+  let risk = 'none';
+
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, conversationId: state.conversationId }),
+    });
+
+    if (!response.ok || !response.body) {
+      const detail = await response.json().catch(() => ({}));
+      throw new Error(detail.error || `HTTP ${response.status}`);
+    }
+
+    thinking.remove();
+
+    for await (const event of readFrames(response)) {
+      if (event.type === 'text_delta') {
+        reply += event.text;
+        bubble.textContent = reply;
+      } else if (event.type === 'memory_retrieved') {
+        meta.textContent = event.count > 0 ? `参考了 ${event.count} 条记忆` : '';
+      } else if (event.type === 'safety_notice') {
+        risk = event.level;
+        if (event.replaced) notice('这一轮触发了安全回应。如果你现在很危险，请打 120 或 110。');
+      } else if (event.type === 'completed') {
+        reply = event.text;
+        bubble.textContent = reply;
+        state.conversationId = event.conversationId ?? state.conversationId;
+        messageId = event.messageId ?? null;
+      } else if (event.type === 'error') {
+        throw new Error(event.message);
+      } else if (event.type === 'tool_call') {
+        meta.textContent = '（回想中…）';
+      }
+    }
+
+    if (risk === 'none' && meta.textContent === '（回想中…）') meta.textContent = '';
+    if (messageId) addFeedback(meta, messageId);
+  } catch (error) {
+    thinking.remove();
+    bubble.textContent = '';
+    bubble.append(el('span', null, `出错了：${error.message}`));
+    bubble.style.color = 'var(--danger)';
+  } finally {
+    state.sending = false;
+    sendButton.disabled = false;
+    scrollToEnd();
+  }
+}
+
+function addFeedback(meta, messageId) {
+  meta.textContent = '';
+  const up = el('button', null, '有帮助');
+  const down = el('button', null, '不太对');
+  up.type = 'button';
+  down.type = 'button';
+
+  const rate = async (rating) => {
+    state.feedback.set(messageId, rating);
+    up.setAttribute('aria-pressed', String(rating === 'good'));
+    down.setAttribute('aria-pressed', String(rating === 'bad'));
+    await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId, rating }),
+    }).catch(() => undefined);
+  };
+
+  up.onclick = () => void rate('good');
+  down.onclick = () => void rate('bad');
+  meta.append(up, down);
+}
+
+// -------------------------------------------------------------- memory ------
+
+async function openDrawer() {
+  $('drawer').dataset.open = 'true';
+  await refreshMemory();
+}
+
+async function refreshMemory() {
+  const list = $('memory-list');
+  list.textContent = '';
+
+  const response = await fetch('/api/memory').catch(() => null);
+  if (!response || !response.ok) {
+    list.append(el('div', 'empty-note', '读不到记忆。'));
+    return;
+  }
+
+  const { memories, enabled } = await response.json();
+  state.memoryEnabled = enabled;
+  $('memory-enable').textContent = enabled ? '开' : '关';
+  $('memory-enable').setAttribute('aria-pressed', String(enabled));
+
+  const active = memories.filter((m) => m.status !== 'deleted');
+  if (active.length === 0) {
+    list.append(el('div', 'empty-note', '还没有记住什么。'));
+    return;
+  }
+
+  const sourceLabels = {
+    user_explicit: '你让我记住的',
+    user_stated: '你说过的',
+    inferred: '我的推测',
+  };
+  const typeLabels = { episodic: '一件事', semantic: '关于你', narrative: '你正在经历的' };
+
+  for (const memory of active) {
+    const item = el('div', 'memory');
+    item.append(el('p', null, memory.content));
+
+    const tags = el('div', 'tags');
+    const label = el('span', 'tag' + (memory.status === 'unconfirmed' ? ' unconfirmed' : ''),
+      `${sourceLabels[memory.source] ?? memory.source} · ${typeLabels[memory.type] ?? memory.type}` +
+      (memory.status === 'unconfirmed' ? ' · 待确认' : ''));
+    tags.append(label);
+
+    if (memory.accessCount > 0) tags.append(el('span', null, `被想起 ${memory.accessCount} 次`));
+
+    const remove = el('button', null, '删除');
+    remove.type = 'button';
+    remove.onclick = async () => {
+      await fetch(`/api/memory/${memory.id}`, { method: 'DELETE' }).catch(() => undefined);
+      await refreshMemory();
+    };
+    tags.append(remove);
+
+    item.append(tags);
+    list.append(item);
+  }
+}
+
+// --------------------------------------------------------------- events -----
+
+function resize() {
+  input.style.height = 'auto';
+  input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+}
+
+input.addEventListener('input', resize);
+input.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    $('composer').requestSubmit();
+  }
+});
+
+$('composer').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const text = input.value.trim();
+  if (text.length > 0) void send(text);
+});
+
+$('new-conversation').onclick = () => {
+  state.conversationId = null;
+  transcript.textContent = '';
+  transcript.classList.add('empty');
+};
+
+$('memory-toggle').onclick = () => void openDrawer();
+$('drawer-close').onclick = () => { $('drawer').dataset.open = 'false'; };
+$('drawer').addEventListener('click', (event) => {
+  if (event.target === $('drawer')) $('drawer').dataset.open = 'false';
+});
+
+$('memory-enable').onclick = async () => {
+  state.memoryEnabled = !state.memoryEnabled;
+  await fetch('/api/preferences', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 'memory.enabled': state.memoryEnabled }),
+  }).catch(() => undefined);
+  await refreshMemory();
+};
+
+// Show which prompt produced these replies — the first thing to check when a
+// behaviour changes and nobody edited anything.
+fetch('/health')
+  .then((r) => r.json())
+  .then((data) => { $('prompt-version').textContent = data.prompt_version ?? ''; })
+  .catch(() => undefined);
+
+resize();
+input.focus();
+</script>
+</body>
 </html>

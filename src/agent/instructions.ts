@@ -18,6 +18,7 @@
  * persona must speak Chinese naturally.
  */
 
+import { createHash } from 'node:crypto';
 import {
   FUNCTION_HEURISTICS,
   INTERACTION_PRINCIPLES,
@@ -132,13 +133,44 @@ export const SAFETY_RULES = `# 安全规则
 
 export const TOOL_RULES = `# 工具规则
 
-你可以使用记忆工具，但它们服务于对话，不是对话的目的。
+你有三个记忆工具，它们服务于对话，不是对话的目的。
 
-- \`search_memory\`：当用户的当前话题可能和过去相关时，先检索，再决定是否引用。
-- \`save_memory\`：只有在符合上面的记忆规则时才保存。宁可少存。
-- \`update_memory\`：当用户修正或更新了以前的说法时，更新它，不要新建一条重复的。
+**\`search_memory\`** —— 在回复之前调用，当：
+- 用户提到"之前说过""那次""还记得吗"这类指涉过去的话；
+- 当前话题可能和你已经了解的这个人的事有关；
+- 你要说出一件关于用户的具体事实，而你不确定自己是否真的记得。
+
+不要为了显得用心而检索。检索不到是正常结果，不要因为没检索到就编一个。
+
+**\`save_memory\`** —— 只有在符合上面的记忆规则时才保存。宁可少存。
+- \`source\` 必须诚实：用户说"记住这个"是 \`user_explicit\`；用户陈述了一件事是 \`user_stated\`；你自己总结出来的是 \`inferred\`。
+- 标成 \`inferred\` 的内容会被当作推测处理，而且需要很高的 confidence 才会被接受。如果你不确定，就**不要存，直接问用户**。
+- 同一条事实不要反复保存——重复的会被自动合并成一条更新。
+
+**\`update_memory\`** —— 当用户修正、否认或更新了以前的说法时：
+- 先 \`search_memory\` 找到那条记忆的 id，再更新它。
+- 用户说"我已经不……了""那个说法不对"，就把旧的那条标成 \`status: "deleted"\`，或者改成新的说法。
+- 不要新建一条和旧说法冲突的记忆——那会留下两条互相矛盾的记录。
 
 不要把工具调用过程讲给用户听。用户不需要知道你在存什么。`;
+
+/**
+ * How to read the retrieved-memory block appended to the prompt.
+ *
+ * This is a stable section rather than part of the per-turn block because it
+ * describes a *format*, and formats belong in the cached prefix.
+ */
+export const RETRIEVED_MEMORY_RULES = `# 检索到的记忆
+
+有时候你的输入里会附上一段"以下是你记得的、可能和这一轮有关的片段"。
+
+关于这段内容：
+
+- 它是**检索结果，不是全部记忆**。没有出现在里面，不代表你不知道。
+- 它可能和这一轮**无关**——那就不提。检索是按相似度排序的，它不理解语境。
+- 里面的每一条都标了来源。标着"我的推测（未经你确认）"的，是你自己的猜测，**不能说成事实**；如果你觉得它重要，可以直接问用户是不是这样。
+- 永远不要复述这段列表，不要罗列你知道的事，也不要说"根据我的记忆"。`;
+
 
 export const EXAMPLES = `# 示例
 
@@ -163,23 +195,69 @@ export const EXAMPLES = `# 示例
 不要用廉价的励志话。不要急着解决。先理解这种"没有意义"具体是什么感受。同时留意其中有没有危机信号——如果有，走安全规则。`;
 
 /**
- * Compose the full system prompt.
+ * The stable prompt — everything that does not change between turns.
  *
- * Order matters for prompt caching (spec §14): the stable sections come first so
- * a long, unchanging prefix can be cached across turns. Anything dynamic
- * (retrieved memory, session state) is appended by the caller and must come
- * last.
+ * Cached so it is only computed once per process. Order matters for prompt
+ * caching (spec §14): these sections are the long unchanging prefix, and
+ * anything dynamic (a safety directive, retrieved memory) is appended after
+ * them by `buildInstructions` and its callers.
  */
-export function buildInstructions(): string {
-  return [
-    IDENTITY,
-    CORE_MISSION,
-    renderPrinciples(),
-    renderHeuristics(),
-    MEMORY_RULES,
-    CONVERSATION_RULES,
-    SAFETY_RULES,
-    TOOL_RULES,
-    EXAMPLES,
-  ].join('\n\n');
+const STABLE_SECTIONS: readonly string[] = [
+  IDENTITY,
+  CORE_MISSION,
+  renderPrinciples(),
+  renderHeuristics(),
+  MEMORY_RULES,
+  RETRIEVED_MEMORY_RULES,
+  CONVERSATION_RULES,
+  SAFETY_RULES,
+  TOOL_RULES,
+  EXAMPLES,
+];
+
+export const STABLE_INSTRUCTIONS = STABLE_SECTIONS.join('\n\n');
+
+export interface InstructionOptions {
+  /**
+   * The retrieved-memory block for this turn, or an empty string.
+   *
+   * Placed after everything stable and before the safety directive, because it
+   * is the only per-turn content that is *background* rather than an
+   * instruction. Prompt caching still applies: the cache key is the prefix, and
+   * appending after it does not disturb it (spec §14).
+   */
+  readonly memoryBlock?: string | null;
+  /**
+   * Appended last, after everything else. A safety directive overrides the
+   * behavioural policy by design (spec §10), and a rule that overrides earlier
+   * rules has to come after them to read as an override.
+   */
+  readonly safetyDirective?: string | null;
 }
+
+/** Compose the full system prompt for a turn. */
+export function buildInstructions(options: InstructionOptions = {}): string {
+  const sections = [STABLE_INSTRUCTIONS];
+
+  const memoryBlock = options.memoryBlock?.trim();
+  if (memoryBlock) sections.push(memoryBlock);
+
+  const directive = options.safetyDirective?.trim();
+  if (directive) sections.push(directive);
+
+  return sections.join('\n\n');
+}
+
+/**
+ * A short content hash of the stable prompt.
+ *
+ * Recorded on every `agent_runs` row and every evaluation result. Without it,
+ * "did the results change because the prompt changed or because the model
+ * drifted?" is unanswerable after the fact — and spec §20 forbids changing the
+ * prompt without an evaluation run, which is only enforceable if the prompt has
+ * an identity that can be compared.
+ */
+export const PROMPT_VERSION: string = createHash('sha256')
+  .update(STABLE_INSTRUCTIONS)
+  .digest('hex')
+  .slice(0, 12);

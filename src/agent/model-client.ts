@@ -10,10 +10,16 @@
  *   does use SDK primitives — `Agent`, `run`, and the tracing interfaces. That is
  *   the SDK being the SDK, not leakage; abstracting it away would mean
  *   reimplementing it.
- * - The product-logic layers (`memory`, `tools`, `safety`, `evaluation`) and the
- *   transport layer (`api`) must not import it at all. That is the invariant
- *   `tests/architecture/boundaries.test.ts` enforces, and it is what keeps the
- *   bulk of the product's own code swappable.
+ * - The product-logic layers (`memory`, `tools`, `safety`, `evaluation`,
+ *   `service`) and the transport layer (`api`) must not *install* it. Installing
+ *   a provider is a process-level side effect, so it belongs to whoever starts
+ *   the process and to nobody else. `COMPANION_MODEL` is a plain constant and is
+ *   imported freely; `installProvider` may only be called from a composition
+ *   root, and `tests/architecture/boundaries.test.ts` enforces exactly that.
+ *
+ *   The rule is not decoration: `npm run eval` shipped without the call, and
+ *   every case failed with "Missing credentials" — which reads like a bad key
+ *   and is actually a missing line in an entry point.
  *
  * The runtime is the OpenAI Agents SDK (spec §8) pointed at DeepSeek's
  * OpenAI-compatible surface. DeepSeek implements the Responses API natively, so

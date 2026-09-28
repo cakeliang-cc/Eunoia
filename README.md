@@ -1,0 +1,141 @@
+# designFree — INFP 陪伴 Agent
+
+A long-term companion agent, built from 0 to 1.
+
+It is not a gentle-sounding chatbot. The product claim is narrower and harder:
+**one agent with stable personality behaviour, long-term personal memory,
+emotion and value clarification, narrative continuity, controlled tool use,
+observability, evaluability, and a continuous changelog.**
+
+Everything runs against **DeepSeek** through the OpenAI Agents SDK. No OpenAI
+account is required.
+
+---
+
+## Quick start
+
+```bash
+npm install
+docker compose up -d        # Postgres 17 + pgvector, on port 5433
+npm run migrate             # apply migrations/001_init.sql
+npm run dev                 # http://localhost:8787
+```
+
+The server logs which store it selected. **Without `DATABASE_URL` it falls back
+to an in-memory store** — everything works, and nothing survives a restart. The
+fallback exists so `npm test` runs with no container; it is not meant for
+actually using the thing.
+
+Set the key before starting:
+
+```bash
+export DEEPSEEK_API_KEY=...        # preferred
+# or reuse the one this environment already has:
+export ANTHROPIC_AUTH_TOKEN=...
+```
+
+See `.env.example`.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Start the server (web client at `/`) |
+| `npm test` | Offline suite — no network, no container, ~1.5s |
+| `npm run smoke` | Live turns against DeepSeek (`RUN_SMOKE=1` required) |
+| `npm run eval` | The personality evaluation, live; records a replayable file |
+| `npm run eval:replay` | Re-score the last recording, free and instant |
+| `npm run typecheck` / `npm run lint` | The other two gates |
+| `npm run migrate` | Apply migrations |
+
+The Postgres integration tests self-skip unless `DATABASE_URL` is set, because a
+suite that needs a container is a suite that gets skipped by whoever is in a
+hurry:
+
+```bash
+DATABASE_URL=postgres://designfree:designfree@localhost:5433/designfree npm test
+```
+
+## Architecture
+
+```
+client (web/, later miniprogram/)
+        │  HTTP + SSE
+        ▼
+src/api/          ← the only HTTP-aware layer
+        │  AsyncIterable<AgentEvent>
+        ▼
+src/service/      ← turn orchestration: retrieve → assess → run → check → persist
+        │
+        ├── src/agent/          one agent, its prompt, its tools (ADR 001)
+        ├── src/memory/         four-layer memory, scoring, write policy (ADR 003, 004, 007)
+        ├── src/safety/         risk detection, directives, output check (ADR 008)
+        ├── src/db/             Store interface + Postgres and in-memory implementations
+        └── src/evaluation/     cases, scorers, runner, report (ADR 004)
+```
+
+The boundary is **enforced by tests**, not by convention — nothing in the core
+imports HTTP, and no product-logic layer imports the vendor SDK. A comment in a
+README would not survive the first hurried commit.
+
+The core emits events, never responses. That is what makes the planned
+mini-program migration an adapter rather than a rewrite (ADR 006).
+
+## Design decisions worth knowing before reading the code
+
+| ADR | Decision |
+|---|---|
+| [001](docs/adr/001-single-agent.md) | One agent. Fi/Ne/Si/Te are heuristics inside it, not four collaborating agents. |
+| [002](docs/adr/002-postgres-pgvector.md) | Postgres + pgvector, pinned Docker image, port 5433. |
+| [003](docs/adr/003-memory-model.md) | Four memory layers; working memory is **never** persisted. |
+| [004](docs/adr/004-context-retrieval.md) | Scored, budgeted retrieval; embeddings deferred behind an injected similarity term. |
+| [005](docs/adr/005-agent-runtime.md) | OpenAI Agents SDK over DeepSeek's OpenAI-compatible surface. |
+| [006](docs/adr/006-client-server-separation.md) | Core emits events; `src/api/` owns HTTP. |
+| [007](docs/adr/007-retrieval-gates.md) | Relevance is gated by `minSimilarity`, not `minScore`; the two retrieval paths are deliberately different widths. |
+| [008](docs/adr/008-safety-buffered-turns.md) | Crisis turns are buffered and checked before anything is rendered. |
+| [009](docs/adr/009-identity-handle-not-auth.md) | Identity is an unguessable handle, explicitly **not** authentication. |
+
+Two of these are worth stating in the README because they surprise people:
+
+- **A crisis turn does not stream.** Its reply is held until it passes a
+  mechanical safety check. A rendered delta cannot be un-rendered, so the check
+  has to happen first.
+- **The two retrieval paths behave differently on purpose.** Automatic injection
+  is narrow and gated; the `search_memory` tool is wider and ungated, because
+  the model can judge a candidate and the automatic path cannot.
+
+## Evaluation
+
+24 cases across 10 categories, translated from the spec's canonical scenarios.
+Scoring is mechanical where it can be (`CheckKind`s in `src/evaluation/scorers.ts`)
+and reported, not silently warned, when a forbidden behaviour appears.
+
+```
+npm run eval              # live; writes evaluation/recorded/<prompt>-<time>.json
+npm run eval:replay       # re-score that file against the current checks
+```
+
+Recordings are committed: a live run is the expensive part, and its output is the
+only way to iterate on the checks for free afterwards. Each file records the
+`promptVersion` it was made with, and a mismatch is reported loudly — replaying
+old replies after a prompt change measures nothing.
+
+The baseline is in `CHANGELOG.md` under `Evaluation`.
+
+## Privacy
+
+- **No raw user content in logs.** Everything that reaches a log line is either a
+  category label or a fingerprint (`len=42`). This is a hard rule (spec §14), and
+  there is a test that asserts an assessment never contains the matched text.
+- **Memory is visible and deletable.** `GET /api/memory` backs a panel showing
+  what the system believes; `PATCH` and `DELETE` let the person correct or remove
+  it. Soft-deleted rows stay as rows because `memory_events` and `superseded_by`
+  point at them — so "deleted" is filtered on read, not prevented on write.
+- **The local identity is not authentication.** See ADR 009. Do not put real data
+  behind it yet.
+
+## Status
+
+Phases 0–4 complete; Phase 5 (product polish) in progress. See
+`docs/implementation-plan.md` for the phase gates and `CURRENT_STACK.md` for the
+verified environment.

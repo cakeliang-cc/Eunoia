@@ -14,16 +14,21 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "dev": "node --experimental-strip-types src/api/server.ts",
-    "smoke": "vitest run --dir tests/smoke"
+    "migrate": "node --experimental-strip-types src/db/migrate.ts",
+    "eval": "node --experimental-strip-types src/evaluation/cli.ts",
+    "eval:replay": "node --experimental-strip-types src/evaluation/cli.ts --replay",
+    "smoke": "vitest run tests/smoke"
   },
   "dependencies": {
     "@openai/agents": "^0.18.0",
     "openai": "^7.2.0",
+    "pg": "^8.23.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
     "eslint": "^9.0.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.0.0",

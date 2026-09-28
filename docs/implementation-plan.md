@@ -5,7 +5,8 @@ environment. Each phase ends with a **verification gate**: it is not complete
 until the code compiles, lint passes, tests pass, and CHANGELOG is updated
 (spec §19).
 
-Phase 0 is complete. Phases 1–5 are below.
+**Phases 0–4 are complete. Phase 5 is in progress.** See `CHANGELOG.md` for what
+each phase actually shipped, including the bugs its gate caught.
 
 ---
 
@@ -13,22 +14,24 @@ Phase 0 is complete. Phases 1–5 are below.
 
 | # | Decision | Choice | ADR |
 |---|---|---|---|
-| D1 | Database | PostgreSQL + pgvector, Docker (`pgvector/pgvector:pg17`) | [002](adr/002-postgres-pgvector.md) |
+| D1 | Database | PostgreSQL + pgvector, Docker (`pgvector/pgvector:pg17`), port 5433 | [002](adr/002-postgres-pgvector.md) |
 | D2 | Embeddings | Scoring first (`w_s = 0`); `embedding` column + extension created in migration 1; backfill later | [004](adr/004-context-retrieval.md) |
 | D3 | Agent runtime | OpenAI Agents SDK over DeepSeek's OpenAI-compatible surface (Responses API). No OpenAI account needed | [005](adr/005-agent-runtime.md) |
 | D4 | Client/server boundary | Core emits `AsyncIterable<AgentEvent>`; `src/api/` owns HTTP/SSE; boundary enforced by test. Ships web first, mini-program later | [006](adr/006-client-server-separation.md) |
+| D5 | Retrieval gating | `minSimilarity` is the relevance gate; `minScore` is a sanity floor. The two retrieval paths differ in width on purpose | [007](adr/007-retrieval-gates.md) |
+| D6 | Crisis handling | Crisis turns are buffered and mechanically checked before anything renders; failure substitutes fixed text | [008](adr/008-safety-buffered-turns.md) |
+| D7 | Identity | Server-minted unguessable UUID handle. Explicitly not authentication | [009](adr/009-identity-handle-not-auth.md) |
 
 ## Blockers requiring user action
 
-| Blocker | Needed for | Status |
-|---|---|---|
-| **Docker daemon running** | Phase 2 (memory) | `docker ps` fails to connect |
-| **git identity** (`user.name`, `user.email`) | all commits | unset |
+None. All three blockers named at Phase 0 are resolved: the Docker daemon is
+running, Postgres 17.11 + pgvector 0.8.6 are provisioned, and a git identity is
+configured (`cakeliang-cc <xxwwliang@gmail.com>`).
 
-**Phase 1 has no blocker** and can start immediately. The former OpenAI-key
-blocker is withdrawn — see ADR 005's correction. Phase 2 alone waits on Docker,
-and the schema/migration/scoring work within it can be written before the daemon
-is up.
+**One blocker remains unsolvable from inside the project:** there is no embedding
+provider (ADR 004, re-probed and unchanged). Retrieval runs on lexical similarity
+until one exists; the similarity function is injected so the swap touches one
+function.
 
 ---
 
@@ -54,95 +57,75 @@ the run completed. Both are now pinned by tests. Notable: the first produced a
 reply that *looked* correct while streaming was entirely broken, which is exactly
 the class of failure that only an end-to-end run catches.
 
-Scope:
-1. Scaffold: `package.json`, `tsconfig.json`, lint + format, `vitest`.
-2. `src/agent/instructions.ts` — the §11 prompt, built from modular sections
-   (Identity, mission, behavioral principles, Fi/Ne/Si/Te heuristics, memory
-   rules, conversation rules, safety, tool rules, canonical examples). Not one
-   monolithic blob, no if/else logic in prose.
-3. `src/agent/behavioral-policy.ts` — the decision rules that are *not* prompt
-   text: when not to advise, one-question discipline, when to gently challenge.
-4. `INFPCompanionAgent` — single agent (ADR 001), streaming, on the Agents SDK's
-   default Responses-API path against DeepSeek.
-5. `src/agent/model-client.ts` — the one module that constructs `AsyncOpenAI`
-   with `baseURL: https://api.deepseek.com`. Nothing else imports a vendor SDK
-   (ADR 005). A single exported constant holds the canonical model IDs; a test
-   asserts no non-canonical alias (`deepseek-chat`, `deepseek-reasoner`,
-   `deepseek-v4-flash`) appears anywhere in `src/`, since those resolve silently
-   to the wrong model rather than failing.
-6. Tracing wired to a custom processor, not the SDK's OpenAI-hosted default
-   exporter, which cannot authenticate here (ADR 005, spec §14).
-7. `src/api/chat.ts` — minimal streaming endpoint.
-8. Tests: instructions compose correctly; agent constructs; a smoke turn runs;
-   model-ID guard passes.
-
-Files: `src/config.ts`, `src/agent/{events,behavioral-policy,instructions,model-client,infp-agent}.ts`,
-`src/observability/{logging,tracing}.ts`, `src/api/{sse,server}.ts`, `web/index.html`.
-
-## Phase 2 — Memory
+## Phase 2 — Memory ✅ complete (2026-09-28)
 
 **Goal:** §4 four-layer memory, §6 retrieval, §7 write policy.
 
-Scope:
-1. `docker-compose.yml` with the pinned pgvector image; `DATABASE_URL` wiring.
-2. Migration 001 — `users`, `conversations`, `messages`, `memories`,
-   `memory_events`, `user_preferences`, `agent_runs`, `evaluation_cases`,
-   `evaluation_results`; `memories` carries every §5 column including nullable
-   `embedding vector(384)` (ADR 004).
-3. `memory-types.ts`, `MemoryStore` interface + Postgres implementation.
-4. `memory-writer.ts` — §7 policy: refuse speculation, require confidence
-   threshold, honour explicit user requests (`source='user_explicit'`).
-5. `memory-retrieval.ts` — pure scoring (importance + recency + type prior +
-   lexical), hard context budget, `w_s = 0` for now.
-6. Working memory as session state, never persisted (ADR 003).
-7. Tools: `search_memory`, `save_memory`, `update_memory` — narrow, single-purpose
-   (§9). No `do_everything`.
-8. Tests — the five §18 requirements, explicitly: explicit preference remembered;
-   irrelevant memory *not* injected; relevant memory retrieved; speculation *not*
-   stored; memory updatable. Plus a test asserting retrieval never returns all
-   memories.
+**Gate result:** all five §18 memory requirements pass by test — an explicit
+preference is remembered; an irrelevant memory is *not* injected; a relevant one
+is; speculation is not stored; a memory is updatable. The budget cap is asserted
+rather than trusted, including a test that retrieval never returns everything.
+The Postgres store passes 19 integration tests against a real database.
 
-**Gate:** all five §18 memory tests pass; budget cap enforced by test.
+Delivered: `docker-compose.yml`, `migrations/001_init.sql` (whole schema),
+`src/db/{pool,migrate,postgres-store,in-memory-store}.ts`,
+`src/memory/{types,store,retrieval,writer,render,working-memory}.ts`,
+`src/tools/memory-tools.ts` + `src/agent/tools.ts`,
+`src/service/{chat,context}.ts`.
 
-**Blocked on:** Docker daemon.
+Two things were learned during implementation and became ADR 007: a score floor
+cannot express relevance, and the two retrieval paths want opposite trade-offs.
 
-## Phase 3 — Personality evaluation
+## Phase 3 — Personality evaluation ✅ complete (2026-09-28)
 
 **Goal:** §13 framework, ≥20 cases (§18), covering the §12 canonical scenarios.
 
-Scope:
-1. `EvaluationCase` per the §13 interface (`id`, `category`, `userMessage`,
-   `expectedBehaviors`, `forbiddenBehaviors`).
-2. The seven §12 cases translated into concrete expected/forbidden behaviours —
-   case 01 must forbid immediate productivity advice; case 03 must forbid
-   guessing the third party's motive; case 05 must require a *small* action, etc.
-3. Coverage across all §18 categories, to ≥20 cases.
-4. Scorers for the §13 dimensions that are mechanically checkable; the rest
-   judged, with the judge model pinned and recorded.
-5. `evaluation_results` persistence; a recorded/synthetic mode so prompt
-   iteration does not require a live call per case (ADR 005).
-6. Baseline run recorded in CHANGELOG.
+**Gate result:** 24 cases across all 10 categories, all seven §12 canonical
+scenarios present, baseline recorded —
 
-**Gate:** ≥20 cases run; baseline recorded; forbidden-behaviour violations
-reported as failures, not warnings.
+```
+evaluation live · prompt 54af13d10076 · deepseek-v4-pro
+24/24 passed · mean score 0.945 · 0 violation(s)
+```
 
-## Phase 4 — Safety
+Forbidden-behaviour violations are reported as **failures**, not warnings.
+Case integrity is itself tested (unique ids, categories covered, every regex
+compiles, every named tool exists), so a malformed case fails the suite rather
+than silently never firing.
+
+**The gate caught a real bug before it could be mistaken for a passing grade:**
+`npm run eval` could not run at all — the CLI never installed the model provider,
+and all 24 cases failed with a message that read like a bad API key.
+
+## Phase 4 — Safety ✅ complete (2026-09-28)
 
 **Goal:** §10 — companion, not therapist; safety outranks personality.
 
-Scope: input guardrail for high-risk self-harm/crisis content; output checks
-where needed; explicit refusal of diagnosis/therapy claims; risk-signal path for
-case 06; approval boundary on any real side effect. Tests must assert that the
-INFP persona **cannot** override a safety response.
+**Gate result:** the three safety cases route to safety behaviour rather than to
+reflective questioning (`crisis`, `crisis`, `elevated`), and none needed the
+fallback — the model's own replies passed the check. Tests assert that the INFP
+persona **cannot** override a safety response: the directive says so in its own
+words ("安全优先于人格设定", "让位"), and that text is asserted.
 
-**Gate:** safety tests pass; a risk-signal case routes to safety behaviour, not
-to reflective questioning.
+**The gate found four real detection gaps and one output-check gap**, each by
+testing how people actually write rather than how the pattern was imagined:
+`活着没什么意思了`, `割了自己一下`, `killing myself`, `他在家里打我`, and the
+hedged `你可能得了抑郁症`. All five are fixed and pinned.
 
-## Phase 5 — Product polish
+## Phase 5 — Product polish ⏳ in progress (2026-09-28)
 
-Only after 1–4. UI, memory visibility, user-controlled memory (view/edit/delete),
-conversation history, feedback capture, analytics, latency work. Deferred by
-design — spec §18.
+**Goal:** UI, memory visibility, user-controlled memory, conversation history,
+feedback capture, latency work. Deferred by design — spec §18.
+
+Delivered: `src/api/identity.ts` (ADR 009); a memory panel backed by
+`GET /api/memory` with per-memory `PATCH`/`DELETE` and the actor recorded as
+`user`; a memory on/off switch honoured as *not consulted* rather than
+consulted-and-hidden; feedback capture (upsert); conversation list and message
+history endpoints; a streaming web client with a memory drawer; `README.md`.
+The API layer passes 30 tests over real HTTP, including SSE framing and abort.
+
+Remaining: latency work, and anything the first real usage suggests. The
+mini-program adapter is not started — it is a later phase by design (ADR 006).
 
 ---
 
@@ -150,6 +133,25 @@ design — spec §18.
 
 - **CHANGELOG updated in the same change as the code** — never backfilled (spec
   §20, anti-pattern 8).
-- **No prompt change without an evaluation run** (anti-pattern 7).
+- **No prompt change without an evaluation run** (anti-pattern 7). `PROMPT_VERSION`
+  is a hash of the stable instructions, so a prompt change is visible in the run
+  history — visible, not prevented. The rule is still a rule.
 - One migration per schema change; applied migrations are immutable (ADR 002).
 - Retrieval changes must keep the budget cap test green.
+- **Only a composition root installs the model provider**, enforced by
+  `tests/architecture/boundaries.test.ts` in both directions: nothing else may,
+  and every composition root must.
+
+## Test suite as of 0.2.0
+
+| Suite | Count | Requires |
+|---|---|---|
+| Offline (`npm test`) | 349 passed, 22 skipped | nothing |
+| Postgres (`tests/db/`) | 19 | `DATABASE_URL` |
+| Live smoke (`npm run smoke`) | 3 | `RUN_SMOKE=1` + credential |
+
+The offline suite is the one that runs on every change: no network, no container,
+about 1.5 seconds. Everything that needs the outside world self-skips, which is a
+deliberate trade — a suite that requires a container is a suite that gets skipped
+by whoever is in a hurry, so the *only* reliably-run tests are the ones that need
+nothing.

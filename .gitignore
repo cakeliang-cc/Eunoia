@@ -8,3 +8,9 @@ coverage/
 
 .DS_Store
 *.log
+
+# Vendored study material: a 500 MB clone of an unrelated project, with its own
+# git history. It is not source this repository maintains — eslint ignores it
+# for the same reason. Keeping it out of the index means `git status` and
+# `git add .` stay usable.
+reference/
