@@ -89,35 +89,44 @@ export const REQUIRED_HEURISTICS: readonly RequiredHeuristic[] = [
     id: 'te',
     heading: 'Te —— 落地',
     coreQuestion: '如果要做一件很小的真实的事，那可以是什么？',
-    mustMention: ['效率'],
+    // Two anchors, because this lens needs both and they are different things.
+    // `效率` is the failure mode the spec names — turning everything into a
+    // productivity task. `空转` is the *entry condition*: Te is the exit for
+    // reflection that has stopped producing anything, not a default mode. That
+    // sentence is now the only place the spec §12 case-05 rule lives, because
+    // the list that used to duplicate it in code is gone (see below).
+    mustMention: ['效率', '空转'],
   },
 ] as const;
 
 /**
- * Signals that introspection has stopped producing anything and is now just
- * circling. Belongs to spec §12 case 05, where the Te lens should offer a small
- * experiment instead of another reflective question.
+ * There used to be a `RUMINATION_SIGNALS` list here — nine phrases (`我想了很久`,
+ * `原地打转`, …) with a `looksLikeRumination()` to match them against, meant to
+ * make spec §12 case 05 fire deterministically. Nothing in `src/` ever called it,
+ * and it is gone rather than wired up. The reasoning is worth keeping because
+ * the argument for building it is a good one that happens to be wrong here.
  *
- * Deliberately a small, explicit list rather than a model judgement: this is a
- * policy decision, and it should be reviewable and testable.
+ * - **The rule is already in the document.** `companion.md` carries both the
+ *   boundary ("Te 是当自我反思开始空转时才使用的出口，不是默认模式") and the §12
+ *   example verbatim. A second copy in code is the two-copies problem that ADR
+ *   011 removed, and this file's own contract is that it holds anchors into the
+ *   document, not policy.
+ * - **The model does not need to be told.** At `prompt 156bd5de30c6` the case
+ *   scores 1.00 with `toolsCalled: []` — the recorded reply names the mechanism
+ *   ("想两个月还想不出来，通常不是想得不够，而是这条路本身就出不来"), proposes one
+ *   small experiment, and asks nothing further. Nothing is doing the work except
+ *   the prompt.
+ * - **A keyword list cannot tell a loop from a decision.** `我想了很久才决定` is
+ *   a resolved thing and fires; `一直在原地` is a loop and does not. The list
+ *   would have been calibrated on exactly the phrasing the case already handles.
+ * - **Safety is enforced mechanically; personality is not** (ADR 008, §10). A
+ *   crisis turn is checked rather than trusted because a miss is unrecoverable.
+ *   Rumination is a quality of attention — the thing being asked for is that the
+ *   companion notices it *from what the person said*, and a directive appended by
+ *   a keyword match produces replies shaped by the keyword.
  *
- * Known gap: nothing in `src/` consults this yet. It is checked by a test and
- * described by the prompt's own §12 example, but the runtime does not branch on
- * it — see the known issues in CHANGELOG.md.
+ * What would reverse this: a run where the Te lens fails to fire on rumination
+ * the list would have caught. The fix then is a case plus a prompt change, which
+ * is how every other persona defect in this project was found and closed — not a
+ * detector. Recorded in `CHANGELOG.md` and `docs/REFACTORING_PLAN.md`.
  */
-export const RUMINATION_SIGNALS: readonly string[] = [
-  '我想了很久',
-  '想了几个月',
-  '想了两个月',
-  '一直想不明白',
-  '还是不知道',
-  '反复想',
-  '越想越乱',
-  '原地打转',
-  '分析不出来',
-] as const;
-
-/** Whether a message looks like rumination rather than fresh exploration. */
-export function looksLikeRumination(message: string): boolean {
-  return RUMINATION_SIGNALS.some((signal) => message.includes(signal));
-}

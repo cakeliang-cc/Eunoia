@@ -1,18 +1,17 @@
 /**
- * The spec requirements the prompt is checked against, and the rumination signals.
+ * The spec requirements the prompt is checked against.
  *
  * `prompt-document.test.ts` uses these as its checklist. This file checks the
  * checklist itself — a duplicate id or an empty label would make that test pass
  * for the wrong reason, and a contract that cannot fail is not a contract.
+ *
+ * There was a third block here, for `RUMINATION_SIGNALS`. It is gone with the
+ * list it tested; `src/agent/prompt-contract.ts` records why the list was
+ * removed rather than wired up.
  */
 
 import { describe, expect, it } from 'vitest';
-import {
-  REQUIRED_HEURISTICS,
-  REQUIRED_PRINCIPLES,
-  RUMINATION_SIGNALS,
-  looksLikeRumination,
-} from '../../src/agent/prompt-contract.ts';
+import { REQUIRED_HEURISTICS, REQUIRED_PRINCIPLES } from '../../src/agent/prompt-contract.ts';
 
 describe('the principle contract (spec §3)', () => {
   it('covers all five required principles, in the spec’s order', () => {
@@ -50,17 +49,3 @@ describe('the lens contract (spec §2)', () => {
   });
 });
 
-describe('rumination detection (spec §12 case 05)', () => {
-  it('recognises the canonical case', () => {
-    expect(looksLikeRumination('我想了两个月还是不知道自己想要什么。')).toBe(true);
-  });
-
-  it('does not fire on ordinary emotional statements', () => {
-    expect(looksLikeRumination('今天真的什么都不想做。')).toBe(false);
-    expect(looksLikeRumination('我是不是应该辞职？')).toBe(false);
-  });
-
-  it('declares at least one signal', () => {
-    expect(RUMINATION_SIGNALS.length).toBeGreaterThan(0);
-  });
-});

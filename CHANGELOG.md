@@ -139,6 +139,39 @@ project evolved without reading the full diff history.
 
 ### Changed
 
+- **`RUMINATION_SIGNALS` is deleted rather than wired up, and the argument for
+  wiring it is a good one that happens to be wrong here.** It was nine phrases
+  (`我想了很久`, `原地打转`, …) with a `looksLikeRumination()` to match them
+  against, meant to make spec §12 case 05 fire deterministically. It had sat in
+  `prompt-contract.ts` since Phase 1 with nothing in `src/` calling it — the
+  known issue filed it as "dead before the prompt moved to a document, and the
+  move only changed which file it is dead in". Four reasons it stays dead:
+  - **The model already does it.** `question-01` — the case written for §12 case
+    05 — scores **1.00** at `prompt 156bd5de30c6`, and the recorded reply names
+    the mechanism (*"想两个月还想不出来，通常不是想得不够，而是这条路本身就出不来"*),
+    proposes one small experiment, and asks nothing further. `toolsCalled: []`:
+    the prompt is doing the work and nothing else is.
+  - **A keyword list cannot tell a loop from a decision.** `我想了很久才决定` is
+    settled and fires; `一直在原地` is a loop and does not. The list was
+    calibrated on exactly the phrasing the case already handles.
+  - **The rule is in the document, which is where ADR 011 put it.** The Te
+    boundary (*"Te 是当自我反思开始空转时才使用的出口，不是默认模式"*) and the §12
+    example are both there. A second copy in code is the two-copies problem the
+    prompt extraction removed — and `prompt-contract.ts` states its own contract
+    as holding *anchors into* the document, not policy.
+  - **Safety is enforced mechanically; personality is not** (ADR 008, §10). A
+    crisis turn is checked rather than trusted because a miss is unrecoverable.
+    Rumination is a quality of attention, and a directive appended by a keyword
+    match produces replies shaped by the keyword rather than by what was said.
+  - **What replaces it is one anchor, not a new mechanism.** `Te`'s `mustMention`
+    gains `空转`, so the sentence that is now the only home of the rule cannot be
+    edited away silently. Verified by mutation: renaming the word turns
+    `prompt-document.test.ts` red. The prompt document is **byte-identical** —
+    `156bd5de30c6` before and after — so no evaluation run is implied (§20).
+  - Reversing this needs evidence, and it is named: a run where Te fails to fire
+    on rumination the list would have caught. The fix then is a case plus a
+    prompt change, which is how every other persona defect here was found.
+
 - **The persona answers easy questions now, instead of reflecting them back.**
   The four new cases were run against the old prompt *before* the prompt was
   touched, and every one of them passed. Three of the four missed what they were
@@ -563,11 +596,12 @@ project evolved without reading the full diff history.
   true is the part it was careful about — nothing in development depends on the
   build, and the Docker/CI story is still not written. `npm run build && npm start`
   is a working command now, not a deployment.
-- **`RUMINATION_SIGNALS` has no consumer.** It is checked by a test and described
-  by the prompt's own §12 case-05 example, and nothing in `src/` branches on it —
-  the Te lens is not yet wired to detect that introspection has stopped producing
-  anything. It was dead before the prompt moved to a document, and the move only
-  changed which file it is dead in.
+- ~~**`RUMINATION_SIGNALS` has no consumer.**~~ **Closed** by deletion, not by
+  wiring — see Changed above. The entry is kept because the decision it recorded
+  was the right one and only the conclusion changed: it said the list "was dead
+  before the prompt moved to a document, and the move only changed which file it
+  is dead in", which is exactly why the fix was to remove it rather than to build
+  a consumer for it.
 - **The persona's first line of defence is now the light-intent cases, and that
   is a thin line.** The general rule stands and is the reason the fix was done in
   the order it was: a prompt change with no case able to see it is a change

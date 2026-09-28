@@ -198,4 +198,5 @@ not written. The build removed one excuse, not the reasons.
 | Storing relationship state in a table | Derivable in one query; a migration for a cache. |
 | A relationship stage taxonomy | Nobody has calibrated the bands. Facts now, labels when there is evidence for them. |
 | An always-on block for anything else | The two that exist are unconditional because a relationship and a running theme are not things that *become* relevant. The gate is right for everything else, and widening the unconditional part is how a prompt becomes a status report. |
+| A runtime detector for rumination | `RUMINATION_SIGNALS` existed for this and was deleted. `question-01` scores 1.00 on the behaviour with `toolsCalled: []`, so the prompt's Te lens already does it; a keyword list cannot tell a loop from a settled decision; and safety is enforced mechanically only because a miss there is unrecoverable, which rumination is not. The full argument is in `CHANGELOG.md` → Changed. |
 | Rewriting the memory layers | §32 (no unrelated cleanup), §34 (no destructive refactoring without a plan). |
