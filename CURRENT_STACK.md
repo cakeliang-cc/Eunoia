@@ -22,6 +22,11 @@ assumed.
 > step in development) + Postgres 17/pgvector via Docker + the OpenAI Agents SDK
 > over DeepSeek's OpenAI-compatible surface. `src/db/in-memory-store.ts` remains
 > as the no-container fallback, so the offline suite needs nothing installed.
+>
+> **Later, 2026-09-29:** "no build step in development" is still true, and there
+> is now a build for the case that is not development — `npm run build` emits
+> `dist/`, `npm start` runs it. It was a script that could not run until then; see
+> `CHANGELOG.md` → Fixed.
 
 ---
 

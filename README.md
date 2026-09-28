@@ -189,11 +189,25 @@ The baseline is in `CHANGELOG.md` under `Evaluation`.
   what the system believes; `PATCH` and `DELETE` let the person correct or remove
   it. Soft-deleted rows stay as rows because `memory_events` and `superseded_by`
   point at them — so "deleted" is filtered on read, not prevented on write.
+- **The person can erase themselves.** `DELETE /api/me` removes the caller and
+  everything derived from them; the memory drawer exposes it behind a second
+  click. Every table holding content cascades, with one deliberate exception —
+  `agent_runs` survives with a null owner, because a run is sizes and hashes and
+  the only record of what a prompt version did.
+- **Evaluation runs clean up after themselves**, and `npm run cleanup` sweeps the
+  ones that crashed first. A sweep can only reach users carrying an `eval:` mark
+  in `users.external_id`; real accounts have none, which is what makes it safe to
+  run without a confirmation. See [ADR 013](docs/adr/013-retention-and-deletion.md)
+  for what that mark cannot reach.
 - **The local identity is not authentication.** See ADR 009. Do not put real data
   behind it yet.
 
 ## Status
 
-Phases 0–4 complete; Phase 5 (product polish) in progress. See
-`docs/implementation-plan.md` for the phase gates and `CURRENT_STACK.md` for the
-verified environment.
+Phases 0–5 complete, as is the relationship/narrative half of Phase 8. What is
+left is recorded rather than implied, and the two that matter are production
+blockers rather than features: **the identity is a handle and not authentication**
+(ADR 009), and **there is no rate limiting**. Both need a decision this
+repository cannot make on its own. `docs/REFACTORING_PLAN.md` has the full
+roadmap with the reasons things are *not* built; `docs/implementation-plan.md`
+has the phase gates; `CURRENT_STACK.md` has the verified environment.
