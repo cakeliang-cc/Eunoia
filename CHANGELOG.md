@@ -139,6 +139,15 @@ project evolved without reading the full diff history.
 
 ### Changed
 
+- **`README.md` opens with 缘起 — the author's own account of why this exists**,
+  written by the author and edited rather than composed. It is kept in Chinese on
+  purpose and it is the only Chinese prose in that file. The useful part for a
+  reader of the code is the middle: the product's four lenses (Fi / Ne / Si / Te)
+  are not decoration borrowed from a personality test, they are the author's own
+  account of why a 攻略 — a route optimised for having been somewhere — is the
+  wrong shape for this user. The stated scope is deliberately narrow and
+  deliberately temporary: INFP only, travel first, a single agent before a team.
+
 - **`RUMINATION_SIGNALS` is deleted rather than wired up, and the argument for
   wiring it is a good one that happens to be wrong here.** It was nine phrases
   (`我想了很久`, `原地打转`, …) with a `looksLikeRumination()` to match them
