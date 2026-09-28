@@ -78,6 +78,17 @@ status of this row is "✅, thin".
 measure "does it give what was asked for", which is one third of helpfulness.
 Warmth is not mechanically checkable and no case pretends otherwise.
 
+Two of those four cases were measuring less than they appeared to. `light-04`
+scored a clean 1.00 on the reply the changelog names as its failure, because the
+check written for that failure did not contain the phrase — so a whole category's
+headline defect could have returned with the suite green. The repair is not more
+patterns but a falsifier: `tests/evaluation/cases.test.ts` now replays the four
+recorded failures against the checks that are supposed to catch them, and the
+mutation that deletes the patterns turns it red. A case count is a claim about
+coverage; that block is what makes the claim checkable — and it is why this row
+stays ⏳ rather than ✅, because a category that can now fail is not the same as
+a category that is complete.
+
 ---
 
 ## Phase 8 — Relationship + Narrative

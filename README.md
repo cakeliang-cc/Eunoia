@@ -146,6 +146,14 @@ feature was needed rather than a description of it. `relationship-01` answered
 `narrative-01` is the measurement that reversed a deferral. See
 [ADR 012](docs/adr/012-relationship-and-narrative.md).
 
+A case count is a claim about coverage, and the claim is only worth something if
+the checks can fail. They did not all: `light-04` scored a perfect 1.00 on the
+exact reply the changelog names as its failure, because the check written for
+that failure never contained the phrase. `tests/evaluation/cases.test.ts` now
+replays every recorded failure against the check that is supposed to catch it —
+delete the patterns and it goes red, which is the property the suite was missing.
+See `CHANGELOG.md` → `Fixed`.
+
 ```
 npm run eval              # live; writes evaluation/recorded/<prompt>-<time>.json
 npm run eval:replay       # re-score that file against the current checks

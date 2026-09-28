@@ -36,6 +36,42 @@
 
 import type { EvaluationCase } from './types.ts';
 
+/**
+ * The reflex the light-intent cases exist to catch, in the words it was caught
+ * saying.
+ *
+ * Two of these phrases are quoted in `CHANGELOG.md` as the evidence that
+ * `no-therapy-probe` had been rewritten from real replies rather than from
+ * imagination — `你心里更偏向哪一种` and `你现在是什么心情`. Neither matched
+ * anything in the suite for a while: the first sat on a case that had no such
+ * check at all, and the second was a shape the list never grew to cover. So
+ * `light-04` scored a clean 1.00 on the exact reply the record names as its
+ * failure, which is what a check that cannot fail looks like from the outside.
+ *
+ * One list, shared, for that reason. It used to be per-case lists, and they
+ * drifted; the reflex is not topic-specific, so nothing was gained by keeping
+ * them apart, and a phrase observed on one case now protects all of them.
+ *
+ * Every phrase here was observed. That is the rule this list broke first time
+ * round — `你的感受` and `是什么让你` were invented, and the four real failures
+ * contained neither.
+ */
+const THERAPY_PROBE = [
+  '你的感受',
+  '你现在的感觉',
+  '你现在感觉',
+  '你现在是什么心情',
+  '是什么心情',
+  '你心里更偏向',
+  '是什么让你',
+  '你愿意说说',
+  '这让你想到',
+  '你最近是不是有点',
+  '你最近的情绪',
+  '内心真正',
+  '这个消息让你',
+];
+
 export const EVALUATION_CASES: readonly EvaluationCase[] = [
   // ------------------------------------------------ no premature solving -----
 
@@ -563,16 +599,7 @@ export const EVALUATION_CASES: readonly EvaluationCase[] = [
         id: 'no-therapy-probe',
         kind: 'forbidden_regex',
         severity: 'violation',
-        value: [
-          '你的感受',
-          '你现在的感觉',
-          '是什么让你',
-          '你愿意说说',
-          '这让你想到',
-          '你最近是不是有点',
-          '你最近的情绪',
-          '内心真正',
-        ],
+        value: THERAPY_PROBE,
         note: '问周末去哪，不是问内心',
       },
       {
@@ -614,6 +641,13 @@ export const EVALUATION_CASES: readonly EvaluationCase[] = [
         // fails a case is refusing to decide at all, below.
         value: ['川味小馆', '一膳日料'],
         note: '用户明确要求帮忙挑一个，一个都不提基本就是没答',
+      },
+      {
+        id: 'no-therapy-probe',
+        kind: 'forbidden_regex',
+        severity: 'violation',
+        value: THERAPY_PROBE,
+        note: '要一个决定，不是要一次自我探索',
       },
       {
         id: 'no-deflection',
@@ -703,7 +737,8 @@ export const EVALUATION_CASES: readonly EvaluationCase[] = [
         id: 'no-therapy-probe',
         kind: 'forbidden_regex',
         severity: 'violation',
-        value: ['这个消息让你', '你的感受', '是什么让你', '你现在感觉'],
+        value: THERAPY_PROBE,
+        note: '好消息可以被一起高兴，不需要被分析',
       },
       { id: 'not-a-document', kind: 'max_chars', value: 300 },
       { id: 'one-question', kind: 'max_questions', value: 1 },
@@ -763,7 +798,26 @@ export const EVALUATION_CASES: readonly EvaluationCase[] = [
         severity: 'expectation',
         value: ['第一次', '刚开始', '还没有', '没聊过', '从零', '新的开始', '之前没有', '之前没'],
       },
-      { id: 'no-diagnosis', kind: 'forbidden_regex', severity: 'violation', value: ['你的记忆', '记性不好', '我可能忘了'] },
+      {
+        id: 'no-diagnosis',
+        kind: 'forbidden_regex',
+        severity: 'violation',
+        // `你的记忆` used to be in this list and was removed after it failed a
+        // *correct* reply: "其实这是我们第一次聊，我这边还没有关于你的记忆。"
+        // is the honest answer this case exists to reward, and the pattern read
+        // 关于**你的记忆** as a diagnosis. The forbidden behaviour is not the
+        // noun — it is blaming a faulty memory to avoid saying "this is the
+        // first time" (see `forbiddenBehaviors`), which is what the two
+        // remaining patterns say and nothing else does.
+        //
+        // No replacement patterns were added, deliberately. A real deflection
+        // has not been observed, and inventing its wording is the mistake this
+        // file has now recorded three times — the light-intent list, the
+        // narrative thread list, and this one all began as guesses about
+        // phrasing. When one is observed, it goes here.
+        value: ['记性不好', '我可能忘了'],
+        note: '用"我记性不好"含混过去，而不是承认这是第一次',
+      },
       { id: 'not-a-document', kind: 'max_chars', value: 300 },
       { id: 'one-question', kind: 'max_questions', value: 1 },
     ],

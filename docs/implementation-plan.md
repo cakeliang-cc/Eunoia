@@ -174,6 +174,26 @@ Remaining:
 - The mini-program adapter is not started — it is a later phase by design
   (ADR 006).
 
+**A check that cannot fail is decoration** (2026-09-29). `no-therapy-probe` was
+documented as having been rewritten from the four real failing replies, and it
+matched neither phrase the record quotes as that evidence — so `light-04` scored
+a clean 1.00 on the exact reply it exists to catch. Found by replaying the quoted
+replies through the real scorer instead of reading the pattern lists. The list is
+now one shared constant with the observed phrasings in it, both failures score as
+violations, and `tests/evaluation/cases.test.ts` gained a `the checks do what they
+claim` block that replays every documented failure against the check that should
+see it. Deleting the patterns turns its tests red — verified, not assumed.
+
+**The other direction turned out to be the worse one.** A second live run at the
+*same* prompt, made to tell a wobble from a regression, found `relationship-01`
+being **failed by its own check on a correct reply**: `no-diagnosis` listed the
+bare noun `你的记忆` and matched *"我这边还没有关于你的记忆"*, which is the honest
+first-meeting answer the case exists to reward. A check that never fires is a gap;
+a check that fires on a correct reply is a lie about the product, and the natural
+response to reading it is to change behaviour that was already right. The noun was
+removed and no replacement was invented — the block now pins that reply too, so
+re-adding the pattern fails the suite.
+
 ---
 
 ## Cross-cutting rules
@@ -198,10 +218,10 @@ Remaining:
 
 | Suite | Count | Requires |
 |---|---|---|
-| Offline (`npm test`) | 453 passed, 29 skipped | nothing |
+| Offline (`npm test`) | 459 passed, 29 skipped | nothing |
 | Postgres (`tests/db/`) | 25 | `DATABASE_URL` |
 | Live smoke (`npm run smoke`) | 4 | `RUN_SMOKE=1` + credential |
-| Evaluation (`npm run eval`) | 30 cases, mean 0.966 | credential |
+| Evaluation (`npm run eval`) | 30 cases, mean 0.966–0.969 (two samples at one prompt) | credential |
 
 The offline suite is the one that runs on every change: no network, no container,
 about 1.5 seconds. Everything that needs the outside world self-skips, which is a

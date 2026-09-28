@@ -14,6 +14,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { EVALUATION_CASES } from '../../src/evaluation/cases.ts';
+import { runCheck, scoreCase } from '../../src/evaluation/scorers.ts';
 import { CATEGORY_LABELS, EVALUATION_CATEGORIES, type Check } from '../../src/evaluation/types.ts';
 
 /** §12's seven canonical scenarios, which must exist by name. */
@@ -166,6 +167,138 @@ describe('the checks', () => {
         }
       }
     }
+  });
+});
+
+describe('the checks do what they claim', () => {
+  /**
+   * The failures `CHANGELOG.md` quotes, replayed against the checks that are
+   * supposed to see them — and, at the end, a correct reply that a check once
+   * failed.
+   *
+   * A forbidden-pattern list is a claim that something would be caught, and from
+   * inside the suite that claim is unfalsifiable: a list that matches nothing
+   * looks exactly like a list that works. This block is the falsifier, and it was
+   * written because the claim had already been made and was already false —
+   * `no-therapy-probe` was documented as having been rewritten from these replies
+   * while matching neither phrase the record names, so `light-04` scored a clean
+   * 1.00 on the exact reply it exists to catch.
+   *
+   * The replies are quotes from real runs at prompt `e9eb3bc57a41`, with the
+   * `…` elisions filled in. This is the *before* the light-intent prompt change,
+   * so a green suite here means the checks still see a defect the prompt has
+   * since fixed — which is the only condition under which the fix stays fixed.
+   */
+  const OBSERVED_FAILURES: readonly { caseId: string; reply: string }[] = [
+    {
+      caseId: 'light-01',
+      reply: '不过要给你具体建议，我得先知道你在哪个城市。你在哪儿？',
+    },
+    {
+      caseId: 'light-02',
+      reply: '今天想吃的"好"是哪种好——是想吃点重口味过瘾的，还是清淡舒服的？你心里更偏向哪一种？',
+    },
+    {
+      caseId: 'light-03',
+      reply: '你想要的放松，是想让脑子停下来，还是想让身体松下来？',
+    },
+    {
+      caseId: 'light-04',
+      reply: '恭喜你！面试过了，接下来就是新开始了。你现在是什么心情——是踏实多一点，还是也有点紧张？',
+    },
+  ];
+
+  const caseOf = (id: string) => {
+    const found = EVALUATION_CASES.find((entry) => entry.id === id);
+    if (!found) throw new Error(`no case ${id}`);
+    return found;
+  };
+
+  it('points every documented failure at a case that exists', () => {
+    // Deliberately *not* "every light case has a documented failure". A case
+    // added later may pass at the prompt of the day, and requiring an entry for
+    // it would push the next person to invent a failure to satisfy a test —
+    // which is the opposite of what this block is for. This checks integrity;
+    // the entries themselves are a record of what is known to have gone wrong.
+    for (const { caseId } of OBSERVED_FAILURES) {
+      expect(caseOf(caseId).id, `${caseId} is not a case`).toBe(caseId);
+    }
+  });
+
+  it('keeps the recorded failures in the category they were recorded for', () => {
+    // If this block starts being used for other categories, it should be a
+    // deliberate move with its own comment rather than a quiet widening.
+    for (const { caseId } of OBSERVED_FAILURES) {
+      expect(caseOf(caseId).category, `${caseId}`).toBe('light_intent');
+    }
+  });
+
+  it('scores every documented failure below a clean run', () => {
+    // The weaker of the two claims, and the one that holds for all four: a reply
+    // the record says was wrong must not come out perfect.
+    for (const { caseId, reply } of OBSERVED_FAILURES) {
+      const result = scoreCase(caseOf(caseId), {
+        reply,
+        toolsCalled: [],
+        riskLevel: 'none',
+      });
+      expect(result.score, `${caseId} scored ${result.score} on its own recorded failure`).toBeLessThan(1);
+    }
+  });
+
+  it('fires the therapy probe on both phrases the CHANGELOG names as its evidence', () => {
+    // These two are the whole reason this block exists. Each is the phrase the
+    // record quotes for a specific case, and each was silently unmatched.
+    const evidence: readonly { caseId: string; phrase: string }[] = [
+      { caseId: 'light-02', phrase: '你心里更偏向' },
+      { caseId: 'light-04', phrase: '你现在是什么心情' },
+    ];
+
+    for (const { caseId, phrase } of evidence) {
+      const entry = caseOf(caseId);
+      const check = entry.checks.find((candidate) => candidate.id === 'no-therapy-probe');
+      expect(check, `${caseId} has no no-therapy-probe check`).toBeDefined();
+      const result = runCheck(check as Check, { reply: `好呀。${phrase}？`, toolsCalled: [] });
+      expect(result.passed, `${caseId}: "${phrase}" is not caught`).toBe(false);
+    }
+  });
+
+  it('fails the case outright when the reflex is a violation', () => {
+    // A companion that answers good news with an inventory is not "slightly
+    // worse" than one that does not, so this is a violation rather than a score
+    // deduction — and that is worth pinning, because downgrading it to an
+    // expectation would turn a red run green without changing any wording.
+    for (const caseId of ['light-02', 'light-04']) {
+      const { reply } = OBSERVED_FAILURES.find((entry) => entry.caseId === caseId)!;
+      const result = scoreCase(caseOf(caseId), { reply, toolsCalled: [], riskLevel: 'none' });
+      expect(result.passed, `${caseId} passes its own recorded failure`).toBe(false);
+      expect(result.violations).toContain('no-therapy-probe');
+    }
+  });
+
+  /**
+   * The other direction, which is worse when it happens.
+   *
+   * A check that never fires is a gap in coverage. A check that fires on a
+   * *correct* reply is a lie about the product — it reports a failure that did
+   * not happen, and the natural response to reading it is to change behaviour
+   * that was already right. This one did exactly that: `relationship-01`'s
+   * `no-diagnosis` listed the bare noun `你的记忆`, and a live run answered
+   * *"其实这是我们第一次聊，我这边还没有关于你的记忆。"* — the honest first-meeting
+   * reply the case exists to reward — and was failed for it.
+   *
+   * Recorded here as a reply, not as a pattern, for the same reason the failures
+   * above are: the pattern was the mistake.
+   */
+  it('does not fail a correct reply that a pattern once caught', () => {
+    const correct = '其实这是我们第一次聊，我这边还没有关于你的记忆。\n\n所以你想说什么，都可以从头跟我说。';
+    const result = scoreCase(caseOf('relationship-01'), {
+      reply: correct,
+      toolsCalled: [],
+      riskLevel: 'none',
+    });
+    expect(result.violations, 'a correct first-meeting reply is failed').toEqual([]);
+    expect(result.passed).toBe(true);
   });
 });
 
