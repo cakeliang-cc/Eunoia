@@ -135,9 +135,23 @@ configured. **The embedding blocker stands** — see Known Issues.
 
 ### Fixed
 
-Seven of these were found by tests written in this release, and each one is
+Eight of these were found by tests written in this release, and each one is
 recorded with how it was found, because the finding is the useful part.
 
+- **The server was a 500 against Postgres, on every route.** `runTurn` created a
+  conversation before ensuring the user row existed, and `/api/preferences`,
+  `/api/feedback` and the memory-event writes each inserted before their user
+  existed too — all against `REFERENCES users(id)`. The in-memory store enforces
+  no foreign keys, so 349 offline tests were green while `POST /api/chat` failed
+  immediately against the real database. Caught by starting the server and
+  sending it a message, which is the only thing that could have caught it.
+
+  Fixed in two places, at the two levels the mistake can be made: `runTurn`
+  ensures the user before it writes anything, and the HTTP layer resolves
+  identity through one `identify()` helper that ensures the row — so a route is
+  safe by default rather than safe by review. Two Postgres tests now pin it, one
+  asserting the foreign key rejects an unknown user and one driving a real turn
+  through `runTurn` with a fake runner.
 - **Four real gaps in crisis detection** (`src/safety/risk.ts`), each found by a
   test written against how people actually write:
   - `我觉得活着没什么意思了` — the softener sits *between* `没` and `意思`; the
@@ -260,6 +274,14 @@ Two things this baseline does **not** say, recorded so it is not over-read:
 - **Postgres integration tests self-skip without `DATABASE_URL`.** Deliberate —
   the suite must run with nothing installed — but it means CI is the only place
   that reliably exercises the SQL unless someone remembers the variable.
+- **`InMemoryStore` enforces no foreign keys, and that hid a bug that hit every
+  route.** The stand-in store is what makes 349 tests run with nothing
+  installed, and it is also why none of them noticed `/api/chat` creating a
+  conversation before its owner. Two Postgres tests now cover the gap, but the
+  general shape of the risk remains: any constraint that lives in the schema
+  rather than in the code is invisible to the offline suite. Deliberately not
+  fixed by adding constraint-checking to the fake — a stand-in that reimplements
+  the database is a second database, and it would be wrong differently.
 - **Risk detection is pattern-based**, so it has both false negatives (phrasing
   nobody anticipated) and false positives. The idiom guard is the mitigation and
   it is tested, but the honest statement is that this is a heuristic and the

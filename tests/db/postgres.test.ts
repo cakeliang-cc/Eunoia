@@ -329,4 +329,47 @@ describe.skipIf(!enabled)('PostgresStore', () => {
     // makes a run greppable without putting a person's words in an audit table.
     expect(rows[0]?.input_fingerprint).toBe('len=6');
   });
+
+  // ------------------------------------------------- referential integrity -----
+
+  /**
+   * The whole reason this file exists.
+   *
+   * A route that writes before its user row exists is indistinguishable from a
+   * correct one under `InMemoryStore`, which enforces no foreign keys. Both
+   * `/api/chat` and `/api/preferences` did exactly that: green across 349
+   * offline tests, and a 500 the first time either met Postgres. The constraint
+   * lives here, so the test that catches it has to live here too.
+   */
+  it('refuses a conversation for a user who does not exist, which is the bug', async () => {
+    await expect(store.ensureConversation(randomUUID())).rejects.toThrow(/foreign key|violates/i);
+  });
+
+  it('a real turn creates its own user first, in the order the schema requires', async () => {
+    // `runTurn` is driven with a fake runner, so this asserts the ordering of
+    // the writes and nothing about the model.
+    const { runTurn } = await import('../../src/service/chat.ts');
+    const userId = randomUUID();
+    createdUsers.push(userId);
+
+    const events: string[] = [];
+    for await (const event of runTurn(
+      {
+        store,
+        runner: async function* () {
+          yield { type: 'completed', text: '嗯。' };
+        },
+      },
+      { userId, message: '第一次说话。' },
+    )) {
+      events.push(event.type);
+    }
+
+    expect(events.at(-1)).toBe('completed');
+    // The user row exists as a side effect of the turn, not of the test setup —
+    // `freshUser()` was deliberately not called.
+    const { rows } = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
+    expect(rows).toHaveLength(1);
+    expect(await store.listConversations(userId)).toHaveLength(1);
+  });
 });

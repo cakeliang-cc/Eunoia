@@ -120,6 +120,25 @@ export function createApp(deps: AppDependencies) {
   const working = deps.working ?? new WorkingMemory();
   const store = deps.store;
 
+  /**
+   * Resolve the caller, and make sure their row exists.
+   *
+   * Every per-user table has a foreign key to `users`, and the in-memory store
+   * enforces none of them — so a route that wrote before the user row existed
+   * worked perfectly in every test and failed in the only environment that
+   * mattered. `/api/chat` created a conversation before its user, and
+   * `/api/preferences` inserted a preference before its user; both were a 500
+   * against Postgres, both passed offline.
+   *
+   * Doing it here rather than in each route means no route has to remember, and
+   * a new route is safe by default instead of safe by review.
+   */
+  async function identify(req: IncomingMessage, res: ServerResponse): Promise<string> {
+    const { userId } = resolveIdentity(req, res);
+    await store.ensureUser(userId);
+    return userId;
+  }
+
   /** Retrieval can be switched off by the person; it is their history. */
   async function retrievalEnabled(userId: string): Promise<boolean> {
     const value = await store.getPreference(userId, MEMORY_ENABLED_KEY).catch(() => null);
@@ -141,7 +160,7 @@ export function createApp(deps: AppDependencies) {
       return;
     }
 
-    const identity = resolveIdentity(req, res);
+    const userId = await identify(req, res);
     const controller = new AbortController();
     res.on('close', () => controller.abort());
 
@@ -150,13 +169,13 @@ export function createApp(deps: AppDependencies) {
       conversation_id: parsed.conversationId,
     });
 
-    const retrieve = await retrievalEnabled(identity.userId);
+    const retrieve = await retrievalEnabled(userId);
 
     await pipeEventsAsSse(
       runTurn(
         { store, working, runner: deps.runner },
         {
-          userId: identity.userId,
+          userId,
           conversationId: parsed.conversationId,
           message: parsed.message,
           signal: controller.signal,
@@ -199,7 +218,7 @@ export function createApp(deps: AppDependencies) {
     // ---------------------------------------------------------- history -----
 
     if (req.method === 'GET' && pathname === '/api/conversations') {
-      const { userId } = resolveIdentity(req, res);
+      const userId = await identify(req, res);
       const conversations = await store.listConversations(userId);
       sendJson(res, 200, { conversations });
       return true;
@@ -207,7 +226,7 @@ export function createApp(deps: AppDependencies) {
 
     const messagesMatch = /^\/api\/conversations\/([0-9a-f-]{36})\/messages$/.exec(pathname);
     if (req.method === 'GET' && messagesMatch) {
-      const { userId } = resolveIdentity(req, res);
+      const userId = await identify(req, res);
       const messages = await store.listMessages(userId, messagesMatch[1] as string);
       sendJson(res, 200, { messages });
       return true;
@@ -216,7 +235,7 @@ export function createApp(deps: AppDependencies) {
     // ----------------------------------------------------------- memory -----
 
     if (req.method === 'GET' && pathname === '/api/memory') {
-      const { userId } = resolveIdentity(req, res);
+      const userId = await identify(req, res);
       const memories = await store.listMemories(userId, {
         limit: 200,
         statuses: [...VISIBLE_MEMORY_STATUSES],
@@ -229,7 +248,7 @@ export function createApp(deps: AppDependencies) {
     const memoryMatch = /^\/api\/memory\/([0-9a-f-]{36})$/.exec(pathname);
 
     if (req.method === 'PATCH' && memoryMatch) {
-      const { userId } = resolveIdentity(req, res);
+      const userId = await identify(req, res);
       const body = asObject(await readJsonBody(req)) ?? {};
 
       const status = body.status;
@@ -265,7 +284,7 @@ export function createApp(deps: AppDependencies) {
     }
 
     if (req.method === 'DELETE' && memoryMatch) {
-      const { userId } = resolveIdentity(req, res);
+      const userId = await identify(req, res);
       const id = memoryMatch[1] as string;
       const deleted = await store.deleteMemory(userId, id);
       if (!deleted) {
@@ -280,14 +299,14 @@ export function createApp(deps: AppDependencies) {
     // ------------------------------------------------------- preferences -----
 
     if (req.method === 'GET' && pathname === '/api/preferences') {
-      const { userId } = resolveIdentity(req, res);
+      const userId = await identify(req, res);
       const preferences = await store.listPreferences(userId);
       sendJson(res, 200, { preferences, memoryEnabled: preferences[MEMORY_ENABLED_KEY] !== false });
       return true;
     }
 
     if (req.method === 'PUT' && pathname === '/api/preferences') {
-      const { userId } = resolveIdentity(req, res);
+      const userId = await identify(req, res);
       const body = asObject(await readJsonBody(req));
       if (!body) {
         sendJson(res, 400, { error: 'body must be a JSON object' });
@@ -303,7 +322,7 @@ export function createApp(deps: AppDependencies) {
     // ---------------------------------------------------------- feedback -----
 
     if (req.method === 'POST' && pathname === '/api/feedback') {
-      const { userId } = resolveIdentity(req, res);
+      const userId = await identify(req, res);
       const body = asObject(await readJsonBody(req)) ?? {};
 
       const messageId = body.messageId;
@@ -324,7 +343,7 @@ export function createApp(deps: AppDependencies) {
     }
 
     if (req.method === 'GET' && pathname === '/api/feedback') {
-      const { userId } = resolveIdentity(req, res);
+      const userId = await identify(req, res);
       sendJson(res, 200, { feedback: await store.listFeedback(userId) });
       return true;
     }

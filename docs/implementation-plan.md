@@ -147,7 +147,7 @@ mini-program adapter is not started — it is a later phase by design (ADR 006).
 | Suite | Count | Requires |
 |---|---|---|
 | Offline (`npm test`) | 349 passed, 22 skipped | nothing |
-| Postgres (`tests/db/`) | 19 | `DATABASE_URL` |
+| Postgres (`tests/db/`) | 21 | `DATABASE_URL` |
 | Live smoke (`npm run smoke`) | 3 | `RUN_SMOKE=1` + credential |
 
 The offline suite is the one that runs on every change: no network, no container,

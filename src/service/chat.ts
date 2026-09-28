@@ -104,12 +104,17 @@ export async function* runTurn(
     return;
   }
 
+  // Before anything is written. `conversations.user_id` and every per-user table
+  // reference `users`, and the in-memory store enforces none of those keys — so
+  // this ordering was invisible offline and a 500 the first time it met
+  // Postgres: the conversation was created before its owner existed.
+  await deps.store.ensureUser(request.userId);
+
   const conversation = await deps.store.ensureConversation(request.userId, request.conversationId);
   const conversationId = conversation.id;
 
   let userMessageId: string | null = null;
   if (persist) {
-    await deps.store.ensureUser(request.userId);
     const stored = await deps.store.appendMessage({
       conversationId,
       userId: request.userId,
