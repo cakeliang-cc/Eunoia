@@ -193,6 +193,30 @@ project evolved without reading the full diff history.
 
 ### Fixed
 
+- **The identity cookie was readable by any script on the page.** `Set-Cookie`
+  carried no `HttpOnly`, no `SameSite` and no `Secure` — the handle was set as a
+  plain cookie, so `document.cookie` returned it and one injected script was
+  enough to become the user. That matters more here than in most projects,
+  because the handle *is* the identity system ([ADR 009](docs/adr/009-identity-handle-not-auth.md)):
+  there is no password behind it, so a copied cookie is not a step toward
+  account takeover, it is the whole of it. `HttpOnly` and `SameSite=Lax` are now
+  set.
+  - **`HttpOnly` was free, and that was checked rather than assumed.** It only
+    works if no client code reads the cookie, so the client was grepped for
+    `df_uid` and `document.cookie`: the only hit in the tree is the definition
+    itself, and every call the page makes is a same-origin `fetch` under the
+    default credentials mode. A grep is not a proof, so the fact is pinned by
+    test — if the client ever starts reading the cookie, the request will simply
+    stop carrying an identity and the suite goes red.
+  - **`Secure` is deliberately withheld, and that is the part worth reading.**
+    Adding it makes the browser drop the cookie over plain `http://`, and this is
+    served over plain HTTP in development: the fix would look correct in review
+    and silently break every local login. It is the one attribute that has to
+    wait for TLS, so the test asserts its **absence** — adding it without TLS
+    fails the suite instead of being discovered as a broken login. It is the
+    remaining half of the ADR 009 requirement and it is named here so the deploy
+    work has a checklist rather than a memory.
+
 - **`no-therapy-probe` did not contain the phrases it was documented as having
   been written from.** The record said the check had been rewritten from the four
   real failing replies, and quoted two of them —

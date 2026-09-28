@@ -14,6 +14,17 @@
  * replaced with real authentication, and the cookie should become
  * `HttpOnly; Secure; SameSite=Lax` at minimum.
  *
+ * `HttpOnly` and `SameSite=Lax` are now set; `Secure` is not, because it makes
+ * the browser drop the cookie over plain `http://` and this is served over plain
+ * HTTP in development. It is the one attribute that has to wait for TLS, and it
+ * is called out in `CHANGELOG.md` rather than left to whoever writes the deploy
+ * config. `HttpOnly` was free to add because no client code reads the cookie —
+ * checked, not assumed: nothing in `web/` or `src/` mentions `df_uid`, and every
+ * call the client makes is a same-origin `fetch` under the default credentials
+ * mode, so the browser attaches the cookie on its own. The point of the flag is
+ * that an XSS can no longer read the handle out of `document.cookie`, which is
+ * the one thing standing between this design and a trivially stolen identity.
+ *
  * It is done this way rather than with a client-supplied id because a
  * client-supplied id is worse in a specific way: if the client picks the
  * identifier, `X-User-Id: 1` reads someone else's memories, and that class of
@@ -77,7 +88,7 @@ export function resolveIdentity(req: IncomingMessage, res: ServerResponse): Iden
   const userId = randomUUID();
   res.setHeader(
     'Set-Cookie',
-    `${IDENTITY_COOKIE}=${userId}; Path=/; Max-Age=31536000; SameSite=Lax`,
+    `${IDENTITY_COOKIE}=${userId}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax`,
   );
   return { userId, created: true };
 }

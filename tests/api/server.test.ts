@@ -141,6 +141,22 @@ describe('identity', () => {
     expect(second.headers.get('set-cookie')).toBeNull();
   });
 
+  it('marks the identity cookie HttpOnly and SameSite=Lax', async () => {
+    // Not decoration. This handle is the whole of the identity system (ADR 009),
+    // so a script that can read it out of `document.cookie` can become the user.
+    // `HttpOnly` is only free because no client code reads the cookie — if that
+    // ever changes, this test is where it will show up.
+    const response = await fetch(`${base}/api/conversations`);
+    const header = response.headers.get('set-cookie') as string;
+    expect(header).toMatch(/HttpOnly/i);
+    expect(header).toMatch(/SameSite=Lax/i);
+    // `Secure` is deliberately absent: it makes the browser drop the cookie over
+    // plain http, and this is served over plain http in development. Asserted so
+    // that adding it without TLS is a failing test rather than a broken local
+    // login.
+    expect(header).not.toMatch(/Secure/i);
+  });
+
   it('replaces an unrecognised identifier rather than trusting it', async () => {
     // Accepting an arbitrary string would let a caller choose an id and read
     // someone else's memories. The header exists for the mini-program's own

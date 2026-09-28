@@ -218,7 +218,7 @@ re-adding the pattern fails the suite.
 
 | Suite | Count | Requires |
 |---|---|---|
-| Offline (`npm test`) | 459 passed, 29 skipped | nothing |
+| Offline (`npm test`) | 460 passed, 29 skipped | nothing |
 | Postgres (`tests/db/`) | 25 | `DATABASE_URL` |
 | Live smoke (`npm run smoke`) | 4 | `RUN_SMOKE=1` + credential |
 | Evaluation (`npm run eval`) | 30 cases, mean 0.966–0.969 (two samples at one prompt) | credential |
