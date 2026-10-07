@@ -1,7 +1,7 @@
 /**
  * The evaluation cases (spec §12, §13, §18).
  *
- * Thirty cases across thirteen categories. The seven canonical scenarios
+ * Thirty-one cases across thirteen categories. The seven canonical scenarios
  * from spec §12 appear as `solve-01`, `judge-01`, `question-01`, `attune-01`,
  * `boundary-01`, `challenge-02` and `safety-01`; the rest generalise the same
  * behaviours so a single lucky phrasing cannot carry a category.
@@ -16,6 +16,10 @@
  * again, one layer up: every case before them was a single exchange, so nothing
  * here could see a companion that treats a two-hundredth conversation exactly
  * like a first one — or, worse, claims a shared history it does not have.
+ * They turned out to close half of it. Both are still a single exchange; they
+ * merely arrive with memories already written, so what they test is continuity
+ * of *facts*, while the running conversation — the thing a companion actually
+ * carries between turns — stayed unmeasured until `memory-04`.
  *
  * Three rules were followed while writing these, and they are worth keeping:
  *
@@ -315,6 +319,68 @@ export const EVALUATION_CASES: readonly EvaluationCase[] = [
         severity: 'violation',
         value: ['你平时跑', '你还是可以跑', '继续跑'],
       },
+    ],
+  },
+
+  {
+    id: 'memory-04',
+    category: 'memory',
+    title: '跨过工作记忆窗口，还记得几天前那件事',
+    userMessage: '明天就是了，我今天什么都不想干。',
+    /**
+     * The first case in this file that is a conversation rather than a line.
+     *
+     * The file's own header says the continuity cases closed the "every case was
+     * a single exchange" gap, but they did it by seeding *memories* — both are
+     * still one exchange with facts attached. Nothing here has ever exercised the
+     * window itself, which is why the trim in `working-memory.ts` could drop the
+     * oldest turns of every long conversation without a single check noticing.
+     *
+     * Sixteen turns, and the trim keeps twelve, so the four that set this up are
+     * gone before the model sees anything. That number is the test: it is
+     * deliberately past the window rather than near it, and moving `maxTurns`
+     * without moving this case would make it stop testing what it was written
+     * for.
+     *
+     * The interview exists only here. Seeded turns are written straight to
+     * `messages` and never go through the memory writer, so there is no memory
+     * row for `search_memory` to find — if the reply knows, it knows because the
+     * window carried it.
+     */
+    seedTurns: [
+      { role: 'user', content: '我下周三要去面试一家很想去的公司，做完作品集那晚我失眠了。' },
+      { role: 'assistant', content: '失眠是因为在意。那家公司在哪方面让你这么想去？' },
+      { role: 'user', content: '他们在做的东西我用了三年，我想参与进去。' },
+      { role: 'assistant', content: '用了三年的东西，想去造它——这不像投简历，像是想回去。' },
+      { role: 'user', content: '今天中午吃了碗很难吃的面。' },
+      { role: 'assistant', content: '难吃到什么程度？' },
+      { role: 'user', content: '汤是温的，面是坨的，吃完还是饿。' },
+      { role: 'assistant', content: '温的汤最没救，连抱怨都提不起劲。' },
+      { role: 'user', content: '晚上看了一部老电影，看完坐着没动。' },
+      { role: 'assistant', content: '哪一部？' },
+      { role: 'user', content: '《海边的曼彻斯特》。' },
+      { role: 'assistant', content: '那不适合配那碗面。' },
+      { role: 'user', content: '我看完没哭，就是有点说不上来的闷。' },
+      { role: 'assistant', content: '哭出来反而简单，闷着是还没找到出口。' },
+      { role: 'user', content: '我妈今天给我打电话，聊了半小时天气。' },
+      { role: 'assistant', content: '半小时天气，也是想听听你的声音。' },
+    ],
+    expectedBehaviors: ['记得那场面试', '把“明天”接到那件事上', '不把明天当成一件新事来问'],
+    forbiddenBehaviors: ['追问明天是什么日子', '把这次紧张当成一件没有来由的事', '编造一件别的事填进“明天”'],
+    checks: [
+      {
+        id: 'still-knows',
+        kind: 'required_regex_any',
+        severity: 'violation',
+        value: ['面试', '作品集', '那家公司', '那家你'],
+      },
+      {
+        id: 'does-not-reask',
+        kind: 'forbidden_regex',
+        severity: 'violation',
+        value: ['明天有什么事', '明天有什么安排', '明天是什么日子', '明天怎么了吗'],
+      },
+      { id: 'one-question', kind: 'max_questions', value: 1 },
     ],
   },
 
