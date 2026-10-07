@@ -160,6 +160,24 @@ script。** 它是已知问题，而不是阻塞项——开发中没有任何�
 你会放到人前的 server 不是一回事：上面两个阻塞项没有变，没有 CI 来跑构建，Docker 也
 没有写。这次构建移走的是一个借口，而不是那些理由。
 
+## 尚未排期的输入 —— 记忆的巩固与遗忘
+
+**这不是一个阶段，也没有被排期。** §42 说这份文档是 roadmap 不是队列，而下面这条
+正好是那句话在用的样子：它记录的是输入，不是承诺。
+
+`docs/research/memory-storage.md` 是"别人怎么存记忆"的调研。**目前落在文件里的是图／
+学术派那四个**（Zep / Graphiti、Cognee、MemoryBank、Generative Agents）；抽取式
+（mem0 / LangMem / Memobase）、分层自编辑（Letta / MemoryOS / A-MEM）与厂商原生
+（OpenAI / Anthropic / Gemini）三部分已经拿到，尚未并入同一文件。每一条结论指向一手
+来源，来源没说的标「未验证」。它对着的是两件事，而不是一件事：
+
+- **工作记忆的裁剪**（`CHANGELOG.md` → `Known Issues`）。这是最近的一条，`memory-04`
+  已经量出了它的失败，所以它更像是"什么时候做"而不是"要不要做"。
+- **记忆的衰减、晋升与驱逐。** 四层里的 `episodic` / `semantic` / `narrative` 目前只有
+  `status` 这一个生命周期列，没有任何东西执行它。这一条没有 case，也没有失败的证据，
+  因此它留在"输入"这一侧：**先有测量，再有实现**——这个顺序在本仓库里已经被
+  `light_intent` 和 `narrative` 各验证过一次。
+
 ## 刻意不做的事
 
 | 不做 | 理由 |
