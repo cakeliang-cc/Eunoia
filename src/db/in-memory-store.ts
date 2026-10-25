@@ -36,7 +36,7 @@ import type {
   ConversationPatch,
   SessionStore,
 } from '../session/store.ts';
-import type { Conversation, HistoryStats, Message } from '../session/types.ts';
+import type { Conversation, ConversationSummary, HistoryStats, Message } from '../session/types.ts';
 import type { Store } from '../store.ts';
 
 /**
@@ -57,6 +57,7 @@ interface StoredConversation {
 export class InMemoryStore implements Store {
   readonly #memories = new Map<string, Memory>();
   readonly #conversations = new Map<string, StoredConversation>();
+  readonly #summaries = new Map<string, ConversationSummary>();
   readonly #users = new Map<string, { externalId: string | null; createdAt: Date }>();
   readonly #preferences = new Map<string, Map<string, unknown>>();
   readonly #runs = new Map<string, AgentRunRecord>();
@@ -104,7 +105,10 @@ export class InMemoryStore implements Store {
       if (memory.userId === userId) this.#memories.delete(id);
     }
     // Messages live inside their conversation, so this takes them with it.
-    for (const id of conversations) this.#conversations.delete(id);
+    for (const id of conversations) {
+      this.#conversations.delete(id);
+      this.#summaries.delete(id);
+    }
     this.#preferences.delete(userId);
 
     for (const [id, run] of this.#runs) {
@@ -262,6 +266,7 @@ export class InMemoryStore implements Store {
     const conversation = this.#conversations.get(conversationId);
     if (!conversation || conversation.userId !== userId) return false;
     this.#conversations.delete(conversationId);
+    this.#summaries.delete(conversationId);
     return true;
   }
 
@@ -309,6 +314,7 @@ export class InMemoryStore implements Store {
       role: message.role,
       content: message.content,
       createdAt: new Date(),
+      seq: (conversation.messages.at(-1)?.seq ?? 0) + 1,
     };
     conversation.messages.push(stored);
     if (message.role === 'user') conversation.turnCount += 1;
@@ -322,6 +328,24 @@ export class InMemoryStore implements Store {
     const conversation = this.#conversations.get(conversationId);
     if (!conversation) return [];
     return conversation.messages.slice(-limit);
+  }
+
+  async messagesAfter(
+    conversationId: string,
+    afterSeq: number,
+    limit: number,
+  ): Promise<Message[]> {
+    const conversation = this.#conversations.get(conversationId);
+    if (!conversation) return [];
+    return conversation.messages.filter((message) => message.seq > afterSeq).slice(0, limit);
+  }
+
+  async getSummary(conversationId: string): Promise<ConversationSummary | null> {
+    return this.#summaries.get(conversationId) ?? null;
+  }
+
+  async saveSummary(summary: ConversationSummary): Promise<void> {
+    this.#summaries.set(summary.conversationId, summary);
   }
 
   async historyStats(userId: string): Promise<HistoryStats> {
@@ -461,6 +485,7 @@ export class InMemoryStore implements Store {
   async close(): Promise<void> {
     this.#memories.clear();
     this.#conversations.clear();
+    this.#summaries.clear();
     this.#preferences.clear();
     this.#runs.clear();
     this.#users.clear();

@@ -44,6 +44,15 @@ describe('loading the prompt', () => {
     expect(stripComments('前<!-- 一 -->中<!-- 二 -->后')).toBe('前中后');
   });
 
+  it('puts the archived summary before the per-turn memory block', () => {
+    const text = buildInstructions({
+      archivedSummaryBlock: '# 更早的对话\n\n摘要',
+      memoryBlock: '# 关于你记得的事',
+    });
+    expect(text.indexOf('# 更早的对话')).toBeGreaterThan(-1);
+    expect(text.indexOf('# 更早的对话')).toBeLessThan(text.indexOf('# 关于你记得的事'));
+  });
+
   it('is the same string every time, so the cached prefix stays cacheable', () => {
     expect(buildInstructions()).toBe(STABLE_INSTRUCTIONS);
   });

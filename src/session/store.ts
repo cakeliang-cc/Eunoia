@@ -12,6 +12,7 @@
 
 import type {
   Conversation,
+  ConversationSummary,
   HistoryStats,
   Message,
 } from './types.ts';
@@ -80,6 +81,20 @@ export interface SessionStore {
   }): Promise<Message>;
 
   recentMessages(conversationId: string, limit: number): Promise<Message[]>;
+
+  /** Messages strictly after the summary boundary, oldest first. */
+  messagesAfter(conversationId: string, afterSeq: number, limit: number): Promise<Message[]>;
+
+  getSummary(conversationId: string): Promise<ConversationSummary | null>;
+
+  /**
+   * Upsert the rolling checkpoint.
+   *
+   * The boundary and the summary are written together; a summary row whose
+   * boundary did not advance would replay the same messages again.
+   */
+  saveSummary(summary: ConversationSummary): Promise<void>;
+
   listConversations(
     userId: string,
     options?: ConversationListOptions,

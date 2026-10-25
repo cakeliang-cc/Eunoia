@@ -84,6 +84,14 @@ export interface InstructionOptions {
    */
   readonly narrativeBlock?: string | null;
   /**
+   * The checkpoint for turns that were compacted out of the raw window.
+   *
+   * It changes only when compaction runs, so it sits before the per-turn
+   * retrieved-memory block: a rare change should not invalidate the prefix on
+   * every turn.
+   */
+  readonly archivedSummaryBlock?: string | null;
+  /**
    * The retrieved-memory block for this turn, or an empty string.
    *
    * Placed after everything stable and before the safety directive, because it
@@ -109,6 +117,9 @@ export function buildInstructions(options: InstructionOptions = {}): string {
 
   const narrativeBlock = options.narrativeBlock?.trim();
   if (narrativeBlock) sections.push(narrativeBlock);
+
+  const archivedSummaryBlock = options.archivedSummaryBlock?.trim();
+  if (archivedSummaryBlock) sections.push(archivedSummaryBlock);
 
   const memoryBlock = options.memoryBlock?.trim();
   if (memoryBlock) sections.push(memoryBlock);

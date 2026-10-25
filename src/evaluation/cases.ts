@@ -333,20 +333,17 @@ export const EVALUATION_CASES: readonly EvaluationCase[] = [
      * The file's own header says the continuity cases closed the "every case was
      * a single exchange" gap, but they did it by seeding *memories* — both are
      * still one exchange with facts attached. Nothing here has ever exercised the
-     * window itself, which is why the trim in `src/session/working-memory.ts`
-     * could drop the oldest turns of every long conversation without a single
-     * check noticing.
+     * window itself, which is why the old fixed 20-message window could drop the
+     * oldest turns of every long conversation without a single check noticing.
      *
-     * Sixteen turns, and the trim keeps twelve, so the four that set this up are
-     * gone before the model sees anything. That number is the test: it is
-     * deliberately past the window rather than near it, and moving `maxTurns`
-     * without moving this case would make it stop testing what it was written
-     * for.
+     * Sixteen turns was deliberately past the old twelve-turn trim. With
+     * database replay and a 200k budget, the case now checks that the early
+     * turns survive in storage and reach the model.
      *
      * The interview exists only here. Seeded turns are written straight to
      * `messages` and never go through the memory writer, so there is no memory
      * row for `search_memory` to find — if the reply knows, it knows because the
-     * window carried it.
+     * replay window carried it.
      */
     seedTurns: [
       { role: 'user', content: '我下周三要去面试一家很想去的公司，做完作品集那晚我失眠了。' },

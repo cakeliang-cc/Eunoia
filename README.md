@@ -96,6 +96,30 @@ SINGLE_USER_ID=00000000-0000-4000-8000-000000000001
 `memories.source_message_id` 是 `ON DELETE SET NULL`，所以观测记录和记忆不会因为
 删掉一段对话而消失。
 
+## 会话压缩
+
+模型不会永远收到全部 `messages`。当会话接近输入预算时，`SessionService` 会把
+较早的一段历史压成滚动摘要，写进 `conversation_summaries`，并把边界记成
+`messages.seq`。模型收到：
+
+```text
+摘要块 + 边界之后的最近原文
+```
+
+数据库里的原始 `messages` 一条都不删；UI 仍然显示完整聊天记录。摘要失败时边界
+不推进，模型退回最近原文，不会因此丢一轮对话。
+
+默认参数（都可在 `.env` 覆盖）：
+
+```text
+总输入预算 200k / 会话可用 192k
+触发比例 0.85
+保留最近 8 条 / 4000 tokens
+摘要模型 deepseek-flash / 摘要 2000 tokens
+分块大小 64k
+空闲压缩关闭（0）
+```
+
 ## 命令
 
 | 命令 | 作用 |

@@ -414,6 +414,65 @@ describe.skipIf(!enabled)('PostgresStore', () => {
     expect((await store.getConversation(alice, conversation.id))?.title).toBe('Alice 的对话');
   });
 
+  it('assigns a per-conversation seq and reads messages after a boundary', async () => {
+    const userId = await freshUser();
+    const conversation = await store.createConversation(userId);
+    const first = await store.appendMessage({
+      conversationId: conversation.id,
+      userId,
+      role: 'user',
+      content: '一',
+    });
+    const second = await store.appendMessage({
+      conversationId: conversation.id,
+      userId,
+      role: 'assistant',
+      content: '二',
+    });
+    const third = await store.appendMessage({
+      conversationId: conversation.id,
+      userId,
+      role: 'user',
+      content: '三',
+    });
+
+    expect([first.seq, second.seq, third.seq]).toEqual([1, 2, 3]);
+    expect((await store.messagesAfter(conversation.id, 1, 10)).map((m) => m.seq)).toEqual([2, 3]);
+    expect((await store.recentMessages(conversation.id, 2)).map((m) => m.seq)).toEqual([2, 3]);
+  });
+
+  it('stores a rolling summary and removes it with the conversation', async () => {
+    const userId = await freshUser();
+    const conversation = await store.createConversation(userId);
+    for (const content of ['一', '二', '三']) {
+      await store.appendMessage({
+        conversationId: conversation.id,
+        userId,
+        role: 'user',
+        content,
+      });
+    }
+
+    await store.saveSummary({
+      conversationId: conversation.id,
+      summary: '前三条的摘要',
+      throughSeq: 2,
+      summaryTokens: 8,
+      model: 'deepseek-flash',
+      promptVersion: 'test',
+      updatedAt: new Date(),
+    });
+
+    expect(await store.getSummary(conversation.id)).toMatchObject({
+      summary: '前三条的摘要',
+      throughSeq: 2,
+    });
+    expect((await store.messagesAfter(conversation.id, 2, 10)).map((m) => m.seq)).toEqual([3]);
+
+    await store.deleteConversation(userId, conversation.id);
+    expect(await store.getSummary(conversation.id)).toBeNull();
+  });
+
   // -------------------------------------------------- preferences, feedback --
 
   it('round-trips a JSON preference', async () => {

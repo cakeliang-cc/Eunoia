@@ -17,7 +17,6 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { InMemoryStore } from '../../src/db/in-memory-store.ts';
-import { WorkingMemory } from '../../src/session/working-memory.ts';
 import { CRISIS_FALLBACK } from '../../src/safety/response.ts';
 import { collectTurn, runTurn, type TurnRunner } from '../../src/service/chat.ts';
 import type { AgentEvent } from '../../src/agent/events.ts';
@@ -199,12 +198,28 @@ describe('a normal turn', () => {
     expect(await store.listConversations(USER)).toHaveLength(2);
   });
 
-  it('remembers the turn in working memory, so the next turn need not re-read the database', async () => {
-    const working = new WorkingMemory();
-    await drain({ store, working, runner: fakeRunner('嗯。') }, { userId: USER, message: '在吗' });
+  it('replays the earlier turn from the database on the next turn', async () => {
+    await drain({ store, runner: fakeRunner('嗯。') }, { userId: USER, message: '在吗' });
 
     const conversationId = await store.listConversations(USER).then((list) => list[0]?.id as string);
-    expect(working.context(conversationId).map((turn) => turn.content)).toEqual(['在吗', '嗯。']);
+    expect((await store.listMessages(USER, conversationId)).map((message) => message.content)).toEqual([
+      '在吗',
+      '嗯。',
+    ]);
+
+    let history: readonly unknown[] = [];
+    const capturing: TurnRunner = async function* (_agent, _message, options) {
+      history = options?.history ?? [];
+      yield { type: 'completed', text: '还在。' };
+    };
+    await drain({ store, runner: capturing }, { userId: USER, conversationId, message: '二' });
+
+    // The model sees the previous turn even though no process-local cache
+    // survived between the two calls.
+    expect(history).toEqual([
+      { role: 'user', content: '在吗' },
+      { role: 'assistant', content: '嗯。' },
+    ]);
   });
 
   it('refuses an empty message without creating a conversation', async () => {

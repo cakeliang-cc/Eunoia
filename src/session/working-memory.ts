@@ -1,17 +1,14 @@
 /**
- * Working memory: the current session's recent turns (ADR 003).
+ * Working memory: a bounded process-local cache of recent turns.
  *
- * This is the one memory layer that is **never persisted**. Not because it is
- * unimportant — it is the entire basis of the agent being able to follow a
- * conversation — but because it is derivable. Every turn here is also a row in
- * `messages`. Writing it to a second store would create two sources of truth for
- * "what was just said", and the in-process copy is the one that can go stale
- * without anyone noticing.
+ * Since compaction landed, this is **not** the source of the model's history.
+ * `SessionService.prepare` reads the durable summary boundary and the messages
+ * after it from the database; this class remains a small cache utility for
+ * callers that only need a recent tail, and its bounds are still tested. A
+ * process-local window cannot honour a summary boundary, and two sources of
+ * truth for "what the model has seen" would eventually disagree.
  *
- * It lives in a `Map` keyed by conversation, bounded on three axes: turns,
- * characters, and idle time. The bound matters because this is the only
- * unbounded-in-principle structure in the process, and a long-lived server with
- * many conversations would otherwise grow forever.
+ * It is still never persisted: every turn here is also a row in `messages`.
  */
 
 export interface WorkingTurn {

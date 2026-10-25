@@ -19,6 +19,14 @@ export interface Message {
   readonly role: 'user' | 'assistant' | 'system';
   readonly content: string;
   readonly createdAt: Date;
+  /**
+   * Monotonic position inside the conversation.
+   *
+   * A summary boundary names a seq, so it cannot be confused by two messages
+   * sharing a timestamp. It is also the ordering used for replay; the database
+   * still keeps `created_at` for display.
+   */
+  readonly seq: number;
 }
 
 export interface Conversation {
@@ -52,6 +60,30 @@ export interface HistoryStats {
   readonly firstAt: Date | null;
   /** The most recent message, or null in the same case. */
   readonly lastAt: Date | null;
+}
+
+/**
+ * A rolling summary of everything up to `throughSeq`.
+ *
+ * `throughSeq` is the inclusive boundary. The model replays only messages with
+ * `seq > throughSeq`; the raw messages remain in `messages` for the UI and for
+ * the next compaction.
+ */
+export interface ConversationSummary {
+  readonly conversationId: string;
+  readonly summary: string;
+  readonly throughSeq: number;
+  readonly summaryTokens: number;
+  readonly model: string;
+  readonly promptVersion: string;
+  readonly updatedAt: Date;
+}
+
+/** The model-facing slice of a conversation: summary plus the raw tail. */
+export interface SessionReplay {
+  readonly summary: string | null;
+  readonly throughSeq: number;
+  readonly messages: readonly Message[];
 }
 
 /** How long a derived conversation name can get before it is cut. */

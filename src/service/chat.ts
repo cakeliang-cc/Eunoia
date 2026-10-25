@@ -43,13 +43,11 @@ import { contentFingerprint, log } from '../observability/logging.ts';
 import { buildTurnContext } from './context.ts';
 import { applyOutputCheck, safetyDirectiveFor } from '../safety/response.ts';
 import { maxRisk } from '../safety/risk.ts';
-import { WorkingMemory, seedWorkingMemory } from '../session/working-memory.ts';
 import { conversationTitle } from '../session/types.ts';
 import { SessionService } from '../session/service.ts';
+import { renderArchivedSummary } from '../session/summary.ts';
+import type { Message } from '../session/types.ts';
 import type { Store } from '../store.ts';
-
-/** How many prior messages are replayed into the model as conversation. */
-export const HISTORY_LIMIT = 20;
 
 export type TurnRunner = (
   agent: ReturnType<typeof createCompanionAgent>,
@@ -67,7 +65,6 @@ export interface TurnDependencies {
    * instance the HTTP routes use, which keeps lifecycle rules in one place.
    */
   readonly session?: SessionService;
-  readonly working?: WorkingMemory;
   /**
    * Injectable so tests and the evaluation replay mode can drive the whole turn
    * — retrieval, safety, persistence and all — without a model call.
@@ -128,15 +125,14 @@ export async function* runTurn(
   const conversation = await session.ensure(request.userId, request.conversationId);
   const conversationId = conversation.id;
 
-  let userMessageId: string | null = null;
+  let userMessage: Message | null = null;
   if (persist) {
-    const stored = await session.append({
+    userMessage = await session.append({
       conversationId,
       userId: request.userId,
       role: 'user',
       content: message,
     });
-    userMessageId = stored.id;
 
     // The conversation takes its name from the message that opened it. Done
     // here rather than at creation because `ensureConversation` runs before the
@@ -148,17 +144,14 @@ export async function* runTurn(
       .catch(() => undefined);
   }
 
-  const working = deps.working ?? new WorkingMemory();
-  if (working.context(conversationId).length === 0 && persist) {
-    const recent = await session.recent(conversationId, HISTORY_LIMIT);
-    // Drop the message just written; it is passed as the current turn, not as
-    // history, and including it twice would have the model answer itself.
-    seedWorkingMemory(
-      working,
-      conversationId,
-      recent.filter((entry) => entry.id !== userMessageId).slice(0, HISTORY_LIMIT - 1),
-    );
-  }
+  // The database is the source of truth for replay. Working memory is no longer
+  // consulted here: a process-local window cannot honour a summary boundary, and
+  // two sources would eventually disagree about what the model has seen.
+  const replay = await session.prepare(request.userId, conversationId, {
+    ...(userMessage ? { protectSeq: userMessage.seq } : {}),
+    ...(request.signal ? { signal: request.signal } : {}),
+  });
+  const userMessageId = userMessage?.id ?? null;
 
   const context = await buildTurnContext(deps.store, request.userId, message, {
     now: deps.now?.() ?? new Date(),
@@ -177,9 +170,16 @@ export async function* runTurn(
     yield { type: 'safety_notice', level: riskLevel, replaced: false };
   }
 
-  const history: ConversationTurn[] = working
-    .context(conversationId)
-    .map((turn) => ({ role: turn.role, content: turn.content }));
+  const history: ConversationTurn[] = replay.messages
+    // The current user turn is passed separately to the model. Replaying it
+    // here as well would make the model answer its own prompt twice.
+    .filter((entry) => entry.id !== userMessageId)
+    // System rows are storage bookkeeping, not conversation. They never become
+    // model turns.
+    .filter((entry): entry is typeof entry & { role: 'user' | 'assistant' } =>
+      entry.role === 'user' || entry.role === 'assistant',
+    )
+    .map((entry) => ({ role: entry.role, content: entry.content }));
 
   const agentOptions: AgentOptions = {
     tools: createMemoryTools({
@@ -190,6 +190,7 @@ export async function* runTurn(
     }),
     relationshipBlock: context.relationshipBlock,
     narrativeBlock: context.narrativeBlock,
+    archivedSummaryBlock: replay.summary ? renderArchivedSummary(replay.summary) : null,
     memoryBlock: context.memoryBlock,
     safetyDirective: safetyDirectiveFor(riskLevel),
   };
@@ -273,8 +274,6 @@ export async function* runTurn(
 
   let assistantMessageId: string | null = null;
   if (persist) {
-    working.remember(conversationId, { role: 'user', content: message });
-    working.remember(conversationId, { role: 'assistant', content: outcome.reply });
     assistantMessageId = await persistTurn(deps.store, session, {
       runId,
       userId: request.userId,

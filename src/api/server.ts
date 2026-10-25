@@ -19,6 +19,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { installProvider } from '../agent/model-client.ts';
+import { createSummaryGenerator } from '../agent/summarizer.ts';
 import { PROMPT_VERSION } from '../agent/instructions.ts';
 import { log } from '../observability/logging.ts';
 import { installTracing } from '../observability/tracing.ts';
@@ -27,8 +28,8 @@ import type { Store } from '../store.ts';
 import type { MemoryStatus } from '../memory/types.ts';
 import { MEMORY_STATUSES } from '../memory/types.ts';
 import { CONVERSATION_TITLE_MAX_CHARS } from '../session/types.ts';
+import { sessionConfig } from '../session/config.ts';
 import { SessionService } from '../session/service.ts';
-import { WorkingMemory } from '../session/working-memory.ts';
 import { runTurn, type TurnRunner } from '../service/chat.ts';
 import { selectStore } from '../db/pool.ts';
 import { clearIdentity, readIdentity, resolveIdentity, singleUserId } from './identity.ts';
@@ -170,7 +171,13 @@ export function parseConversationPatch(raw: unknown): ConversationPatch | string
 
 export interface AppDependencies {
   readonly store: Store;
-  readonly working?: WorkingMemory;
+  /**
+   * The session service, including its summary generator in production.
+   *
+   * Tests may omit it: a service without a summarizer simply never compacts,
+   * which is the right default for a test that is not about compaction.
+   */
+  readonly sessions?: SessionService;
   /**
    * Which store the process actually selected.
    *
@@ -189,9 +196,8 @@ export interface AppDependencies {
 }
 
 export function createApp(deps: AppDependencies) {
-  const working = deps.working ?? new WorkingMemory();
   const store = deps.store;
-  const sessions = new SessionService(store);
+  const sessions = deps.sessions ?? new SessionService(store);
 
   /**
    * Resolve the caller, and make sure their row exists.
@@ -246,7 +252,7 @@ export function createApp(deps: AppDependencies) {
 
     await pipeEventsAsSse(
       runTurn(
-        { store, session: sessions, working, runner: deps.runner },
+        { store, session: sessions, runner: deps.runner },
         {
           userId,
           conversationId: parsed.conversationId,
@@ -391,7 +397,6 @@ export function createApp(deps: AppDependencies) {
         sendJson(res, 404, { error: 'conversation not found' });
         return true;
       }
-      if (parsed.archived === true) working.forget(id);
       sendJson(res, 200, { conversation });
       return true;
     }
@@ -404,10 +409,6 @@ export function createApp(deps: AppDependencies) {
         sendJson(res, 404, { error: 'conversation not found' });
         return true;
       }
-      // The in-process copy is keyed by conversation id and has no row to
-      // notice a deletion. Without this, a stale working set could survive the
-      // delete and be replayed if the same id were somehow reused.
-      working.forget(id);
       sendJson(res, 200, { deleted: id });
       return true;
     }
@@ -578,18 +579,50 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
   const { store, kind, detail } = await selectStore();
   log.info('server.store', { kind, detail });
 
-  const working = new WorkingMemory();
-  const server = createApp({ store, working, storeKind: kind });
+  const config = sessionConfig();
+  const sessions = new SessionService(store, {
+    config,
+    summarize: createSummaryGenerator(config.summaryModel),
+  });
+  log.info('server.session', {
+    compaction: config.compactionEnabled,
+    input_budget: config.inputBudgetTokens,
+    prompt_reserve: config.promptReserveTokens,
+    trigger_ratio: config.compactTriggerRatio,
+    keep_recent_messages: config.keepRecentMessages,
+    keep_recent_tokens: config.keepRecentTokens,
+    summary_model: config.summaryModel,
+    summary_chunk_tokens: config.summaryMaxInputTokens,
+    idle_compact_minutes: config.idleCompactMinutes,
+    token_estimator: config.tokenEstimator,
+  });
 
-  // Without this the process grows by one conversation's working set per
-  // conversation, forever.
-  const sweep = setInterval(() => working.sweep(), 10 * 60 * 1000);
-  sweep.unref();
+  const server = createApp({ store, sessions, storeKind: kind });
 
   server.on('close', () => {
-    clearInterval(sweep);
     void store.close();
   });
+
+  if (config.idleCompactMinutes > 0) {
+    if (!single) {
+      log.warn('server.idle_compact_disabled', {
+        reason: 'SINGLE_USER_ID is not set; there is no user to scan',
+      });
+    } else {
+      const every = Math.max(1, config.compactCheckIntervalSeconds) * 1_000;
+      const timer = setInterval(() => {
+        void sessions
+          .compactIdle(single, config.idleCompactMinutes)
+          .catch((error: unknown) =>
+            log.warn('session.idle_compact_failed', {
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
+      }, every);
+      timer.unref();
+      server.on('close', () => clearInterval(timer));
+    }
+  }
 
   const host = bindHost();
   if (!isLoopback(host)) {

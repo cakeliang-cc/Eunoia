@@ -50,6 +50,8 @@ export interface AgentOptions {
   readonly relationshipBlock?: string | null;
   /** The themes they are living through. See `src/memory/narrative.ts`. */
   readonly narrativeBlock?: string | null;
+  /** A compacted checkpoint of turns no longer in the raw window. */
+  readonly archivedSummaryBlock?: string | null;
 }
 
 /**
@@ -65,6 +67,7 @@ export function createCompanionAgent(options: AgentOptions = {}): Agent {
     instructions: buildInstructions({
       relationshipBlock: options.relationshipBlock,
       narrativeBlock: options.narrativeBlock,
+      archivedSummaryBlock: options.archivedSummaryBlock,
       memoryBlock: options.memoryBlock,
       safetyDirective: options.safetyDirective,
     }),

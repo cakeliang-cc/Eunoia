@@ -30,7 +30,12 @@ import type {
   MemoryType,
 } from '../memory/types.ts';
 import type { ConversationListOptions, ConversationPatch } from '../session/store.ts';
-import type { Conversation, HistoryStats, Message } from '../session/types.ts';
+import type {
+  Conversation,
+  ConversationSummary,
+  HistoryStats,
+  Message,
+} from '../session/types.ts';
 import type { Store } from '../store.ts';
 
 /** Columns selected for a memory. `embedding` is unread until ADR 004 is undone. */
@@ -86,6 +91,7 @@ interface MessageRow {
   role: string;
   content: string;
   created_at: Date;
+  seq: string | number;
 }
 
 function toMessage(row: MessageRow): Message {
@@ -96,6 +102,7 @@ function toMessage(row: MessageRow): Message {
     role: row.role as Message['role'],
     content: row.content,
     createdAt: row.created_at,
+    seq: Number(row.seq),
   };
 }
 
@@ -118,6 +125,28 @@ function toConversation(row: ConversationRow): Conversation {
     lastTurnAt: row.last_turn_at,
     turnCount: Number(row.turn_count),
     archivedAt: row.archived_at,
+  };
+}
+
+interface ConversationSummaryRow {
+  conversation_id: string;
+  summary: string;
+  through_seq: string | number;
+  summary_tokens: number;
+  model: string;
+  prompt_version: string;
+  updated_at: Date;
+}
+
+function toSummary(row: ConversationSummaryRow): ConversationSummary {
+  return {
+    conversationId: row.conversation_id,
+    summary: row.summary,
+    throughSeq: Number(row.through_seq),
+    summaryTokens: Number(row.summary_tokens),
+    model: row.model,
+    promptVersion: row.prompt_version,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -420,16 +449,26 @@ export class PostgresStore implements Store {
         throw new Error(`unknown conversation ${message.conversationId} for this user`);
       }
 
+      // The conversation row is locked above, so this max is safe even under
+      // concurrent appends to the same conversation.
+      const sequence = await client.query<{ next_seq: string }>(
+        `SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq
+           FROM messages WHERE conversation_id = $1`,
+        [message.conversationId],
+      );
+      const seq = Number(sequence.rows[0]?.next_seq ?? 1);
+
       const { rows } = await client.query<MessageRow>(
-        `INSERT INTO messages (conversation_id, user_id, role, content, token_estimate)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, conversation_id, user_id, role, content, created_at`,
+        `INSERT INTO messages (conversation_id, user_id, role, content, token_estimate, seq)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, conversation_id, user_id, role, content, created_at, seq`,
         [
           message.conversationId,
           message.userId,
           message.role,
           message.content,
           Math.ceil(message.content.length / 4),
+          seq,
         ],
       );
 
@@ -461,13 +500,64 @@ export class PostgresStore implements Store {
     // Newest-first with a LIMIT, then reversed, so the database reads the tail
     // of the conversation rather than the whole thing.
     const { rows } = await this.#pool.query<MessageRow>(
-      `SELECT id, conversation_id, user_id, role, content, created_at
+      `SELECT id, conversation_id, user_id, role, content, created_at, seq
          FROM messages WHERE conversation_id = $1
-        ORDER BY created_at DESC, id DESC
+        ORDER BY seq DESC
         LIMIT $2`,
       [conversationId, limit],
     );
     return rows.reverse().map(toMessage);
+  }
+
+  async messagesAfter(
+    conversationId: string,
+    afterSeq: number,
+    limit: number,
+  ): Promise<Message[]> {
+    const { rows } = await this.#pool.query<MessageRow>(
+      `SELECT id, conversation_id, user_id, role, content, created_at, seq
+         FROM messages
+        WHERE conversation_id = $1 AND seq > $2
+        ORDER BY seq ASC
+        LIMIT $3`,
+      [conversationId, afterSeq, limit],
+    );
+    return rows.map(toMessage);
+  }
+
+  async getSummary(conversationId: string): Promise<ConversationSummary | null> {
+    const { rows } = await this.#pool.query<ConversationSummaryRow>(
+      `SELECT conversation_id, summary, through_seq, summary_tokens,
+              model, prompt_version, updated_at
+         FROM conversation_summaries
+        WHERE conversation_id = $1`,
+      [conversationId],
+    );
+    return rows[0] ? toSummary(rows[0]) : null;
+  }
+
+  async saveSummary(summary: ConversationSummary): Promise<void> {
+    await this.#pool.query(
+      `INSERT INTO conversation_summaries
+         (conversation_id, summary, through_seq, summary_tokens, model, prompt_version, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (conversation_id) DO UPDATE SET
+         summary = EXCLUDED.summary,
+         through_seq = EXCLUDED.through_seq,
+         summary_tokens = EXCLUDED.summary_tokens,
+         model = EXCLUDED.model,
+         prompt_version = EXCLUDED.prompt_version,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        summary.conversationId,
+        summary.summary,
+        summary.throughSeq,
+        summary.summaryTokens,
+        summary.model,
+        summary.promptVersion,
+        summary.updatedAt,
+      ],
+    );
   }
 
   async listConversations(
@@ -491,11 +581,11 @@ export class PostgresStore implements Store {
 
   async listMessages(userId: string, conversationId: string, limit = 200): Promise<Message[]> {
     const { rows } = await this.#pool.query<MessageRow>(
-      `SELECT m.id, m.conversation_id, m.user_id, m.role, m.content, m.created_at
+      `SELECT m.id, m.conversation_id, m.user_id, m.role, m.content, m.created_at, m.seq
          FROM messages m
          JOIN conversations c ON c.id = m.conversation_id
         WHERE m.conversation_id = $1 AND c.user_id = $2
-        ORDER BY m.created_at ASC, m.id ASC
+        ORDER BY m.seq ASC
         LIMIT $3`,
       [conversationId, userId, limit],
     );
