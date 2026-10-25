@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>陪伴</title>
+<title>Eunoia</title>
 <style>
   /* Tokens first, so a colour is changed in one place. */
   :root {
@@ -260,7 +260,7 @@
 <body>
 <div class="app">
   <header>
-    <h1>陪伴 <span class="sub" id="prompt-version"></span></h1>
+    <h1>Eunoia</h1>
     <button id="history-toggle" type="button">对话</button>
     <button id="memory-toggle" type="button">记忆</button>
     <button id="new-conversation" type="button">新对话</button>
@@ -1055,13 +1055,6 @@ $('memory-enable').onclick = async () => {
   }).catch(() => undefined);
   await refreshMemory();
 };
-
-// Show which prompt produced these replies — the first thing to check when a
-// behaviour changes and nobody edited anything.
-fetch('/health')
-  .then((r) => r.json())
-  .then((data) => { $('prompt-version').textContent = data.prompt_version ?? ''; })
-  .catch(() => undefined);
 
 /**
  * The last conversation comes back on reload.

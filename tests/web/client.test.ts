@@ -314,6 +314,17 @@ function sentConversationIds(harness: Harness): unknown[] {
 
 // ------------------------------------------------------------------ tests ---
 
+describe('the page shell', () => {
+  it('shows the product name, not the internal prompt fingerprint', () => {
+    const html = readFileSync(join(import.meta.dirname, '..', '..', 'web', 'index.html'), 'utf8');
+    expect(html).toContain('<h1>Eunoia</h1>');
+    expect(html).toContain('<title>Eunoia</title>');
+    // The prompt version is an operator fact, not something the person using
+    // the companion should have to read.
+    expect(html).not.toContain('prompt-version');
+  });
+});
+
 describe('the reasoning block', () => {
   it('streams the thinking, then closes it with how long it took', async () => {
     const { thinking, head, body } = lastTurn(await runTurn(THINKING_TURN));
