@@ -5,11 +5,11 @@
  * a provider. This file is the boundary: a pure request/response shape plus the
  * prompt. No SDK import reaches the session layer.
  *
- * The prompt is deliberately about a companion, not a coding agent. nanobot's
- * consolidator archives task state ("active objective", "next action"), which
- * would turn a conversation about someone's week into a ticket. What matters
- * here is continuity of a person: facts, preferences, promises, themes, and the
- * emotional shape of what happened.
+ * The prompt is deliberately about a companion, not a coding agent. A
+ * task-oriented consolidator archives state such as "active objective" and
+ * "next action", which would turn a conversation about someone's week into a
+ * ticket. What matters here is continuity of a person: facts, preferences,
+ * promises, themes, and the emotional shape of what happened.
  */
 
 import { createHash } from 'node:crypto';
@@ -91,10 +91,9 @@ export function renderSummaryPrompt(request: SummaryRequest): string {
  * turn would be visible to the model as something the person said and would
  * pollute the transcript the UI renders.
  *
- * The framing is adapted from DeepSeek Harness's checkpoint preamble: the
- * summary is context, not a new instruction. The tags make the boundary visible
- * to the model; the sentence about not acknowledging it keeps the machinery out
- * of the conversation.
+ * The framing treats the summary as context, not a new instruction. The tags
+ * make the boundary visible to the model; the sentence about not acknowledging
+ * it keeps the machinery out of the conversation.
  */
 export function renderArchivedSummary(summary: string): string {
   return [
