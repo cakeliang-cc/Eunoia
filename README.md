@@ -148,6 +148,33 @@ effective budget = min(
 provider 目前只注册了 DeepSeek；SDK 的创建被限制在 `src/provider/` 和
 `src/agent/`，session 层不会接触到它。
 
+## 前缀缓存布局
+
+请求按“稳定前缀 + 追加历史 + 本轮尾部”组织，目标是让 DeepSeek 的自动
+prefix cache 尽可能命中：
+
+```text
+稳定 instructions（人格/行为/安全/工具规则）
++ tools
++ 追加的历史消息
++ 本轮用户消息
++ 本轮背景（关系/叙事/摘要/时间/记忆/安全，system input item）
+```
+
+关系、叙事、摘要、时间和检索到的记忆每轮都会变，它们不再拼进
+`instructions`，而是作为当前用户消息之后的 `system` input item 发送；UI 不会
+把它们显示成用户说过的话。这样变化只影响请求尾部，不会让整段历史失效。
+
+`agent.turn_completed` 会记录服务端返回的：
+
+```text
+input_tokens
+cached_tokens
+cache_hit_rate
+```
+
+没有 usage 时就不写这些字段，不拿本地估算冒充实测。
+
 ## 命令
 
 | 命令 | 作用 |
