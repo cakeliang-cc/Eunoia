@@ -7,7 +7,7 @@
  */
 
 import { Pool } from 'pg';
-import type { Store } from '../memory/store.ts';
+import type { Store } from '../store.ts';
 
 export const DEFAULT_DATABASE_URL =
   'postgres://designfree:<password>@127.0.0.1:5433/designfree';

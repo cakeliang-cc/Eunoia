@@ -115,7 +115,7 @@ ADR 012 里。
 **不在本阶段内：** 附带行为规则的 relationship *阶段*（一套无人校准过的阶段分类法）、
 关系时间线 UI，以及把关系存成自己一张表的任何做法。
 
-**状态：完成。** `src/memory/relationship.ts` 与 `src/memory/narrative.ts`，两个 store
+**状态：完成。** `src/session/relationship.ts` 与 `src/memory/narrative.ts`，两个 store
 上都有 `historyStats`，两个块都串过 `buildInstructions` → `createCompanionAgent` →
 `runTurn`，提示词文档里还有两条规则（`# 你们之间已经发生的事`、`# ta 正在经历的事`）。
 完整推理，包括那次反转，见 [ADR 012](adr/012-relationship-and-narrative.md)。

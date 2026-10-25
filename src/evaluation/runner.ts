@@ -26,7 +26,8 @@ import { join } from 'node:path';
 import { PROMPT_VERSION } from '../agent/instructions.ts';
 import { COMPANION_MODEL } from '../agent/model-client.ts';
 import { log } from '../observability/logging.ts';
-import type { Store } from '../memory/store.ts';
+import type { Store } from '../store.ts';
+import { SessionService } from '../session/service.ts';
 import { EVALUATION_USER_PREFIX } from '../privacy/retention.ts';
 import { runTurn } from '../service/chat.ts';
 import { EVALUATION_CASES } from './cases.ts';
@@ -280,8 +281,9 @@ async function runCase(
   // clean up after itself without a query it has to trust.
   const userId = randomUUID();
   await store.ensureUser(userId, `${EVALUATION_USER_PREFIX}${runId}:${evaluationCase.id}`);
+  const sessions = new SessionService(store);
 
-  const conversation = await store.ensureConversation(userId);
+  const conversation = await sessions.ensure(userId);
 
   for (const memory of evaluationCase.seedMemories ?? []) {
     await store.createMemory(userId, {
@@ -294,7 +296,7 @@ async function runCase(
   }
 
   for (const turn of evaluationCase.seedTurns ?? []) {
-    await store.appendMessage({
+    await sessions.append({
       conversationId: conversation.id,
       userId,
       role: turn.role,

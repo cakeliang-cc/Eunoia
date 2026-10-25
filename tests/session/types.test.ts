@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { CONVERSATION_TITLE_CHARS, conversationTitle } from '../../src/memory/types.ts';
+import { CONVERSATION_TITLE_CHARS, conversationTitle } from '../../src/session/types.ts';
 
 describe('conversationTitle', () => {
   it('keeps a short message whole', () => {

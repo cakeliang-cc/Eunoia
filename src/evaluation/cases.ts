@@ -333,8 +333,9 @@ export const EVALUATION_CASES: readonly EvaluationCase[] = [
      * The file's own header says the continuity cases closed the "every case was
      * a single exchange" gap, but they did it by seeding *memories* — both are
      * still one exchange with facts attached. Nothing here has ever exercised the
-     * window itself, which is why the trim in `working-memory.ts` could drop the
-     * oldest turns of every long conversation without a single check noticing.
+     * window itself, which is why the trim in `src/session/working-memory.ts`
+     * could drop the oldest turns of every long conversation without a single
+     * check noticing.
      *
      * Sixteen turns, and the trim keeps twelve, so the four that set this up are
      * gone before the model sees anything. That number is the test: it is

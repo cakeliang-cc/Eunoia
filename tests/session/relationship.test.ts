@@ -15,8 +15,8 @@ import {
   FIRST_MEETING_MESSAGES,
   describeRelationship,
   renderRelationship,
-} from '../../src/memory/relationship.ts';
-import type { HistoryStats } from '../../src/memory/store.ts';
+} from '../../src/session/relationship.ts';
+import type { HistoryStats } from '../../src/session/types.ts';
 
 const NOW = new Date('2026-09-29T12:00:00Z');
 const daysAgo = (days: number): Date => new Date(NOW.getTime() - days * 86_400_000);

@@ -22,11 +22,13 @@ import { installProvider } from '../agent/model-client.ts';
 import { PROMPT_VERSION } from '../agent/instructions.ts';
 import { log } from '../observability/logging.ts';
 import { installTracing } from '../observability/tracing.ts';
-import { WorkingMemory } from '../memory/working-memory.ts';
-import type { Store } from '../memory/store.ts';
-import type { ConversationPatch } from '../memory/store.ts';
+import type { ConversationPatch } from '../session/store.ts';
+import type { Store } from '../store.ts';
 import type { MemoryStatus } from '../memory/types.ts';
-import { CONVERSATION_TITLE_MAX_CHARS, MEMORY_STATUSES } from '../memory/types.ts';
+import { MEMORY_STATUSES } from '../memory/types.ts';
+import { CONVERSATION_TITLE_MAX_CHARS } from '../session/types.ts';
+import { SessionService } from '../session/service.ts';
+import { WorkingMemory } from '../session/working-memory.ts';
 import { runTurn, type TurnRunner } from '../service/chat.ts';
 import { selectStore } from '../db/pool.ts';
 import { clearIdentity, readIdentity, resolveIdentity, singleUserId } from './identity.ts';
@@ -189,6 +191,7 @@ export interface AppDependencies {
 export function createApp(deps: AppDependencies) {
   const working = deps.working ?? new WorkingMemory();
   const store = deps.store;
+  const sessions = new SessionService(store);
 
   /**
    * Resolve the caller, and make sure their row exists.
@@ -243,7 +246,7 @@ export function createApp(deps: AppDependencies) {
 
     await pipeEventsAsSse(
       runTurn(
-        { store, working, runner: deps.runner },
+        { store, session: sessions, working, runner: deps.runner },
         {
           userId,
           conversationId: parsed.conversationId,
@@ -323,14 +326,14 @@ export function createApp(deps: AppDependencies) {
         return true;
       }
 
-      const conversation = await store.createConversation(userId, parsed.title);
+      const conversation = await sessions.create(userId, parsed.title);
       sendJson(res, 201, { conversation });
       return true;
     }
 
     if (req.method === 'GET' && pathname === '/api/conversations') {
       const userId = await identify(req, res);
-      const conversations = await store.listConversations(userId, {
+      const conversations = await sessions.list(userId, {
         includeArchived: url.searchParams.get('includeArchived') === '1',
       });
       sendJson(res, 200, { conversations });
@@ -343,11 +346,11 @@ export function createApp(deps: AppDependencies) {
       const id = messagesMatch[1] as string;
       // A missing conversation is a 404, not an empty transcript: "this id does
       // not exist" and "you have not said anything yet" are different answers.
-      if (!(await store.getConversation(userId, id))) {
+      if (!(await sessions.get(userId, id))) {
         sendJson(res, 404, { error: 'conversation not found' });
         return true;
       }
-      const messages = await store.listMessages(userId, id);
+      const messages = await sessions.messages(userId, id);
       sendJson(res, 200, { messages });
       return true;
     }
@@ -356,7 +359,7 @@ export function createApp(deps: AppDependencies) {
 
     if (req.method === 'GET' && conversationMatch) {
       const userId = await identify(req, res);
-      const conversation = await store.getConversation(userId, conversationMatch[1] as string);
+      const conversation = await sessions.get(userId, conversationMatch[1] as string);
       if (!conversation) {
         sendJson(res, 404, { error: 'conversation not found' });
         return true;
@@ -383,7 +386,7 @@ export function createApp(deps: AppDependencies) {
       }
 
       const id = conversationMatch[1] as string;
-      const conversation = await store.updateConversation(userId, id, parsed);
+      const conversation = await sessions.update(userId, id, parsed);
       if (!conversation) {
         sendJson(res, 404, { error: 'conversation not found' });
         return true;
@@ -396,7 +399,7 @@ export function createApp(deps: AppDependencies) {
     if (req.method === 'DELETE' && conversationMatch) {
       const userId = await identify(req, res);
       const id = conversationMatch[1] as string;
-      const deleted = await store.deleteConversation(userId, id);
+      const deleted = await sessions.delete(userId, id);
       if (!deleted) {
         sendJson(res, 404, { error: 'conversation not found' });
         return true;

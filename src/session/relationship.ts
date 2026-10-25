@@ -37,7 +37,7 @@
  * any history at all.
  */
 
-import type { HistoryStats } from './store.ts';
+import type { HistoryStats } from './types.ts';
 
 export interface RelationshipState {
   readonly conversations: number;

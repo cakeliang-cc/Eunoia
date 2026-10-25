@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { WorkingMemory, seedWorkingMemory } from '../../src/memory/working-memory.ts';
+import { WorkingMemory, seedWorkingMemory } from '../../src/session/working-memory.ts';
 import { importSpecifiers, readSources } from '../helpers/sources.ts';
 
 describe('WorkingMemory', () => {
@@ -117,7 +117,7 @@ describe('seedWorkingMemory', () => {
 describe('the never-persisted invariant (ADR 003)', () => {
   it('working memory imports nothing from the persistence layer', async () => {
     const sources = await readSources();
-    const module = sources.find((entry) => entry.relativePath === 'src/memory/working-memory.ts');
+    const module = sources.find((entry) => entry.relativePath === 'src/session/working-memory.ts');
     expect(module, 'working-memory.ts should exist').toBeDefined();
 
     const specifiers = importSpecifiers(module!.source);

@@ -17,7 +17,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { InMemoryStore } from '../../src/db/in-memory-store.ts';
-import { WorkingMemory } from '../../src/memory/working-memory.ts';
+import { WorkingMemory } from '../../src/session/working-memory.ts';
 import { CRISIS_FALLBACK } from '../../src/safety/response.ts';
 import { collectTurn, runTurn, type TurnRunner } from '../../src/service/chat.ts';
 import type { AgentEvent } from '../../src/agent/events.ts';

@@ -19,6 +19,7 @@ import { importSpecifiers, readSources } from '../helpers/sources.ts';
  */
 const CORE_DIRS = [
   'src/agent/',
+  'src/session/',
   'src/memory/',
   'src/tools/',
   'src/safety/',
@@ -99,6 +100,39 @@ describe('core / transport boundary (ADR 006)', () => {
     const found = importSpecifiers(synthetic);
     expect(found).toContain('node:http');
     expect(found).toContain('../api/sse.ts');
+  });
+
+  /**
+   * Session and memory are peers, not one layering the other.
+   *
+   * A session owns turns; a memory owns beliefs. They meet only at plain uuids
+   * (`sourceMessageId`, `conversationId`), never by importing each other's
+   * modules. Without this guard the old shape grows back: conversation types in
+   * `memory/types.ts`, relationship arithmetic in `memory/`, and no single place
+   * to answer "where does a session live?".
+   */
+  it('session and memory do not import each other', async () => {
+    const sources = await readSources();
+    const violations: string[] = [];
+
+    for (const { relativePath, source } of sources) {
+      const isSession = relativePath.startsWith('src/session/');
+      const isMemory = relativePath.startsWith('src/memory/');
+      if (!isSession && !isMemory) continue;
+
+      for (const specifier of importSpecifiers(source)) {
+        const targetsMemory = specifier.includes('/memory/') || specifier.startsWith('../memory/');
+        const targetsSession = specifier.includes('/session/') || specifier.startsWith('../session/');
+        if (isSession && targetsMemory) {
+          violations.push(`${relativePath} imports "${specifier}"`);
+        }
+        if (isMemory && targetsSession) {
+          violations.push(`${relativePath} imports "${specifier}"`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
   });
 
   /**

@@ -15,17 +15,12 @@
 import type { Pool, PoolClient } from 'pg';
 import type {
   AgentRunRecord,
-  ConversationListOptions,
-  ConversationPatch,
   EvaluationCaseRecord,
   EvaluationResultRecord,
   FeedbackRecord,
-  HistoryStats,
   MemoryListOptions,
-  Store,
 } from '../memory/store.ts';
 import type {
-  Conversation,
   Memory,
   MemoryDraft,
   MemoryEvent,
@@ -33,8 +28,10 @@ import type {
   MemorySource,
   MemoryStatus,
   MemoryType,
-  Message,
 } from '../memory/types.ts';
+import type { ConversationListOptions, ConversationPatch } from '../session/store.ts';
+import type { Conversation, HistoryStats, Message } from '../session/types.ts';
+import type { Store } from '../store.ts';
 
 /** Columns selected for a memory. `embedding` is unread until ADR 004 is undone. */
 const MEMORY_COLUMNS = `

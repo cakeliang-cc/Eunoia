@@ -65,7 +65,8 @@ text-delta 事件，以及 run 还没完成就读取了最终输出。两者现�
 
 已交付：`docker-compose.yml`、`migrations/001_init.sql`（完整 schema）、
 `src/db/{pool,migrate,postgres-store,in-memory-store}.ts`、
-`src/memory/{types,store,retrieval,writer,render,working-memory}.ts`、
+`src/memory/{types,store,retrieval,writer,render,narrative}.ts`、
+`src/session/{types,store,service,working-memory,relationship}.ts`、
 `src/tools/memory-tools.ts` + `src/agent/tools.ts`、
 `src/service/{chat,context}.ts`。
 
@@ -138,7 +139,7 @@ INFP 人格**不能**覆盖安全响应：指令用自己的话说明了这一�
 阶段 8 的关系那一半，补上了两个 §43 维度——它们此前既没有 case，也没有功能在背后。
 触发点是被测量出来的，不是被假设的：在没有历史记录的情况下问*"我们之前聊过吧？"*，
 陪伴者用一份关于数据库查询的报告作答，因为在检索是它唯一工具的情况下，一个关于关系
-的问题只能被读成一个检索问题。`src/memory/relationship.ts` 从已经存在的计数里推导出
+的问题只能被读成一个检索问题。`src/session/relationship.ts` 从已经存在的计数里推导出
 这个状态，并把它渲染进每一轮——刻意不做相关性门控，因为一个带门控的块恰恰会在需要它
 的那一轮缺席。
 

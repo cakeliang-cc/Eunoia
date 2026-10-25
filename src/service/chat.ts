@@ -43,9 +43,10 @@ import { contentFingerprint, log } from '../observability/logging.ts';
 import { buildTurnContext } from './context.ts';
 import { applyOutputCheck, safetyDirectiveFor } from '../safety/response.ts';
 import { maxRisk } from '../safety/risk.ts';
-import { WorkingMemory, seedWorkingMemory } from '../memory/working-memory.ts';
-import { conversationTitle } from '../memory/types.ts';
-import type { Store } from '../memory/store.ts';
+import { WorkingMemory, seedWorkingMemory } from '../session/working-memory.ts';
+import { conversationTitle } from '../session/types.ts';
+import { SessionService } from '../session/service.ts';
+import type { Store } from '../store.ts';
 
 /** How many prior messages are replayed into the model as conversation. */
 export const HISTORY_LIMIT = 20;
@@ -58,6 +59,14 @@ export type TurnRunner = (
 
 export interface TurnDependencies {
   readonly store: Store;
+  /**
+   * Session operations for this turn.
+   *
+   * Optional so callers that already hold the composite store (tests, the
+   * evaluation runner) do not have to construct it; production passes the same
+   * instance the HTTP routes use, which keeps lifecycle rules in one place.
+   */
+  readonly session?: SessionService;
   readonly working?: WorkingMemory;
   /**
    * Injectable so tests and the evaluation replay mode can drive the whole turn
@@ -102,6 +111,7 @@ export async function* runTurn(
   const runId = randomUUID();
   const persist = request.persist ?? true;
   const runner = deps.runner ?? streamReply;
+  const session = deps.session ?? new SessionService(deps.store);
 
   const message = request.message?.trim() ?? '';
   if (message.length === 0) {
@@ -115,12 +125,12 @@ export async function* runTurn(
   // Postgres: the conversation was created before its owner existed.
   await deps.store.ensureUser(request.userId);
 
-  const conversation = await deps.store.ensureConversation(request.userId, request.conversationId);
+  const conversation = await session.ensure(request.userId, request.conversationId);
   const conversationId = conversation.id;
 
   let userMessageId: string | null = null;
   if (persist) {
-    const stored = await deps.store.appendMessage({
+    const stored = await session.append({
       conversationId,
       userId: request.userId,
       role: 'user',
@@ -133,14 +143,14 @@ export async function* runTurn(
     // user's message exists, and because a conversation created by a client that
     // then failed to send anything should stay unnamed rather than be labelled
     // with nothing.
-    await deps.store
-      .nameConversation(request.userId, conversationId, conversationTitle(message))
+    await session
+      .name(request.userId, conversationId, conversationTitle(message))
       .catch(() => undefined);
   }
 
   const working = deps.working ?? new WorkingMemory();
   if (working.context(conversationId).length === 0 && persist) {
-    const recent = await deps.store.recentMessages(conversationId, HISTORY_LIMIT);
+    const recent = await session.recent(conversationId, HISTORY_LIMIT);
     // Drop the message just written; it is passed as the current turn, not as
     // history, and including it twice would have the model answer itself.
     seedWorkingMemory(
@@ -265,7 +275,7 @@ export async function* runTurn(
   if (persist) {
     working.remember(conversationId, { role: 'user', content: message });
     working.remember(conversationId, { role: 'assistant', content: outcome.reply });
-    assistantMessageId = await persistTurn(deps.store, {
+    assistantMessageId = await persistTurn(deps.store, session, {
       runId,
       userId: request.userId,
       conversationId,
@@ -290,6 +300,7 @@ export async function* runTurn(
 /** Returns the stored assistant message id, or null if persistence failed. */
 async function persistTurn(
   store: Store,
+  session: SessionService,
   turn: {
     runId: string;
     userId: string;
@@ -304,7 +315,7 @@ async function persistTurn(
   },
 ): Promise<string | null> {
   try {
-    const stored = await store.appendMessage({
+    const stored = await session.append({
       conversationId: turn.conversationId,
       userId: turn.userId,
       role: 'assistant',

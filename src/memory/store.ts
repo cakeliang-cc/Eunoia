@@ -13,12 +13,10 @@
  */
 
 import type {
-  Conversation,
   Memory,
   MemoryDraft,
   MemoryEvent,
   MemoryPatch,
-  Message,
 } from './types.ts';
 
 export interface MemoryListOptions {
@@ -130,98 +128,11 @@ export interface MemoryStore {
 }
 
 /**
- * How much has passed between us (spec §25, §43).
+ * A case definition as persisted, so evaluation results can reference it.
  *
- * Counts and two dates, not a state machine: the companion needs to know whether
- * this is a first conversation or a two-hundredth, and that question is answered
- * by arithmetic rather than by a category someone invented.
+ * The source of truth stays `src/evaluation/cases.ts`; this record is the
+ * mirror that gives `evaluation_results.case_id` a foreign key to resolve.
  */
-export interface HistoryStats {
-  readonly conversations: number;
-  readonly messages: number;
-  /** When the first conversation started, or null if there has never been one. */
-  readonly firstAt: Date | null;
-  /** The most recent message, or null in the same case. */
-  readonly lastAt: Date | null;
-}
-
-export interface ConversationListOptions {
-  /** Active rows only unless the caller explicitly asks to see the archive. */
-  readonly includeArchived?: boolean;
-  readonly limit?: number;
-}
-
-export interface ConversationPatch {
-  /** `null` clears the name; the list then falls back to its unnamed label. */
-  readonly title?: string | null;
-  readonly archived?: boolean;
-}
-
-export interface ConversationStore {
-  /** Create an empty conversation. The first message is not required to exist. */
-  createConversation(userId: string, title?: string | null): Promise<Conversation>;
-
-  /** Read one conversation owned by this user, or null. */
-  getConversation(userId: string, conversationId: string): Promise<Conversation | null>;
-
-  /**
-   * Rename or archive in one statement.
-   *
-   * Returns null when the id does not exist *for this user*. That is the same
-   * answer as a nonexistent id on purpose: telling the two apart would leak
-   * whether somebody else's conversation exists.
-   */
-  updateConversation(
-    userId: string,
-    conversationId: string,
-    patch: ConversationPatch,
-  ): Promise<Conversation | null>;
-
-  /**
-   * Permanently remove a conversation and its messages.
-   *
-   * `messages` cascades; `agent_runs.conversation_id` and
-   * `memories.source_message_id` are `ON DELETE SET NULL`, so the measurement
-   * and the memory survive without pointing at a row that is gone.
-   */
-  deleteConversation(userId: string, conversationId: string): Promise<boolean>;
-
-  ensureConversation(userId: string, conversationId?: string | null): Promise<Conversation>;
-
-  /**
-   * The relationship, derived in one query rather than by loading rows.
-   *
-   * Deliberately not a stored table. A `relationship` row would need a
-   * migration, would say something different from the conversations it
-   * summarises the moment one was deleted, and would be a cache of an
-   * aggregate — which is the definition of a thing that goes stale to save
-   * nothing.
-   */
-  historyStats(userId: string): Promise<HistoryStats>;
-  /**
-   * Give a conversation a name, from its first user message.
-   *
-   * Set once and never replaced: `title IS NULL` is part of the update, so the
-   * first turn names the conversation and every later turn leaves it alone. A
-   * title that tracked the latest message would be a worse label than one that
-   * says what the conversation was *about*, and re-deriving it every turn would
-   * make the list flicker.
-   */
-  nameConversation(userId: string, conversationId: string, title: string): Promise<void>;
-  appendMessage(message: {
-    conversationId: string;
-    userId: string;
-    role: Message['role'];
-    content: string;
-  }): Promise<Message>;
-  recentMessages(conversationId: string, limit: number): Promise<Message[]>;
-  listConversations(
-    userId: string,
-    options?: ConversationListOptions,
-  ): Promise<Conversation[]>;
-  listMessages(userId: string, conversationId: string, limit?: number): Promise<Message[]>;
-}
-
 export interface EvaluationCaseRecord {
   readonly id: string;
   readonly category: string;
@@ -275,17 +186,4 @@ export interface FeedbackStore {
     note?: string | null;
   }): Promise<void>;
   listFeedback(userId: string, limit?: number): Promise<FeedbackRecord[]>;
-}
-
-/** Everything the application needs from persistence, in one wiring handle. */
-export interface Store
-  extends IdentityStore,
-    MemoryStore,
-    ConversationStore,
-    RunStore,
-    PreferenceStore,
-    FeedbackStore {
-  /** Cheap liveness probe used by `GET /health`. */
-  ping(): Promise<boolean>;
-  close(): Promise<void>;
 }

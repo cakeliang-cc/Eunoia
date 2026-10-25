@@ -144,12 +144,18 @@ src/api/          ← 唯一感知 HTTP 的一层
         ▼
 src/service/      ← 一轮对话的编排：retrieve → assess → run → check → persist
         │
+        ├── src/session/       ← 会话生命周期、消息、工作记忆、关系读数
         ├── src/agent/         一个 Agent、它的 prompt、它的工具（ADR 001）
-        ├── src/memory/        四层记忆、打分、写入策略、关系（ADR 003, 004, 007, 012）
+        ├── src/memory/        三层持久记忆、检索、写入策略（ADR 003, 004, 007）
         ├── src/safety/        风险检测、指令、输出检查（ADR 008）
-        ├── src/db/            Store 接口 + Postgres 与内存两种实现
+        ├── src/db/            SessionStore + MemoryStore 的 Postgres / 内存实现
         └── src/evaluation/    用例、打分器、运行器、报告（ADR 004）
 ```
+
+`src/session/` 与 `src/memory/` 是**平级的两层**，彼此不 import：会话拥有
+turns，记忆拥有 beliefs，两者只在 `sourceMessageId` / `conversationId` 这样的
+普通 uuid 上相遇。`src/store.ts` 是唯一把它们组合起来的地方，给 composition root
+一个 `Store` 句柄。这条隔离也由架构测试强制。
 
 这条边界是**由测试强制**的，不是靠约定——核心里没有任何东西 import HTTP，
 也没有任何产品逻辑层 import 厂商 SDK。写在 README 里的一句约定，

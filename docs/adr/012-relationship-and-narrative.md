@@ -45,7 +45,7 @@ spec 把 *Relationship State* 列为上下文的一个组件（§25），把
 
 ### 关系状态：推导得出，每轮渲染
 
-**`src/memory/relationship.ts` 推导它；没有任何东西存储它。** 需要的一切都已经
+**`src/session/relationship.ts` 推导它；没有任何东西存储它。** 需要的一切都已经
 在 schema 里——第一次对话是什么时候开始的、有多少次对话和多少条消息——而推导
 是一次聚合查询（`historyStats`），计算它比让它保持同步更快。
 

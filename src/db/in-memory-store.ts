@@ -16,28 +16,28 @@
 
 import { randomUUID } from 'node:crypto';
 import type {
-  ConversationListOptions,
-  ConversationPatch,
-  ConversationStore,
-  MemoryListOptions,
-  MemoryStore,
-  PreferenceStore,
-  RunStore,
-  Store,
   AgentRunRecord,
   EvaluationCaseRecord,
   EvaluationResultRecord,
   FeedbackRecord,
-  HistoryStats,
+  MemoryListOptions,
+  MemoryStore,
+  PreferenceStore,
+  RunStore,
 } from '../memory/store.ts';
 import type {
-  Conversation,
   Memory,
   MemoryDraft,
   MemoryEvent,
   MemoryPatch,
-  Message,
 } from '../memory/types.ts';
+import type {
+  ConversationListOptions,
+  ConversationPatch,
+  SessionStore,
+} from '../session/store.ts';
+import type { Conversation, HistoryStats, Message } from '../session/types.ts';
+import type { Store } from '../store.ts';
 
 /**
  * Conversation rows are mutable here while `Conversation` is readonly — the
@@ -471,7 +471,7 @@ export class InMemoryStore implements Store {
 export function asMemoryStore(store: Store): MemoryStore {
   return store;
 }
-export function asConversationStore(store: Store): ConversationStore {
+export function asSessionStore(store: Store): SessionStore {
   return store;
 }
 export function asRunStore(store: Store): RunStore {

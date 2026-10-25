@@ -37,7 +37,7 @@
  * crash before they get there.
  */
 
-import type { Store } from '../memory/store.ts';
+import type { Store } from '../store.ts';
 import { log } from '../observability/logging.ts';
 
 /** The namespace evaluation runs write into `users.external_id`. */

@@ -22,17 +22,18 @@
  * not things that become relevant: "is this our first conversation" is a question
  * about every turn or none, and a theme is phrased differently every time it
  * comes up, so a similarity gate would drop it on exactly the turns it was
- * written for. See `src/memory/relationship.ts` and `src/memory/narrative.ts`.
+ * written for. See `src/session/relationship.ts` and `src/memory/narrative.ts`.
  *
  * The cost of automatic retrieval, by contrast, is real and stated in
  * `AUTO_INJECT_BUDGET`: four loosely-related memories volunteered every turn
  * would be worse than none. The overlap gate is what keeps that from happening.
  */
 
-import type { ConversationStore, MemoryStore } from '../memory/store.ts';
+import type { MemoryStore } from '../memory/store.ts';
+import type { SessionStore } from '../session/store.ts';
 import { AUTO_INJECT_BUDGET, selectMemories } from '../memory/retrieval.ts';
 import { renderMemories } from '../memory/render.ts';
-import { describeRelationship, renderRelationship } from '../memory/relationship.ts';
+import { describeRelationship, renderRelationship } from '../session/relationship.ts';
 import { selectNarratives, renderNarratives } from '../memory/narrative.ts';
 import { assessRisk, type RiskAssessment } from '../safety/risk.ts';
 
@@ -82,7 +83,7 @@ export interface BuildContextOptions {
  * `MemoryStore` because relationship state is not a memory — it is a count over
  * conversations, which is a different table and a different question.
  */
-export type ContextStore = MemoryStore & Pick<ConversationStore, 'historyStats'>;
+export type ContextStore = MemoryStore & Pick<SessionStore, 'historyStats'>;
 
 export async function buildTurnContext(
   store: ContextStore,
