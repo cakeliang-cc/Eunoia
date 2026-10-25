@@ -1,8 +1,6 @@
-# Eunoia — INFP 陪伴 Agent
+# Eunoia
 
 ![Eunoia](docs/cover.png)
-
-一个从 0 到 1 长出来的长期陪伴 Agent。
 
 它不是一个人畜无害的聊天机器人。这个产品的承诺更窄，也更难：
 **一个 Agent，具备稳定的人格行为、长期个人记忆、情绪与价值澄清、叙事连续性、
