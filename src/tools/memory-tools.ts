@@ -1,7 +1,7 @@
 /**
  * The memory tools' behaviour (spec §9), with no SDK and no schema library.
  *
- * These are plain async functions over domain types. `src/agent/tools.ts` wraps
+ * These are plain async functions over domain types. `src/tools/memory.ts` wraps
  * them in the SDK's `tool()` with zod schemas; this file is what those wrappers
  * call. The split is not ceremony — it is what lets the whole tool surface be
  * tested directly, including the rejection paths, without standing up an agent

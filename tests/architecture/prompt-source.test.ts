@@ -14,7 +14,7 @@
  *
  * ## What deliberately stays in code
  *
- * - **Tool descriptions** (`src/agent/tools.ts`, `src/tools/memory-tools.ts`).
+ * - **Tool descriptions** (`src/tools/memory.ts`, `src/tools/coding/`).
  *   They sit next to the schema they describe, and the SDK reads them from it. A
  *   lookup table would put a tool's description somewhere other than the tool.
  * - **The per-turn safety directives** (`src/safety/response.ts`). These are

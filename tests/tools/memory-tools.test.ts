@@ -3,7 +3,7 @@
  *
  * These are tested through the plain functions rather than through the SDK
  * wrappers, which is the reason `src/tools/memory-tools.ts` exists separately
- * from `src/agent/tools.ts`: everything with a decision in it is reachable here,
+ * from `src/tools/memory.ts`: everything with a decision in it is reachable here,
  * with no agent, no schema library and no model call.
  *
  * Two things get more attention than the happy paths:

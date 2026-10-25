@@ -67,7 +67,7 @@ text-delta 事件，以及 run 还没完成就读取了最终输出。两者现�
 `src/db/{pool,migrate,postgres-store,in-memory-store}.ts`、
 `src/memory/{types,store,retrieval,writer,render,narrative}.ts`、
 `src/session/{types,store,service,working-memory,relationship}.ts`、
-`src/tools/memory-tools.ts` + `src/agent/tools.ts`、
+`src/tools/memory-tools.ts` + `src/tools/memory.ts`、
 `src/service/{chat,context}.ts`。
 
 实现期间学到两件事，它们后来成了 ADR 007：分数下限无法表达相关性，而两条检索路径想要

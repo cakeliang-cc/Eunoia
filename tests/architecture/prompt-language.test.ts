@@ -33,7 +33,9 @@ import { buildRuntimeContext } from '../../src/agent/runtime-context.ts';
 import { renderSituation } from '../../src/agent/situation.ts';
 import { CRISIS_DIRECTIVE, CRISIS_FALLBACK, ELEVATED_DIRECTIVE } from '../../src/safety/response.ts';
 import { renderMemories } from '../../src/memory/render.ts';
-import { createMemoryTools } from '../../src/agent/tools.ts';
+import { createMemoryTools } from '../../src/tools/memory.ts';
+import { codingTools } from '../../src/tools/coding/index.ts';
+import { jsonSchemaOf } from '../../src/tools/schema.ts';
 
 /** Tokens allowed to be Latin, each with the reason it is allowed. */
 const ALLOWED: Readonly<Record<string, string>> = {
@@ -72,10 +74,59 @@ const ALLOWED: Readonly<Record<string, string>> = {
   tags: 'schema field',
   query: 'schema field',
   limit: 'schema field',
+  // Coding tool names and their schema fields. The model emits these verbatim.
+  read_file: 'tool name',
+  list_dir: 'tool name',
+  glob: 'tool name',
+  grep: 'tool name',
+  write_file: 'tool name',
+  edit_file: 'tool name',
+  run_command: 'tool name',
+  old_string: 'schema field',
+  new_string: 'schema field',
+  replace_all: 'schema field',
+  include: 'schema field',
+  start: 'schema field',
+  end: 'schema field',
+  depth: 'schema field',
+  pattern: 'schema field',
+  max_results: 'schema field',
+  case_sensitive: 'schema field',
+  command: 'schema field',
+  timeout_ms: 'schema field',
+  // Technical names that appear in examples and descriptions, not prose.
+  CRLF: 'line ending name',
+  LF: 'line ending name',
+  stdout: 'command stream name',
+  stderr: 'command stream name',
+  shell: 'the thing run_command runs',
+  JavaScript: 'regex dialect name',
+  JSON: 'wire format name',
+  npm: 'package manager name',
+  lint: 'command category',
+  test: 'command/file category',
+  src: 'example path segment',
+  ts: 'file extension',
+  dist: 'ignored directory name',
+  node_modules: 'ignored directory name',
+  git: 'version control name',
+  env: 'part of .env',
+  vim: 'example of an interactive command',
+  less: 'example of an interactive command',
+  loop: 'example path segment',
+  agent: 'example path segment',
+  based: 'as in 1-based line numbers',
+  run: 'as in npm run',
+  true: 'JSON literal in an example',
+  false: 'JSON literal in an example',
+  saveMemory: 'example search term in a tool description',
 };
 
 /** The tools never execute here, so the context is never dereferenced. */
-const tools = createMemoryTools({ store: {} as never, userId: 'prompt-language-test' });
+const tools = [
+  ...createMemoryTools({ store: {} as never, userId: 'prompt-language-test' }),
+  ...codingTools,
+];
 
 /** Every `description` in a JSON Schema, at any depth — what the model reads. */
 function schemaDescriptions(schema: unknown): string {
@@ -106,7 +157,7 @@ const SURFACES: Readonly<Record<string, string>> = {
   }),
   'tool descriptions': tools.map((tool) => tool.description ?? '').join('\n'),
   'tool schema': tools
-    .map((tool) => schemaDescriptions((tool as unknown as { parameters: unknown }).parameters))
+    .map((tool) => schemaDescriptions(jsonSchemaOf(tool.parameters)))
     .join('\n'),
   'crisis directive': CRISIS_DIRECTIVE,
   'elevated directive': ELEVATED_DIRECTIVE,

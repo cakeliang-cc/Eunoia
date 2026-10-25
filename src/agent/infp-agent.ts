@@ -1,25 +1,36 @@
 /**
- * The single INFP companion agent (spec §8, ADR 001).
+ * The companion's runtime: instructions, tools and the model port, composed into
+ * one run.
  *
- * There is exactly one agent. Fi/Ne/Si/Te are behavioural heuristics inside its
- * instructions, not four collaborating agents.
+ * This module is the boundary between product policy (`src/service/`) and the
+ * agent runtime. It deliberately knows nothing about HTTP, persistence, memory
+ * retrieval or safety — those are decided before a run starts — and it does not
+ * import the vendor SDK except for the provider type. The provider itself is
+ * constructed in `model-client.ts`, and only the adapter in `model-turn.ts`
+ * touches the SDK's request and stream shapes.
  *
- * This module owns the translation from the SDK's event stream into the
- * project's own `AgentEvent` stream. That translation is the transport boundary
- * in miniature: everything downstream — SSE, a future mini-program adapter,
- * tests — consumes `AgentEvent` and never sees an SDK type.
+ * ## What changed from the SDK-runner version
  *
- * It is a *raw* adapter: it starts a run and reports what happened. Policy —
- * when to retrieve memory, what to do about a risky message, what to persist —
- * lives in `src/service/`. Keeping those apart is what lets the whole
- * behavioural layer be tested against a fake runner with no model in the loop.
+ * The loop used to be `run()` from the Agents SDK. It is now `runAgentLoop()`
+ * from `loop.ts`: the same model transport, but with per-call policy, parallel
+ * reads, a per-turn context ledger, tool arguments and results in the event
+ * stream, and a step cap that produces a partial answer instead of dropping it.
+ * The reasons are in ADR 014; the provider is still the SDK's.
  */
 
-import { Agent, run, type ModelProvider, type Tool } from '@openai/agents';
-import type { AgentEvent, ThinkingDoneEvent } from './events.ts';
-import { buildInstructions } from './instructions.ts';
-import { COMPANION_MODEL } from './model-client.ts';
-import { log } from '../observability/logging.ts';
+import type { ModelProvider } from '@openai/agents';
+import { COMPANION_MODEL, createProvider } from './model-client.ts';
+import { buildRuntimeContext } from './runtime-context.ts';
+import { buildInstructions, PROMPT_VERSION } from './instructions.ts';
+import { DEFAULT_MAX_STEPS, runAgentLoop } from './loop.ts';
+import { createModelTurnResolver } from './model-turn.ts';
+import type { LoopInputItem, ModelTurn } from './model-port.ts';
+import type { AgentEvent } from './events.ts';
+import { ToolRegistry } from '../tools/registry.ts';
+import { DEFAULT_TOOL_POLICY } from '../tools/types.ts';
+import type { ReadLedger, ToolDefinition, ToolPolicy } from '../tools/types.ts';
+import { TurnReadLedger } from '../tools/ledger.ts';
+import type { Workspace } from '../tools/workspace.ts';
 
 export const AGENT_NAME = 'INFPCompanion';
 
@@ -28,180 +39,89 @@ export interface ConversationTurn {
   readonly content: string;
 }
 
-export interface StreamReplyOptions {
-  /** Cancels the run when the client disconnects. */
-  readonly signal?: AbortSignal;
-  /** Upper bound on tool-calling turns, so a loop cannot run away. */
-  readonly maxTurns?: number;
-  /** Prior turns, oldest first. The new message is appended after these. */
-  readonly history?: readonly ConversationTurn[];
-  /** Tools the agent may call. Empty means none. */
-  readonly tools?: readonly Tool[];
-  /**
-   * Per-turn context sent as a trailing system input item.
-   *
-   * It deliberately lives after the history: putting it in the system prompt
-   * would make every changed memory or clock invalidate the cached history.
-   */
-  readonly context?: string | null;
-  /**
-   * The provider for this run. Supplied explicitly by the composition root so
-   * multiple providers can coexist without a process-global default.
-   */
-  readonly modelProvider?: ModelProvider;
-}
+/** One message item in the request. Function calls are added by the loop. */
+export type RunInputItem = Extract<LoopInputItem, { type: 'message' }>;
 
-export interface AgentOptions {
-  readonly tools?: readonly Tool[];
-  /** Pin the companion model for this turn; defaults to the process model. */
+export interface CompanionOptions {
+  /** Tool definitions available to this run. Empty means none. */
+  readonly tools?: readonly ToolDefinition[] | ToolRegistry;
+  /** Pin the companion model for this run. */
   readonly model?: string;
-  /** Provider used when the turn is executed; explicit, not process-global. */
+  /** Pre-built model turn, for tests and for a composition root that shares one. */
+  readonly modelTurn?: ModelTurn;
+  /** Provider used when no `modelTurn` is supplied; explicit, not process-global. */
   readonly modelProvider?: ModelProvider;
+  readonly policy?: ToolPolicy;
+  readonly maxSteps?: number;
+  readonly workspace?: Workspace | null;
+  readonly ledger?: ReadLedger;
+  readonly now?: Date;
+}
+
+/** Alias kept for the composition root and evaluation tools. */
+export type AgentOptions = CompanionOptions;
+
+/**
+ * A run's static configuration.
+ *
+ * `modelTurn` is optional because tests inject a runner and never resolve a
+ * model; `streamReply` resolves it lazily only when the real loop is used.
+ */
+export interface CompanionRun {
+  readonly name: string;
+  readonly instructions: string;
+  readonly tools: ToolRegistry;
+  readonly policy: ToolPolicy;
+  readonly maxSteps: number;
+  readonly workspace: Workspace | null;
+  readonly ledger: ReadLedger;
+  readonly model: string;
+  readonly modelTurn?: ModelTurn;
+  readonly modelProvider?: ModelProvider;
+  readonly now: Date;
 }
 
 /**
- * Construct the companion.
+ * Build the companion.
  *
- * The model id can be pinned per conversation. The provider is supplied when
- * the run starts (`streamReply({ modelProvider })`); tests can build an agent
- * without a live credential, and multiple providers no longer need a
- * process-global default.
+ * The instructions are the stable prompt document and nothing else. Per-turn
+ * context — the clock, memory, a safety directive — is appended after the
+ * current user message by `buildRunInput`, so a changed memory never invalidates
+ * the cached history.
  */
-export function createCompanionAgent(options: AgentOptions = {}): Agent {
-  return new Agent({
+export function createCompanionAgent(options: CompanionOptions = {}): CompanionRun {
+  const tools =
+    options.tools instanceof ToolRegistry
+      ? options.tools
+      : new ToolRegistry(options.tools ?? []);
+
+  return {
     name: AGENT_NAME,
-    // Stable bytes only. Per-turn context is sent after the history instead.
     instructions: buildInstructions(),
+    tools,
+    policy: options.policy ?? DEFAULT_TOOL_POLICY,
+    maxSteps: options.maxSteps ?? DEFAULT_MAX_STEPS,
+    workspace: options.workspace ?? null,
+    ledger: options.ledger ?? new TurnReadLedger(),
     model: options.model ?? COMPANION_MODEL,
-    tools: [...(options.tools ?? [])],
-  });
+    ...(options.modelTurn ? { modelTurn: options.modelTurn } : {}),
+    ...(options.modelProvider ? { modelProvider: options.modelProvider } : {}),
+    now: options.now ?? new Date(),
+  };
 }
-
-/**
- * Event names that carry a text delta.
- *
- * Two names are accepted because the SDK *normalises* the provider's event
- * before handing it to us. DeepSeek's Responses API sends the wire type
- * `response.output_text.delta`, but the SDK renames it to `output_text_delta`
- * and keeps the original nested under `providerData`. Matching only the wire
- * name silently produced zero deltas — the reply still completed, so the bug
- * was invisible except in the live test.
- *
- * Accepting both means this keeps working whether a given provider or SDK
- * version surfaces the normalised name or passes the wire name through.
- */
-const TEXT_DELTA_EVENT_TYPES: ReadonlySet<string> = new Set([
-  'output_text_delta',
-  'response.output_text.delta',
-]);
-
-/**
- * Narrow a raw stream event to a text delta, if it is one.
- *
- * Exported for test: this is the function whose subtle mismatch produced a
- * silently un-streamed reply, so it is worth pinning directly.
- */
-export function textDeltaOf(data: unknown): string | null {
-  if (typeof data !== 'object' || data === null) return null;
-  const event = data as { type?: unknown; delta?: unknown };
-  if (typeof event.type !== 'string' || !TEXT_DELTA_EVENT_TYPES.has(event.type)) return null;
-  return typeof event.delta === 'string' && event.delta.length > 0 ? event.delta : null;
-}
-
-/**
- * The provider's reasoning events, which the SDK does *not* normalise.
- *
- * Measured against DeepSeek: a turn produced 648 of these and 438 text deltas,
- * and the first one arrived 12 seconds before the first character of the reply.
- * The SDK hands the whole provider event through under a generic `model` type,
- * so the useful fields are one level deeper than they are for text — that
- * asymmetry is the entire reason this needs its own function.
- */
-const REASONING_DELTA_TYPE = 'response.reasoning_text.delta';
-const REASONING_DONE_TYPE = 'response.reasoning_text.done';
-
-export type ReasoningChunk =
-  | { readonly kind: 'delta'; readonly text: string }
-  | { readonly kind: 'done' };
-
-/**
- * Narrow a raw stream event to a reasoning delta or the end of the reasoning.
- *
- * Both the wrapped shape the SDK actually sends and the flat shape it would
- * send if it ever normalised this event are accepted, for the same reason
- * `textDeltaOf` accepts two names: a silent rename is the failure mode this
- * code has already had once, and the cost of tolerating both is one branch.
- *
- * Exported for test.
- */
-export function reasoningChunkOf(data: unknown): ReasoningChunk | null {
-  if (typeof data !== 'object' || data === null) return null;
-  const outer = data as { type?: unknown; delta?: unknown; event?: unknown };
-  const inner =
-    typeof outer.event === 'object' && outer.event !== null
-      ? (outer.event as { type?: unknown; delta?: unknown })
-      : outer;
-  if (typeof inner.type !== 'string') return null;
-
-  if (inner.type === REASONING_DONE_TYPE) return { kind: 'done' };
-  if (inner.type !== REASONING_DELTA_TYPE) return null;
-
-  return typeof inner.delta === 'string' && inner.delta.length > 0
-    ? { kind: 'delta', text: inner.delta }
-    : null;
-}
-
-/** Pull the tool name and call id out of a run item, defensively. */
-function toolInfoOf(item: unknown): { callId: string; name: string } | null {
-  if (typeof item !== 'object' || item === null) return null;
-  const raw = (item as { rawItem?: unknown }).rawItem;
-  if (typeof raw !== 'object' || raw === null) return null;
-  const record = raw as { name?: unknown; callId?: unknown; call_id?: unknown; id?: unknown };
-  const name = typeof record.name === 'string' ? record.name : null;
-  const callId =
-    typeof record.callId === 'string'
-      ? record.callId
-      : typeof record.call_id === 'string'
-        ? record.call_id
-        : typeof record.id === 'string'
-          ? record.id
-          : null;
-  if (!name || !callId) return null;
-  return { callId, name };
-}
-
-/**
- * One prior turn, in the shape the Responses API expects.
- *
- * The asymmetry between the two roles is not ours to choose: a user message
- * takes a plain string, while an assistant message must carry `status` and its
- * content as typed parts. Sending an assistant turn in the user's shape produces
- * a 400 from the provider, which is why this is typed explicitly rather than
- * inferred from a map.
- */
-export type RunInputItem =
-  | { readonly role: 'user'; readonly content: string; readonly type: 'message' }
-  | {
-      readonly role: 'assistant';
-      readonly status: 'completed';
-      readonly content: { readonly type: 'output_text'; readonly text: string }[];
-      readonly type: 'message';
-    }
-  | { readonly role: 'system'; readonly content: string; readonly type: 'message' };
 
 /**
  * Build the run input.
  *
- * History is passed as explicit message items rather than as a session object,
+ * History is passed as explicit message items rather than as an SDK session,
  * because the conversation's canonical copy lives in Postgres and a second
  * in-SDK copy would be a second source of truth about what was said. It also
  * means the exact prompt sent on a turn is reconstructible from our own data,
  * which is what the evaluation runner needs.
  *
- * The per-turn context is appended after the current user message, never
- * before it. That ordering keeps the persisted history as the leading bytes of
- * the next request: the context is new tail, not a changed head. DeepSeek's
- * Responses API accepts a `system` input item in this position.
+ * The per-turn context is appended after the current user message, never before
+ * it. That ordering keeps the persisted history as the leading bytes of the next
+ * request: the context is new tail, not a changed head.
  *
  * The single-message, no-context case still passes a bare string: it is the
  * shape the provider sees most often, and there is no reason to make the common
@@ -215,182 +135,117 @@ export function buildRunInput(
   const trailing = context?.trim();
   if (history.length === 0 && !trailing) return message;
 
-  const items: RunInputItem[] = history.map((turn) =>
-    turn.role === 'user'
-      ? { role: 'user' as const, content: turn.content, type: 'message' as const }
-      : {
-          role: 'assistant' as const,
-          status: 'completed' as const,
-          content: [{ type: 'output_text' as const, text: turn.content }],
-          type: 'message' as const,
-        },
-  );
+  const items: RunInputItem[] = history.map((turn) => ({
+    type: 'message',
+    role: turn.role,
+    content: turn.content,
+  }));
 
-  items.push({ role: 'user', content: message, type: 'message' });
+  items.push({ type: 'message', role: 'user', content: message });
   if (trailing) {
-    items.push({ role: 'system', content: trailing, type: 'message' });
+    items.push({ type: 'message', role: 'system', content: trailing });
   }
   return items;
 }
 
-/**
- * Server-measured prompt-cache usage, when the provider reports it.
- *
- * The Responses API puts cached input tokens in `input_tokens_details`;
- * Chat Completions uses top-level fields. This helper accepts both, and returns
- * null rather than inventing a number when the provider said nothing.
- */
-export function cacheUsageOf(
-  usage:
-    | {
-        readonly inputTokens?: number;
-        readonly promptTokens?: number;
-        readonly inputTokensDetails?: readonly Record<string, number>[];
-        readonly promptTokensDetails?: Record<string, number>;
-      }
-    | null
-    | undefined,
-): { input_tokens: number; cached_tokens: number; cache_hit_rate: number } | null {
-  if (!usage) return null;
-  const input = usage.inputTokens ?? usage.promptTokens ?? 0;
-  if (!(input > 0)) return null;
-
-  let cached = 0;
-  for (const detail of usage.inputTokensDetails ?? []) {
-    cached += Number(detail.cached_tokens ?? 0);
-  }
-  cached += Number(usage.promptTokensDetails?.cached_tokens ?? 0);
-
-  return {
-    input_tokens: input,
-    cached_tokens: cached,
-    cache_hit_rate: Number((cached / input).toFixed(4)),
-  };
+export interface StreamReplyOptions {
+  /** Cancels the run when the client disconnects. */
+  readonly signal?: AbortSignal;
+  /** Upper bound on model/tool steps, so a loop cannot run away. */
+  readonly maxTurns?: number;
+  /** Prior turns, oldest first. The new message is appended after these. */
+  readonly history?: readonly ConversationTurn[];
+  /**
+   * Per-turn context sent as a trailing system input item.
+   *
+   * It deliberately lives after the history: putting it in the system prompt
+   * would make every changed memory or clock invalidate the cached history.
+   */
+  readonly context?: string | null;
+  /** Explicit provider, for a composition root that has already built one. */
+  readonly modelProvider?: ModelProvider;
 }
+
+/** Resolvers are process-wide: the SDK model object is immutable config. */
+let cachedResolver: ((modelId: string) => Promise<ModelTurn>) | null = null;
 
 /**
  * Run one turn and yield the reply as a transport-agnostic event stream.
  *
  * A non-streaming caller can ignore `text_delta` events and use the final
  * `completed` event, which carries the whole reply — so no separate
- * non-streaming code path is needed. The same is true of `thinking_delta`,
- * which a client may show, collapse, or drop without affecting correctness.
- *
- * The reasoning phase is forwarded rather than discarded because the wait is
- * long enough to be mistaken for a broken stream. See `ThinkingDeltaEvent`.
+ * non-streaming code path is needed.
  */
 export async function* streamReply(
-  agent: Agent,
+  agent: CompanionRun,
   message: string,
   options: StreamReplyOptions = {},
 ): AsyncIterable<AgentEvent> {
-  const startedAt = Date.now();
-  let collected = '';
-  let sawToolCall = false;
+  const input = buildRunInput(message, options.history, options.context);
+  const items: LoopInputItem[] =
+    typeof input === 'string' ? [{ type: 'message', role: 'user', content: input }] : input;
 
-  let thinkingStartedAt: number | null = null;
-  let thinkingClosed = false;
-  let reasoningChars = 0;
-
-  /**
-   * Close the reasoning block, once.
-   *
-   * Returns the event to yield rather than yielding it, because a generator
-   * cannot yield from inside a closure. Called on the provider's own
-   * end-of-reasoning signal, on the first character of the reply, and after the
-   * stream ends — whichever happens first — so a client never has to guess
-   * whether a thinking block is still live.
-   */
-  const closeThinking = (): ThinkingDoneEvent | null => {
-    if (thinkingStartedAt === null || thinkingClosed) return null;
-    thinkingClosed = true;
-    return { type: 'thinking_done', elapsedMs: Date.now() - thinkingStartedAt };
-  };
-
+  let modelTurn: ModelTurn;
   try {
-    const result = await run(agent, buildRunInput(message, options.history, options.context), {
-      stream: true as const,
-      signal: options.signal,
-      maxTurns: options.maxTurns,
-      ...(options.modelProvider ? { modelProvider: options.modelProvider } : {}),
-    });
-
-    for await (const event of result) {
-      if (event.type === 'raw_model_stream_event') {
-        const reasoning = reasoningChunkOf(event.data);
-        if (reasoning !== null) {
-          if (reasoning.kind === 'delta') {
-            thinkingStartedAt ??= Date.now();
-            reasoningChars += reasoning.text.length;
-            yield { type: 'thinking_delta', text: reasoning.text };
-          } else {
-            const closed = closeThinking();
-            if (closed) yield closed;
-          }
-          continue;
-        }
-
-        const delta = textDeltaOf(event.data);
-        if (delta !== null) {
-          const closed = closeThinking();
-          if (closed) yield closed;
-          collected += delta;
-          yield { type: 'text_delta', text: delta };
-        }
-        continue;
-      }
-
-      if (event.type === 'run_item_stream_event') {
-        const info = toolInfoOf(event.item);
-        if (!info) continue;
-
-        if (event.name === 'tool_called') {
-          sawToolCall = true;
-          log.debug('agent.tool_call', { tool: info.name, call_id: info.callId });
-          yield { type: 'tool_call', callId: info.callId, name: info.name, displayable: true };
-        } else if (event.name === 'tool_output') {
-          yield { type: 'tool_result', callId: info.callId, name: info.name, ok: true };
-        }
-      }
-    }
-
-    // A model that reasons and then calls a tool produces no reply text at all
-    // before the call, so this is the only place that can close the block.
-    const dangling = closeThinking();
-    if (dangling) yield dangling;
-
-    // The iterator can finish before the run is marked complete, so awaiting
-    // this is required — reading `finalOutput` early makes the SDK warn and can
-    // yield a partial value.
-    await result.completed;
-
-    // Prefer the SDK's final output when present; fall back to the deltas.
-    const final = (result as { finalOutput?: unknown }).finalOutput;
-    const text = typeof final === 'string' && final.length > 0 ? final : collected;
-
-    const cache = cacheUsageOf(result.state?.usage);
-    log.info('agent.turn_completed', {
-      duration_ms: Date.now() - startedAt,
-      reply_fingerprint: `len=${text.length}`,
-      // A count, never the text. The reasoning is the model's working-out and
-      // goes to the person watching it, not into a log line (spec §14).
-      reasoning_chars: reasoningChars,
-      used_tools: sawToolCall,
-      ...(cache ?? {}),
-    });
-
-    yield { type: 'completed', text };
+    modelTurn = agent.modelTurn ?? (await resolveModelTurn(agent, options));
   } catch (error) {
-    const closed = closeThinking();
-    if (closed) yield closed;
-
-    const message = error instanceof Error ? error.message : String(error);
-    const retryable = !(error instanceof Error && error.name.includes('Guardrail'));
-    log.error('agent.turn_failed', {
-      duration_ms: Date.now() - startedAt,
-      error: message,
-      retryable,
-    });
-    yield { type: 'error', message, retryable };
+    // A missing credential or an unknown provider id is a turn error, not a
+    // transport failure: it has to reach the client as an SSE `error` frame,
+    // not as a 500 from the HTTP layer.
+    yield {
+      type: 'error',
+      message: error instanceof Error ? error.message : String(error),
+      retryable: true,
+    };
+    return;
   }
+
+  yield* runAgentLoop({
+    modelTurn,
+    instructions: agent.instructions,
+    input: items,
+    tools: agent.tools,
+    toolContext: {
+      workspace: agent.workspace,
+      policy: agent.policy,
+      ledger: agent.ledger,
+      now: agent.now,
+    },
+    maxSteps: options.maxTurns ?? agent.maxSteps,
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
 }
+
+async function resolveModelTurn(
+  agent: CompanionRun,
+  options: StreamReplyOptions,
+): Promise<ModelTurn> {
+  if (!cachedResolver) {
+    cachedResolver = createModelTurnResolver(options.modelProvider ?? agent.modelProvider ?? createProvider());
+  }
+  return cachedResolver(agent.model);
+}
+
+/** The prompt identity recorded with a run. Re-exported for composition roots. */
+export { PROMPT_VERSION };
+
+/** Stream-event narrowing, re-exported where it has always been imported. */
+export { cacheUsageOf, reasoningChunkOf, textDeltaOf } from './stream-events.ts';
+export type { ReasoningChunk } from './stream-events.ts';
+
+/**
+ * The exact prompt the model would receive on this turn.
+ *
+ * Exported for the evaluation runner and for tests that need to assert ordering
+ * without calling a model.
+ */
+export function composePrompt(
+  message: string,
+  history: readonly ConversationTurn[] = [],
+  context?: string | null,
+): { instructions: string; input: string | RunInputItem[] } {
+  return { instructions: buildInstructions(), input: buildRunInput(message, history, context) };
+}
+
+/** Build per-turn context in the shape the run expects. */
+export { buildRuntimeContext };

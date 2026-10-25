@@ -1,25 +1,27 @@
 /**
- * The SDK-facing wrappers around the memory tools.
+ * The memory tools, declared for the project's tool registry instead of the
+ * vendor SDK's.
  *
- * Everything with a decision in it lives in `src/tools/memory-tools.ts`. This
- * file only declares schemas and adapts return values, which is why it is
- * allowed to import the vendor SDK while that one is not (ADR 005).
+ * Behaviour lives in `memory-tools.ts` and is unchanged: same scoring, same
+ * write policy, same refusal messages. What moved is only the declaration — a
+ * JSON Schema is now derived from the same Zod object the loop validates with,
+ * and the side effect is declared next to the tool rather than in a lookup
+ * table three files away.
  *
- * Descriptions are written for the model, not for a human reader: each one says
- * *when* to call the tool, because a tool whose description only says what it
- * does gets called at the wrong moments. `save_memory`'s description spends most
- * of its length on when not to use it, which is the behaviour that actually
- * needed steering.
+ * Memory writes are `memory_write`, not `workspace_write`: they are reversible
+ * from the memory panel and are the companion's core job. Requiring a filesystem
+ * permission for them would either make every memory turn need an approval or
+ * make file writes inherit an approval given for a memory.
  */
 
-import { tool } from '@openai/agents';
 import { z } from 'zod';
+import { defineTool, toolOk } from './types.ts';
 import {
   saveMemory,
   searchMemory,
   updateMemory,
-  type ToolContext,
-} from '../tools/memory-tools.ts';
+  type ToolContext as MemoryToolContext,
+} from './memory-tools.ts';
 
 const MEMORY_TYPE = z
   .enum(['episodic', 'semantic', 'narrative'])
@@ -61,18 +63,27 @@ const UPDATE_DESCRIPTION = `修正、更新或废弃一条已经存在的记忆�
 用 search_memory 找到 id，再改。当用户说"我已经不……了""那个不对""别再提这个"时，
 用这个工具更新或标记为 deleted——不要新建一条和旧说法冲突的记忆。`;
 
-export function createMemoryTools(ctx: ToolContext) {
-  const search = tool({
+export function createMemoryTools(deps: MemoryToolContext) {
+  const search = defineTool({
     name: 'search_memory',
     description: SEARCH_DESCRIPTION,
     parameters: z.object({
       query: z.string().min(1).describe('要检索的内容，用自然语言描述当前话题'),
       limit: z.number().int().min(1).max(10).optional().describe('最多返回几条，默认 5'),
     }),
-    execute: async (args) => JSON.stringify(await searchMemory(ctx, args)),
+    sideEffect: 'none',
+    readOnly: true,
+    guidelines: 'search_memory：只在话题可能和过去有关时检索；检索不到是正常结果。',
+    execute: async (args) => {
+      const result = await searchMemory(deps, args);
+      return toolOk(JSON.stringify(result), {
+        summary: `检索到 ${result.found} 条记忆`,
+        found: result.found,
+      });
+    },
   });
 
-  const save = tool({
+  const save = defineTool({
     name: 'save_memory',
     description: SAVE_DESCRIPTION,
     parameters: z.object({
@@ -87,10 +98,24 @@ export function createMemoryTools(ctx: ToolContext) {
       source: MEMORY_SOURCE,
       tags: z.array(z.string()).max(6).optional().describe('可选标签'),
     }),
-    execute: async (args) => JSON.stringify(await saveMemory(ctx, args)),
+    sideEffect: 'memory_write',
+    readOnly: false,
+    guidelines: 'save_memory：大多数对话不该调用；宁可少存，也不要把推测当事实。',
+    execute: async (args) => {
+      const result = await saveMemory(deps, args);
+      return toolOk(JSON.stringify(result), {
+        summary:
+          result.action === 'rejected'
+            ? `拒绝写入：${result.explanation}`
+            : result.action === 'updated'
+              ? '更新了一条已有记忆'
+              : '已记住',
+        action: result.action,
+      });
+    },
   });
 
-  const update = tool({
+  const update = defineTool({
     name: 'update_memory',
     description: UPDATE_DESCRIPTION,
     parameters: z.object({
@@ -103,8 +128,17 @@ export function createMemoryTools(ctx: ToolContext) {
         .optional()
         .describe('"deleted" 表示这条不再适用了'),
     }),
-    execute: async (args) => JSON.stringify(await updateMemory(ctx, args)),
+    sideEffect: 'memory_write',
+    readOnly: false,
+    guidelines: 'update_memory：用户纠正过去的说法时用；先 search 再改，不要新建冲突记忆。',
+    execute: async (args) => {
+      const result = await updateMemory(deps, args);
+      return toolOk(JSON.stringify(result), {
+        summary: result.ok ? (args.status === 'deleted' ? '已标记为不再适用' : '已更新记忆') : `更新失败：${result.explanation}`,
+        updated: result.ok,
+      });
+    },
   });
 
-  return [search, save, update];
+  return [search, save, update] as const;
 }

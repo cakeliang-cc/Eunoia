@@ -489,8 +489,8 @@ describe('tool use', () => {
 
   it('offers the memory tools to the agent', async () => {
     let toolNames: string[] = [];
-    const capturing: TurnRunner = async function* (_agent, _message, options) {
-      toolNames = (options?.tools ?? []).map((entry) => entry.name);
+    const capturing: TurnRunner = async function* (agent) {
+      toolNames = [...agent.tools.names()];
       yield { type: 'completed', text: '嗯。' };
     };
     await drain({ store, runner: capturing }, { userId: USER, message: '在吗' });

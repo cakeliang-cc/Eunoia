@@ -10,6 +10,53 @@
 
 ### Added
 
+- **它可以碰代码了，而这件事逼出了两个原来不存在的东西：工具系统，和 Agent loop。**
+  在这之前，唯一的工具是三个记忆工具，模型看不到文件、不能搜索、不能跑测试；任何
+  关于代码的回答都只能建立在用户粘贴的片段上。现在配置 `WORKSPACE_ROOT` 之后，它
+  多了 `read_file` / `list_dir` / `glob` / `grep` 四个只读工具；写入和命令要分别
+  打开 `WORKSPACE_WRITES` / `WORKSPACE_COMMANDS`。决策与替代方案见
+  [ADR 014](docs/adr/014-coding-tools-and-agent-loop.md)。
+  - **工具是项目自己的类型**（`src/tools/types.ts`、`registry.ts`）：名字、Zod
+    schema、副作用分类、只读标记、guidelines、超时。JSON Schema 从校验用的那一份
+    Zod 生成，所以「模型看到的字段」和「服务端接受的字段」不会漂移。副作用分类把
+    `memory_write` 和 `workspace_write` 分开，否则一条记忆要么每轮都要写入批准，
+    要么让文件写入蹭到那条批准。
+  - **循环是项目自己的**（`src/agent/loop.ts`），模型传输仍然是 SDK 的
+    `Model`（`src/agent/model-turn.ts`）。换掉 SDK runner 不是为了重写 harness，
+    而是因为它不提供四件本产品需要的事：执行前的逐调用策略、并发读/串行写、
+    每轮读取账本、带摘要的工具事件。`ModelTurn` 端口让整个循环可以用一个脚本化
+    的假模型测完，不需要网络。
+  - **工作目录是路径沙箱**（`src/tools/workspace.ts`）：绝对路径、`..`、以及指向
+    目录外的 symlink 都会被拒绝；`.env`、`*.pem`、`id_rsa` 这类凭据文件默认不读、
+    不写、不列、不 grep。`run_command` 明确**不是**进程沙箱，它用真实 shell 和
+    真实环境跑，开不开由 `WORKSPACE_COMMANDS` 决定。
+  - **每轮上下文账本**（`src/tools/ledger.ts`）：同一段文件本轮只进一次上下文，
+    再读返回指针；文件改动后指针失效。账本不跨轮，因为下一轮的窗口是从数据库重建
+    的，「内容就在上面」在那时是假的。
+  - **工具事件只带摘要**：`tool_call` 带路径/行范围/命令，`tool_result` 带耗时和
+    成败。完整输出不上 SSE、不进日志。Web 客户端把它们画成回复上方的可折叠 trace。
+  - **达到步数上限不是失败**：`AGENT_MAX_STEPS`（默认 12）用尽时发
+    `loop_exhausted`，保留已经产生的部分回答，并附一句「说继续」；它不会被记成
+    一个失败的 run。
+  - **测试**：`tests/tools/workspace.test.ts`（23 条，绝大多数是拒绝）、
+    `tests/tools/coding-tools.test.ts`、`tests/tools/registry.test.ts`、
+    `tests/agent/loop.test.ts`（脚本化模型，覆盖并发、策略、坏 JSON、未知工具、
+    步数上限、取消）、`tests/agent/model-turn.test.ts`、以及
+    `tests/smoke/live-tools.test.ts`。
+  - **live 验证走通了一个工具回合。** 2026-10-25 用真实 key 发起「读一下
+    package.json 的前 5 行」：模型调用了 `read_file`，两步入模，回答 `eunoia`，
+    服务端记录 `used_tools=true`、`tool_calls=1`、`steps=2`、
+    `cache_hit_rate=0.9834`。这说明 provider 接受了这套 `ModelRequest` 和
+    tool-call 形状。它不是系统性 smoke——`RUN_SMOKE=1 npm run smoke` 仍应跑——
+    但不再是纯离线声明。
+  - **SDK 的 trace span 暂时关闭。** 模型层在 `tracing` 打开时要求一个已存在的
+    trace，而 trace 由 SDK runner 创建；原生循环没有 runner，打开就会得到
+    `No existing trace found`（这个错误是在 live 回合里真的撞到的）。回合与工具的
+    结构化日志仍在，`trace.start` / `span.*` 没有。把 span 接回来需要在循环外显式
+    创建 trace，是独立改动。
+  - **已知限制**：工具调用不跨轮持久化。数据库仍然只存 user/assistant 文本，
+    所以下一轮模型看不到上一轮的 tool results，需要重新读。
+
 - **记忆存储的行业调研，作为输入而不是决定。** `docs/research/memory-storage.md`
   记下了别人怎么存记忆：Zep / Graphiti、Cognee、MemoryBank、Generative Agents，
   每一条实质结论都指向一手来源，来源没说的写「未验证」。它存在的理由是下面那条

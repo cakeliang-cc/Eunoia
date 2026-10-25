@@ -42,6 +42,7 @@ class El {
   scrollHeight = 0;
   clientHeight = 0;
   value = '' as string;
+  title = '';
   onclick: (() => void) | null = null;
 
   constructor(readonly tagName = 'div') {
@@ -84,6 +85,22 @@ class El {
     this.children.unshift(node);
     node.parent = this;
     node.isConnected = true;
+  }
+
+  /** Enough of `Element.after` for the trace's insertion point. */
+  after(node: El): void {
+    const parent = this.parent;
+    if (!parent) return;
+    const index = parent.children.indexOf(this);
+    parent.children.splice(index + 1, 0, node);
+    node.parent = parent;
+    node.isConnected = true;
+  }
+
+  /** Class-selector only; that is all the client uses. */
+  querySelector(selector: string): El | null {
+    const className = selector.startsWith('.') ? selector.slice(1) : selector;
+    return this.find((node) => node.classList.contains(className))[0] ?? null;
   }
 
   remove(): void {
@@ -274,6 +291,10 @@ function lastTurn(transcript: El) {
     reply: bubble?.child('text'),
     head: bubble?.child('thinking')?.child('thinking-head'),
     body: bubble?.child('thinking')?.child('thinking-body'),
+    trace: bubble?.child('tool-trace'),
+    traceBody: bubble?.child('tool-trace')?.child('tool-trace-body'),
+    traceHead: bubble?.child('tool-trace')?.child('tool-trace-head'),
+    note: turn?.child('meta')?.children[0],
   };
 }
 
@@ -284,6 +305,13 @@ const THINKING_TURN: Frame[] = [
   { type: 'text_delta', text: '听起来' },
   { type: 'text_delta', text: '真的很沉。' },
   { type: 'completed', text: '听起来真的很沉。', conversationId: 'c1', messageId: 'm1' },
+];
+
+const TOOL_TURN: Frame[] = [
+  { type: 'tool_call', callId: 'c1', name: 'read_file', displayable: true, summary: '读取 src/a.ts:1-40' },
+  { type: 'tool_result', callId: 'c1', name: 'read_file', ok: true, durationMs: 1200, summary: '读取 1-40 行' },
+  { type: 'text_delta', text: '看完了，可以改。' },
+  { type: 'completed', text: '看完了，可以改。', conversationId: 'c1', messageId: 'm1' },
 ];
 
 /** A stored conversation, as `/api/conversations/:id/messages` returns it. */
@@ -386,6 +414,62 @@ describe('the reasoning block', () => {
     expect(thinking?.dataset.state).toBe('done');
     expect(thinking?.dataset.open).toBe('false');
     expect(head?.child('label')?.textContent).toBe('思考过程');
+  });
+});
+
+describe('the tool trace', () => {
+  it('draws a row per call and closes it with the outcome', async () => {
+    const { trace, traceBody, traceHead } = lastTurn(await runTurn(TOOL_TURN));
+
+    expect(trace).toBeDefined();
+    expect(traceHead?.child('tool-trace-count')?.textContent).toBe('1');
+    const rows = traceBody?.find((node) => node.classList.contains('tool-row')) ?? [];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.dataset.state).toBe('ok');
+    expect(rows[0]?.child('tool-name')?.textContent).toBe('read_file');
+    expect(rows[0]?.child('tool-summary')?.textContent).toBe('读取 1-40 行');
+    expect(rows[0]?.child('tool-state')?.textContent).toContain('完成');
+    expect(rows[0]?.child('tool-state')?.textContent).toContain('1.2s');
+  });
+
+  it('shows a failed call as failed, with the error available on hover', async () => {
+    const { traceBody } = lastTurn(
+      await runTurn([
+        { type: 'tool_call', callId: 'c1', name: 'edit_file', displayable: true, summary: '修改 src/a.ts' },
+        {
+          type: 'tool_result',
+          callId: 'c1',
+          name: 'edit_file',
+          ok: false,
+          durationMs: 20,
+          summary: 'old_string 不唯一',
+          error: 'old_string appears 2 times',
+        },
+        { type: 'completed', text: '没改成。', conversationId: 'c1', messageId: 'm1' },
+      ]),
+    );
+
+    const rows = traceBody?.find((node) => node.classList.contains('tool-row')) ?? [];
+    expect(rows[0]?.dataset.state).toBe('error');
+    expect(rows[0]?.child('tool-state')?.textContent).toContain('失败');
+    expect(rows[0]?.title).toBe('old_string appears 2 times');
+  });
+
+  it('does not appear when the turn called no tools', async () => {
+    const { trace } = lastTurn(await runTurn(THINKING_TURN));
+    expect(trace).toBeUndefined();
+  });
+
+  it('reports a turned-off step cap without throwing the partial reply away', async () => {
+    const { note, reply } = lastTurn(
+      await runTurn([
+        { type: 'loop_exhausted', steps: 12 },
+        { type: 'completed', text: '做到一半。', conversationId: 'c1', messageId: 'm1' },
+      ]),
+    );
+
+    expect(note?.textContent).toContain('12 步');
+    expect(reply?.textContent).toBe('做到一半。');
   });
 });
 

@@ -607,6 +607,62 @@
     animation: caret 1s step-end infinite;
   }
 
+  /* ---------------------------------------------------------- tool trace ---
+     The half of a coding turn the model does not narrate. A row per call, with
+     the path/command from the server's summary and the outcome once it lands;
+     no tool output, because the reply is where the result belongs. */
+  .tool-trace {
+    margin: 0 0 11px;
+    border: 1px solid var(--line); border-radius: 12px;
+    background: var(--surface); overflow: hidden;
+    box-shadow: var(--shadow-xs);
+  }
+  .tool-trace-head {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 7px 10px;
+    border: 0; background: transparent; cursor: pointer;
+    color: var(--muted); font-size: 11px; text-align: left;
+    transition: background .14s ease, color .14s ease;
+  }
+  .tool-trace-head:hover { background: var(--surface-2); color: var(--ink-2); }
+  .tool-trace-head .tool-trace-label { flex: 1; }
+  .tool-trace-head .tool-trace-count {
+    min-width: 18px; padding: 1px 6px;
+    border-radius: 999px; background: var(--surface-2);
+    color: var(--faint); font-size: 10px; text-align: center;
+  }
+  .tool-trace-head .chev {
+    width: 5px; height: 5px; margin-top: -2px;
+    border-right: 1.3px solid currentColor; border-bottom: 1.3px solid currentColor;
+    transform: rotate(45deg); transition: transform .18s ease;
+  }
+  .tool-trace[data-open="true"] .tool-trace-head .chev { margin-top: 3px; transform: rotate(-135deg); }
+  .tool-trace[data-open="false"] .tool-trace-body { display: none; }
+  .tool-trace-body {
+    display: flex; flex-direction: column; gap: 1px;
+    padding: 4px 5px 5px;
+    border-top: 1px solid var(--line);
+    max-height: 220px; overflow-y: auto; overscroll-behavior: contain;
+  }
+  .tool-row {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 5px 6px; border-radius: 8px;
+    font-size: 12px; line-height: 1.5;
+  }
+  .tool-row:hover { background: var(--surface-2); }
+  .tool-row .tool-name {
+    flex: 0 0 auto; color: var(--ink-2); font-weight: 500;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 11px;
+  }
+  .tool-row .tool-summary {
+    flex: 1; min-width: 0; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tool-row .tool-state { flex: 0 0 auto; color: var(--faint); font-size: 10.5px; }
+  .tool-row[data-state="ok"] .tool-state { color: var(--accent-strong); }
+  .tool-row[data-state="error"] .tool-state { color: var(--danger); }
+
   .dots { display: inline-flex; align-items: center; gap: 5px; padding: 7px 1px; }
   .dots span {
     width: 5px; height: 5px; border-radius: 50%; background: var(--muted);
@@ -1261,6 +1317,81 @@ function addThinking(bubble) {
   };
 }
 
+/**
+ * The tool trace.
+ *
+ * A coding turn is mostly actions the model does not put into prose: which file
+ * it read, what it ran, whether it worked. The server sends a one-line summary
+ * and a duration, never the tool output — the reply is where the result belongs,
+ * and a trace that repeated a file's contents would double the thing the person
+ * is trying to read.
+ */
+function addToolTrace(bubble) {
+  const box = el('div', 'tool-trace');
+  box.dataset.open = 'true';
+
+  const label = el('span', 'tool-trace-label', '工具');
+  const count = el('span', 'tool-trace-count', '0');
+  const head = el('button', 'tool-trace-head');
+  head.type = 'button';
+  head.setAttribute('aria-expanded', 'true');
+  head.append(label, count, el('span', 'chev'));
+
+  const body = el('div', 'tool-trace-body');
+  box.append(head, body);
+
+  // Keep the trace after the reasoning block, above the reply text: it is
+  // context for the answer, not part of it.
+  const thinkingNode = bubble.querySelector('.thinking');
+  if (thinkingNode) thinkingNode.after(box);
+  else bubble.prepend(box);
+
+  let open = true;
+  head.onclick = () => {
+    open = !open;
+    box.dataset.open = String(open);
+    head.setAttribute('aria-expanded', String(open));
+  };
+
+  const rows = new Map();
+  let total = 0;
+
+  return {
+    call(event) {
+      const row = el('div', 'tool-row');
+      row.dataset.state = 'running';
+      row.dataset.callId = event.callId;
+      const summary = el('span', 'tool-summary', event.summary || '');
+      const state = el('span', 'tool-state', '运行中');
+      row.append(el('span', 'tool-name', event.name), summary, state);
+      body.append(row);
+      rows.set(event.callId, { row, summary, state });
+      total += 1;
+      count.textContent = String(total);
+      body.scrollTop = body.scrollHeight;
+    },
+    resolve(event) {
+      const entry = rows.get(event.callId);
+      if (!entry) return;
+      entry.row.dataset.state = event.ok ? 'ok' : 'error';
+      if (event.summary) entry.summary.textContent = event.summary;
+      const duration =
+        typeof event.durationMs === 'number'
+          ? ` · ${(event.durationMs / 1000).toFixed(1)}s`
+          : '';
+      entry.state.textContent = `${event.ok ? '完成' : '失败'}${duration}`;
+      if (!event.ok && event.error) entry.row.title = event.error;
+    },
+    finish() {
+      for (const entry of rows.values()) {
+        if (entry.row.dataset.state !== 'running') continue;
+        entry.row.dataset.state = 'ok';
+        entry.state.textContent = '完成';
+      }
+    },
+  };
+}
+
 function scrollToEnd() {
   transcript.scrollTop = transcript.scrollHeight;
 }
@@ -1331,10 +1462,10 @@ async function send(text) {
   body.dataset.streaming = 'true';
 
   let thinking = null;
+  let trace = null;
   let reply = '';
   let messageId = null;
   let risk = 'none';
-  let toolNote = '';
 
   /** Drop the placeholder the moment there is anything real to show. */
   const settled = () => {
@@ -1376,6 +1507,7 @@ async function send(text) {
         risk = event.level;
         if (event.replaced) notice('这一轮触发了安全回应。如果你现在很危险，请打 120 或 110。');
       } else if (event.type === 'completed') {
+        trace?.finish();
         reply = event.text;
         body.textContent = reply;
         // Only when the server names one: a turn that was not persisted reports
@@ -1392,17 +1524,21 @@ async function send(text) {
       } else if (event.type === 'error') {
         throw new Error(event.message);
       } else if (event.type === 'tool_call') {
-        note.textContent = '（回想中…）';
-        toolNote = '（回想中…）';
+        settled();
+        trace ??= addToolTrace(bubble);
+        trace.call(event);
+      } else if (event.type === 'tool_result') {
+        trace?.resolve(event);
+      } else if (event.type === 'loop_exhausted') {
+        note.textContent = `达到 ${event.steps} 步工具上限`;
       }
     }
 
-    // A tool note is transient: it described the moment, not the turn.
-    if (note.textContent === toolNote) note.textContent = '';
     if (messageId) addFeedback(actions, messageId);
   } catch (error) {
     // A half-shown thought with no ending is worse than none; close it.
     thinking?.abort();
+    trace?.finish();
     settled();
     body.textContent = '';
     body.append(el('span', null, `出错了：${error.message}`));

@@ -36,7 +36,13 @@ import {
   type AgentOptions,
   type ConversationTurn,
 } from '../agent/infp-agent.ts';
-import { createMemoryTools } from '../agent/tools.ts';
+import { createMemoryTools } from '../tools/memory.ts';
+import { codingTools } from '../tools/coding/index.ts';
+import { ToolRegistry } from '../tools/registry.ts';
+import { DEFAULT_TOOL_POLICY } from '../tools/types.ts';
+import type { ToolPolicy } from '../tools/types.ts';
+import type { Workspace } from '../tools/workspace.ts';
+import { describePolicy } from '../tools/policy.ts';
 import { PROMPT_VERSION } from '../agent/instructions.ts';
 import { buildRuntimeContext } from '../agent/runtime-context.ts';
 import { COMPANION_MODEL } from '../agent/model-client.ts';
@@ -73,6 +79,18 @@ export interface TurnDependencies {
    * vendor SDK directly.
    */
   readonly modelProvider?: AgentOptions['modelProvider'];
+  /**
+   * The sandboxed working tree, when one is configured.
+   *
+   * Null means no file tools at all. The evaluation runner and tests leave it
+   * unset; production passes the process-level workspace, because a path that
+   * arrives on a chat request would let the model choose its own sandbox.
+   */
+  readonly workspace?: Workspace | null;
+  /** Write/command permissions for this process. Fail-closed defaults. */
+  readonly toolPolicy?: ToolPolicy;
+  /** Model/tool step cap for one turn. */
+  readonly maxSteps?: number;
   /**
    * Injectable so tests and the evaluation replay mode can drive the whole turn
    * — retrieval, safety, persistence and all — without a model call.
@@ -197,14 +215,25 @@ export async function* runTurn(
     )
     .map((entry) => ({ role: entry.role, content: entry.content }));
 
-  const agentOptions: AgentOptions = {
-    tools: createMemoryTools({
+  const policy = deps.toolPolicy ?? DEFAULT_TOOL_POLICY;
+  const toolRegistry = new ToolRegistry(
+    createMemoryTools({
       store: deps.store,
       userId: request.userId,
       sourceMessageId: userMessageId,
       now,
     }),
+  );
+  if (deps.workspace) toolRegistry.registerAll(codingTools);
+
+  const agentOptions: AgentOptions = {
+    tools: toolRegistry,
+    policy,
+    workspace: deps.workspace ?? null,
     model: conversation.modelId ?? COMPANION_MODEL,
+    ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
+    ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
+    now,
   };
   const agent = createCompanionAgent(agentOptions);
   const runtimeContext = buildRuntimeContext({
@@ -212,6 +241,8 @@ export async function* runTurn(
     narrativeBlock: context.narrativeBlock,
     archivedSummaryBlock: replay.summary ? renderArchivedSummary(replay.summary) : null,
     situationBlock: context.situationBlock,
+    ...(deps.workspace ? { workspaceBlock: workspaceBlock(deps.workspace, policy) } : {}),
+    toolGuidelines: toolRegistry.guidelines(),
     memoryBlock: context.memoryBlock,
     safetyDirective: safetyDirectiveFor(riskLevel),
   });
@@ -225,7 +256,6 @@ export async function* runTurn(
   for await (const event of runner(agent, message, {
     signal: request.signal,
     history,
-    tools: agentOptions.tools,
     context: runtimeContext,
     ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
   })) {
@@ -385,4 +415,23 @@ export async function collectTurn(
   }
 
   return { reply, events, riskLevel };
+}
+
+
+/**
+ * The per-turn statement of the sandbox.
+ *
+ * The stable prompt says how to behave around code; this block says where the
+ * code is and what the process currently allows. It sits in the trailing
+ * context, so changing a permission does not invalidate the cached prompt and
+ * history — and the model cannot infer a permission it was not given.
+ */
+function workspaceBlock(workspace: Workspace, policy: ToolPolicy): string {
+  return [
+    '# 工作目录',
+    `你现在可以在一个项目目录里工作：${workspace.root}`,
+    `当前权限：${describePolicy(policy)}。`,
+    '所有路径都相对于这个目录；不要使用绝对路径，也不要尝试访问目录之外的文件。',
+    '看到"文件写入未开启"或"命令未开启"时，不要重试，直接告诉用户需要在服务端开启对应权限。',
+  ].join('\n');
 }

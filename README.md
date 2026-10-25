@@ -32,7 +32,40 @@ curl http://127.0.0.1:8787/health
 - **会话连续性。** 历史持久化；接近上下文预算时压缩成结构化 checkpoint，原始消息不删除。
 - **安全边界。** 高风险轮次先缓冲、先检查，再渲染回复。
 - **可换模型/provider。** 模型能力、会话预算和 provider 连接分开；每个会话可以 pin 一个模型。
+- **可选的工作目录。** 配置 `WORKSPACE_ROOT` 后，它会读文件、搜索、改文件、跑测试；不配置时这一层完全不存在。
 - **前缀缓存友好。** 稳定提示词和历史在前，每轮变化的背景放在请求尾部。
+
+## 让它碰代码
+
+默认状态下它没有文件能力。要给它一个工作目录：
+
+```bash
+WORKSPACE_ROOT=/Users/you/Projects/your-repo npm run dev
+```
+
+这时它多了七个工具：`read_file` / `list_dir` / `glob` / `grep` 是只读的，
+`write_file` / `edit_file` / `run_command` 需要显式开启：
+
+```bash
+WORKSPACE_ROOT=/Users/you/Projects/your-repo \
+WORKSPACE_WRITES=1 \
+WORKSPACE_COMMANDS=1 \
+npm run dev
+```
+
+三件事值得知道：
+
+- **路径被限制在 `WORKSPACE_ROOT` 里。** 绝对路径、`..`、以及指向目录外的
+  symlink 都会被拒绝。凭据文件（`.env`、`*.pem`、`id_rsa` 等）默认既不读也不写。
+- **写入和命令是两个独立开关，默认都关。** 想让 agent 看代码，不等于允许它改
+  文件，更不等于允许它跑 `npm install`。拒绝会作为工具结果告诉模型，它应当停下来
+  而不是换条路重试。
+- **命令不是进程沙箱。** `run_command` 用真实 shell 和真实环境跑，只能靠
+  `WORKSPACE_COMMANDS` 决定开不开。它适合自己的机器，不适合一个不受信任的仓库。
+
+模型/工具一轮最多走 `AGENT_MAX_STEPS` 步（默认 12）。每读一次文件，内容只会进一次
+上下文；同一段再读会收到指针。工具调用和结果会作为可折叠的 trace 出现在回复上方，
+但完整工具输出不会上屏——回复才是结果该在的地方。
 
 ## 快速看架构
 
@@ -101,7 +134,7 @@ npm run eval:replay
 ## 文档
 
 - [为什么做 Eunoia](docs/story.md)
-- [ADR](docs/adr/)：一个 Agent、记忆模型、事件边界、安全缓冲、提示词文档、保留与删除
+- [ADR](docs/adr/)：一个 Agent、记忆模型、事件边界、安全缓冲、提示词文档、保留与删除、工具与 Agent loop
 - [重构计划](docs/REFACTORING_PLAN.md)
 - [实现计划](docs/implementation-plan.md)
 - [当前环境](CURRENT_STACK.md)

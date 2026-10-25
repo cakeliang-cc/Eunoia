@@ -61,6 +61,12 @@ export interface ToolCallEvent {
    * exists so a future tool with sensitive arguments is not leaked by default.
    */
   readonly displayable: boolean;
+  /**
+   * One line for the trace: a path and a line range, a command, a search term.
+   * Never the tool's arguments or output — a path is what a person needs to
+   * recognise a step, and file content has already had one life in the model.
+   */
+  readonly summary?: string;
 }
 
 /** A tool call finished. */
@@ -69,6 +75,24 @@ export interface ToolResultEvent {
   readonly callId: string;
   readonly name: string;
   readonly ok: boolean;
+  readonly durationMs?: number;
+  /** A one-line outcome for the trace, not the result body. */
+  readonly summary?: string;
+  /** Present when `ok` is false; bounded by the tool, never a stack trace. */
+  readonly error?: string;
+}
+
+/**
+ * The loop hit its step cap without a final answer.
+ *
+ * This is not an error: everything the model did is still a valid partial turn,
+ * and stopping is the safety property. It is a separate event so a client can
+ * say "stopped after N steps" without the turn being marked failed and without
+ * the reply being thrown away.
+ */
+export interface LoopExhaustedEvent {
+  readonly type: 'loop_exhausted';
+  readonly steps: number;
 }
 
 /**
@@ -128,6 +152,7 @@ export type AgentEvent =
   | ThinkingDoneEvent
   | ToolCallEvent
   | ToolResultEvent
+  | LoopExhaustedEvent
   | MemoryRetrievedEvent
   | SafetyNoticeEvent
   | CompletedEvent

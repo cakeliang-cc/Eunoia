@@ -16,6 +16,8 @@ export interface RuntimeContextOptions {
   readonly narrativeBlock?: string | null;
   readonly archivedSummaryBlock?: string | null;
   readonly situationBlock?: string | null;
+  readonly workspaceBlock?: string | null;
+  readonly toolGuidelines?: string | null;
   readonly memoryBlock?: string | null;
   readonly safetyDirective?: string | null;
 }
@@ -32,6 +34,7 @@ export function buildRuntimeContext(options: RuntimeContextOptions = {}): string
     options.narrativeBlock?.trim(),
     options.archivedSummaryBlock?.trim(),
     options.situationBlock?.trim(),
+    options.workspaceBlock?.trim(),
     options.memoryBlock?.trim(),
   ].filter((section): section is string => Boolean(section));
 
@@ -45,6 +48,11 @@ export function buildRuntimeContext(options: RuntimeContextOptions = {}): string
         background.join('\n\n'),
       ].join('\n'),
     );
+  }
+
+  const guidelines = options.toolGuidelines?.trim();
+  if (guidelines) {
+    blocks.push(['# 工具使用', guidelines].join('\n\n'));
   }
 
   const directive = options.safetyDirective?.trim();

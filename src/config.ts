@@ -52,3 +52,52 @@ export function resolveApiKey(env: NodeJS.ProcessEnv = process.env): string {
   }
   return key;
 }
+
+/**
+ * The working tree the agent may read, and what it may do there.
+ *
+ * This is process configuration, never a request field: a path that arrives on
+ * a chat request would let the model choose its own sandbox. `null` means no
+ * file tools at all, which is the default and the safe state.
+ *
+ * Writes and commands are separate flags with the same default (off). The usual
+ * mistake is to treat "the workspace is configured" as consent for everything;
+ * a person who wants the agent to read a repository has not thereby agreed to
+ * let it run `npm install`.
+ */
+export interface WorkspaceConfig {
+  readonly root: string;
+  readonly writes: boolean;
+  readonly commands: boolean;
+  readonly ignore: readonly string[];
+  readonly allowSensitive: boolean;
+}
+
+/** Parse a boolean-ish environment value, defaulting to false. */
+export function envFlag(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+/** Read the workspace configuration, or null when none is configured. */
+export function workspaceConfig(env: NodeJS.ProcessEnv = process.env): WorkspaceConfig | null {
+  const root = env.WORKSPACE_ROOT?.trim();
+  if (!root) return null;
+  return {
+    root,
+    writes: envFlag(env.WORKSPACE_WRITES),
+    commands: envFlag(env.WORKSPACE_COMMANDS),
+    ignore: (env.WORKSPACE_IGNORE ?? '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0),
+    allowSensitive: envFlag(env.WORKSPACE_ALLOW_SENSITIVE),
+  };
+}
+
+/** The per-turn tool-step cap. Bounded, because this is a runaway guard. */
+export function agentMaxSteps(env: NodeJS.ProcessEnv = process.env): number {
+  const parsed = Number.parseInt(env.AGENT_MAX_STEPS ?? '', 10);
+  if (!Number.isFinite(parsed)) return 12;
+  return Math.min(Math.max(parsed, 1), 50);
+}

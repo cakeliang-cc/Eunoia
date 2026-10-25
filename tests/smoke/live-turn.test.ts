@@ -27,6 +27,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentEvent } from '../../src/agent/events.ts';
 import { buildRunInput, createCompanionAgent, streamReply } from '../../src/agent/infp-agent.ts';
 import { installProvider } from '../../src/agent/model-client.ts';
+import { installTracing } from '../../src/observability/tracing.ts';
 
 const enabled = process.env.RUN_SMOKE === '1';
 
@@ -48,6 +49,7 @@ describe.skipIf(!enabled)('live smoke turn', () => {
     'streams a reply and terminates with a completed event',
     async () => {
       installProvider();
+      installTracing();
       const agent = createCompanionAgent();
 
       const events: AgentEvent[] = [];
@@ -74,6 +76,7 @@ describe.skipIf(!enabled)('live smoke turn', () => {
       // reply still completed and every offline test stayed green: the only
       // symptom was a person watching a static "…" for twelve seconds.
       installProvider();
+      installTracing();
       const agent = createCompanionAgent();
 
       const events: AgentEvent[] = [];
@@ -111,6 +114,7 @@ describe.skipIf(!enabled)('live smoke turn', () => {
       // shape is wrong the provider rejects the whole request, so a passing run
       // here is the assertion.
       installProvider();
+      installTracing();
       const agent = createCompanionAgent();
 
       const input = buildRunInput('那我应该怎么办？', [
@@ -146,6 +150,7 @@ describe.skipIf(!enabled)('live smoke turn', () => {
       // and the store. This is the only test that exercises the agent and the
       // database in the same breath.
       installProvider();
+      installTracing();
       const { InMemoryStore } = await import('../../src/db/in-memory-store.ts');
       const { collectTurn } = await import('../../src/service/chat.ts');
 

@@ -36,6 +36,10 @@ import { defaultModelProfile, isKnownModelId, summaryModelProfile } from '../mod
 import { providerFor } from '../provider/index.ts';
 import { runTurn, type TurnRunner } from '../service/chat.ts';
 import { selectStore } from '../db/pool.ts';
+import { agentMaxSteps, workspaceConfig } from '../config.ts';
+import { DEFAULT_TOOL_POLICY } from '../tools/types.ts';
+import type { ToolPolicy } from '../tools/types.ts';
+import { Workspace } from '../tools/workspace.ts';
 import { clearIdentity, readIdentity, resolveIdentity, singleUserId } from './identity.ts';
 import { pipeEventsAsSse } from './sse.ts';
 
@@ -227,6 +231,17 @@ export interface AppDependencies {
   /** Explicit provider for the companion run; supplied by the composition root. */
   readonly modelProvider?: AgentOptions['modelProvider'];
   /**
+   * The sandboxed working tree, when one is configured.
+   *
+   * Supplied by the composition root, never by a request. Null means no file
+   * tools at all; the memory tools still work.
+   */
+  readonly workspace?: Workspace | null;
+  /** Write/command permissions; fail-closed defaults when omitted. */
+  readonly toolPolicy?: ToolPolicy;
+  /** Per-turn model/tool step cap. */
+  readonly maxSteps?: number;
+  /**
    * Injected so the routes can be tested over real HTTP without a model call.
    * Production leaves it unset and `runTurn` uses the real runner.
    */
@@ -290,7 +305,15 @@ export function createApp(deps: AppDependencies) {
 
     await pipeEventsAsSse(
       runTurn(
-        { store, session: sessions, modelProvider: deps.modelProvider, runner: deps.runner },
+        {
+          store,
+          session: sessions,
+          modelProvider: deps.modelProvider,
+          runner: deps.runner,
+          ...(deps.workspace ? { workspace: deps.workspace } : {}),
+          ...(deps.toolPolicy ? { toolPolicy: deps.toolPolicy } : {}),
+          ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
+        },
         {
           userId,
           conversationId: parsed.conversationId,
@@ -321,6 +344,10 @@ export function createApp(deps: AppDependencies) {
         store: deps.storeKind ?? 'unknown',
         persistent: deps.storeKind === 'postgres',
         single_user: singleUserId() !== null,
+        workspace: deps.workspace?.root ?? null,
+        workspace_writes: deps.toolPolicy?.allowWorkspaceWrites ?? false,
+        workspace_commands: deps.toolPolicy?.allowCommands ?? false,
+        max_steps: deps.maxSteps ?? agentMaxSteps(),
       });
       return true;
     }
@@ -658,11 +685,39 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     token_estimator: config.tokenEstimator,
   });
 
+  const workspaceSettings = workspaceConfig();
+  const workspace = workspaceSettings
+    ? new Workspace({
+        root: workspaceSettings.root,
+        ignore: workspaceSettings.ignore,
+        allowSensitive: workspaceSettings.allowSensitive,
+      })
+    : null;
+  const toolPolicy: ToolPolicy = workspace
+    ? {
+        ...DEFAULT_TOOL_POLICY,
+        allowWorkspaceWrites: workspaceSettings?.writes ?? false,
+        allowCommands: workspaceSettings?.commands ?? false,
+      }
+    : DEFAULT_TOOL_POLICY;
+  const maxSteps = agentMaxSteps();
+  if (workspace) {
+    log.info('server.workspace', {
+      root: workspace.root,
+      writes: toolPolicy.allowWorkspaceWrites,
+      commands: toolPolicy.allowCommands,
+      allow_sensitive: workspaceSettings?.allowSensitive ?? false,
+    });
+  }
+
   const server = createApp({
     store,
     sessions,
     storeKind: kind,
     modelProvider,
+    workspace,
+    toolPolicy,
+    maxSteps,
   });
 
   server.on('close', () => {
