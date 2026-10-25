@@ -145,7 +145,47 @@ export interface HistoryStats {
   readonly lastAt: Date | null;
 }
 
+export interface ConversationListOptions {
+  /** Active rows only unless the caller explicitly asks to see the archive. */
+  readonly includeArchived?: boolean;
+  readonly limit?: number;
+}
+
+export interface ConversationPatch {
+  /** `null` clears the name; the list then falls back to its unnamed label. */
+  readonly title?: string | null;
+  readonly archived?: boolean;
+}
+
 export interface ConversationStore {
+  /** Create an empty conversation. The first message is not required to exist. */
+  createConversation(userId: string, title?: string | null): Promise<Conversation>;
+
+  /** Read one conversation owned by this user, or null. */
+  getConversation(userId: string, conversationId: string): Promise<Conversation | null>;
+
+  /**
+   * Rename or archive in one statement.
+   *
+   * Returns null when the id does not exist *for this user*. That is the same
+   * answer as a nonexistent id on purpose: telling the two apart would leak
+   * whether somebody else's conversation exists.
+   */
+  updateConversation(
+    userId: string,
+    conversationId: string,
+    patch: ConversationPatch,
+  ): Promise<Conversation | null>;
+
+  /**
+   * Permanently remove a conversation and its messages.
+   *
+   * `messages` cascades; `agent_runs.conversation_id` and
+   * `memories.source_message_id` are `ON DELETE SET NULL`, so the measurement
+   * and the memory survive without pointing at a row that is gone.
+   */
+  deleteConversation(userId: string, conversationId: string): Promise<boolean>;
+
   ensureConversation(userId: string, conversationId?: string | null): Promise<Conversation>;
 
   /**
@@ -175,7 +215,10 @@ export interface ConversationStore {
     content: string;
   }): Promise<Message>;
   recentMessages(conversationId: string, limit: number): Promise<Message[]>;
-  listConversations(userId: string, limit?: number): Promise<Conversation[]>;
+  listConversations(
+    userId: string,
+    options?: ConversationListOptions,
+  ): Promise<Conversation[]>;
   listMessages(userId: string, conversationId: string, limit?: number): Promise<Message[]>;
 }
 

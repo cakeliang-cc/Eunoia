@@ -381,6 +381,148 @@ describe('POST /api/chat', () => {
   });
 });
 
+describe('conversation lifecycle', () => {
+  it('creates, reads, renames, archives, restores and deletes', async () => {
+    const cookie = await newIdentity();
+    const userId = cookie.split('=')[1] as string;
+
+    const created = await api('/api/conversations', {
+      method: 'POST',
+      cookie,
+      body: JSON.stringify({ title: '  面试复盘  ' }),
+    });
+    expect(created.status).toBe(201);
+    const id = created.body.conversation.id as string;
+    expect(created.body.conversation.title).toBe('面试复盘');
+    expect(created.body.conversation.archivedAt).toBeNull();
+
+    const read = await api(`/api/conversations/${id}`, { cookie });
+    expect(read.status).toBe(200);
+    expect(read.body.conversation.id).toBe(id);
+
+    const renamed = await api(`/api/conversations/${id}`, {
+      method: 'PATCH',
+      cookie,
+      body: JSON.stringify({ title: '  换一个名字  ' }),
+    });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.conversation.title).toBe('换一个名字');
+
+    const archived = await api(`/api/conversations/${id}`, {
+      method: 'PATCH',
+      cookie,
+      body: JSON.stringify({ archived: true }),
+    });
+    expect(archived.status).toBe(200);
+    expect(archived.body.conversation.archivedAt).toBeTruthy();
+
+    // Archived is hidden from the ordinary list, not deleted.
+    const active = await api('/api/conversations', { cookie });
+    expect(active.body.conversations.map((row: { id: string }) => row.id)).not.toContain(id);
+    const all = await api('/api/conversations?includeArchived=1', { cookie });
+    expect(all.body.conversations.map((row: { id: string }) => row.id)).toContain(id);
+
+    const restored = await api(`/api/conversations/${id}`, {
+      method: 'PATCH',
+      cookie,
+      body: JSON.stringify({ archived: false }),
+    });
+    expect(restored.body.conversation.archivedAt).toBeNull();
+
+    const deleted = await api(`/api/conversations/${id}`, { method: 'DELETE', cookie });
+    expect(deleted.status).toBe(200);
+    expect(deleted.body.deleted).toBe(id);
+    expect(await store.getConversation(userId, id)).toBeNull();
+    expect((await api(`/api/conversations/${id}/messages`, { cookie })).status).toBe(404);
+  });
+
+  it('creates an empty conversation without a title', async () => {
+    const cookie = await newIdentity();
+    const { status, body } = await api('/api/conversations', { method: 'POST', cookie });
+    expect(status).toBe(201);
+    expect(body.conversation.title).toBeNull();
+    expect(body.conversation.turnCount).toBe(0);
+  });
+
+  it('deletes the messages with the conversation', async () => {
+    const { frames, cookie } = await chat('在吗');
+    const conversationId = frames.at(-1)?.data.conversationId as string;
+    const userId = cookie.split('=')[1] as string;
+    expect(await store.listMessages(userId, conversationId)).toHaveLength(2);
+
+    await api(`/api/conversations/${conversationId}`, { method: 'DELETE', cookie });
+
+    expect(await store.getConversation(userId, conversationId)).toBeNull();
+    expect(await store.listMessages(userId, conversationId)).toEqual([]);
+  });
+
+  it('does not let one user read, rename or delete another user\'s conversation', async () => {
+    const alice = await newIdentity();
+    const bob = await newIdentity();
+    const created = await api('/api/conversations', {
+      method: 'POST',
+      cookie: alice,
+      body: JSON.stringify({ title: 'Alice 的对话' }),
+    });
+    const id = created.body.conversation.id as string;
+
+    expect((await api(`/api/conversations/${id}`, { cookie: bob })).status).toBe(404);
+    expect(
+      (
+        await api(`/api/conversations/${id}`, {
+          method: 'PATCH',
+          cookie: bob,
+          body: JSON.stringify({ title: '不是你的' }),
+        })
+      ).status,
+    ).toBe(404);
+    expect((await api(`/api/conversations/${id}`, { method: 'DELETE', cookie: bob })).status).toBe(
+      404,
+    );
+
+    const stillThere = await api(`/api/conversations/${id}`, { cookie: alice });
+    expect(stillThere.status).toBe(200);
+    expect(stillThere.body.conversation.title).toBe('Alice 的对话');
+  });
+
+  it('rejects malformed lifecycle bodies', async () => {
+    const cookie = await newIdentity();
+    const created = await api('/api/conversations', { method: 'POST', cookie });
+    const id = created.body.conversation.id as string;
+
+    expect(
+      (
+        await api('/api/conversations', {
+          method: 'POST',
+          cookie,
+          body: JSON.stringify({ archived: true }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await api('/api/conversations', {
+          method: 'POST',
+          cookie,
+          body: JSON.stringify({ title: 'x'.repeat(81) }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (await api(`/api/conversations/${id}`, { method: 'PATCH', cookie, body: '{}' })).status,
+    ).toBe(400);
+    expect(
+      (
+        await api(`/api/conversations/${id}`, {
+          method: 'PATCH',
+          cookie,
+          body: JSON.stringify({ archived: 'yes' }),
+        })
+      ).status,
+    ).toBe(400);
+  });
+});
+
 describe('the memory endpoints', () => {
   it('lists memories and whether retrieval is on', async () => {
     const cookie = await newIdentity();

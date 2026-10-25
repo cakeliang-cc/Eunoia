@@ -527,6 +527,10 @@ describe('the conversation list', () => {
     return harness.element('history-list').find((node) => node.classList.contains('thread'));
   }
 
+  function actionsFor(thread: El): El[] {
+    return thread.parent?.find((node) => node.classList.contains('thread-actions'))[0]?.children ?? [];
+  }
+
   it('lists every conversation and marks the one that is open', async () => {
     const rows = await openList(listRoutes(), 'c1');
 
@@ -601,6 +605,69 @@ describe('the conversation list', () => {
     expect(harness.element('history-list').child('empty-note')?.textContent).toBe(
       '读不到历史对话。',
     );
+  });
+
+  it('renames a conversation from its row', async () => {
+    const harness = await boot({
+      routes: listRoutes({
+        'PATCH /api/conversations/c2': {
+          json: { conversation: { id: 'c2', title: '新名字' } },
+        },
+      }),
+    });
+    harness.element('history-toggle').onclick?.();
+    await harness.settle();
+
+    const thread = harness.element('history-list').find((node) =>
+      node.classList.contains('thread'),
+    )[0];
+    actionsFor(thread as El)[0]?.onclick?.();
+    await harness.settle();
+
+    const editor = (thread as El).parent?.child('thread-rename');
+    const field = editor?.children[0];
+    const save = editor?.children[1];
+    if (!field || !save) throw new Error('the rename editor was not rendered');
+
+    field.value = '新名字';
+    save.onclick?.();
+    await harness.settle();
+
+    expect(lastRequest(harness, '/api/conversations/c2')?.body).toEqual({ title: '新名字' });
+  });
+
+  it('deletes a conversation only on the second click', async () => {
+    const harness = await boot({
+      routes: listRoutes({ 'DELETE /api/conversations/c2': { json: { deleted: 'c2' } } }),
+    });
+    harness.element('history-toggle').onclick?.();
+    await harness.settle();
+
+    const thread = harness.element('history-list').find((node) =>
+      node.classList.contains('thread'),
+    )[0];
+    const remove = actionsFor(thread as El)[2];
+    if (!remove) throw new Error('the delete action was not rendered');
+
+    remove.onclick?.();
+    await harness.settle();
+    expect(harness.requests.some((request) => request.method === 'DELETE')).toBe(false);
+    expect(remove.textContent).toBe('确认删除');
+
+    remove.onclick?.();
+    await harness.settle();
+    expect(lastRequest(harness, '/api/conversations/c2')?.method).toBe('DELETE');
+  });
+
+  it('asks for the archive only when the toggle is on', async () => {
+    const harness = await boot({ routes: listRoutes() });
+    harness.element('history-toggle').onclick?.();
+    await harness.settle();
+
+    harness.element('history-archived').onclick?.();
+    await harness.settle();
+
+    expect(lastRequest(harness, '/api/conversations?includeArchived=1')?.method).toBe('GET');
   });
 });
 

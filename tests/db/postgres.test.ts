@@ -342,6 +342,78 @@ describe.skipIf(!enabled)('PostgresStore', () => {
     expect(await store.listMessages(bob, aliceConversation.id)).toEqual([]);
   });
 
+  it('creates, renames, archives and deletes a conversation', async () => {
+    const userId = await freshUser();
+    const created = await store.createConversation(userId, '面试复盘');
+    expect(created.title).toBe('面试复盘');
+    expect(created.archivedAt).toBeNull();
+
+    expect((await store.getConversation(userId, created.id))?.id).toBe(created.id);
+
+    const renamed = await store.updateConversation(userId, created.id, {
+      title: '换个名字',
+      archived: true,
+    });
+    expect(renamed?.title).toBe('换个名字');
+    expect(renamed?.archivedAt).toBeInstanceOf(Date);
+
+    // Clearing the name is a different parameter shape than setting it: a
+    // nullable `title = $3` must still be typed by the column, not guessed.
+    const cleared = await store.updateConversation(userId, created.id, { title: null });
+    expect(cleared?.title).toBeNull();
+
+    // Archived is hidden from the ordinary list, not deleted.
+    expect((await store.listConversations(userId)).map((row) => row.id)).not.toContain(
+      created.id,
+    );
+    expect(
+      (await store.listConversations(userId, { includeArchived: true })).map((row) => row.id),
+    ).toContain(created.id);
+
+    const restored = await store.updateConversation(userId, created.id, { archived: false });
+    expect(restored?.archivedAt).toBeNull();
+
+    await store.appendMessage({
+      conversationId: created.id,
+      userId,
+      role: 'user',
+      content: '继续',
+    });
+    expect((await store.getConversation(userId, created.id))?.turnCount).toBe(1);
+
+    expect(await store.deleteConversation(userId, created.id)).toBe(true);
+    expect(await store.getConversation(userId, created.id)).toBeNull();
+    expect(await store.listMessages(userId, created.id)).toEqual([]);
+  });
+
+  it('unarchives a conversation when a new message is written', async () => {
+    const userId = await freshUser();
+    const conversation = await store.createConversation(userId);
+    await store.updateConversation(userId, conversation.id, { archived: true });
+
+    await store.appendMessage({
+      conversationId: conversation.id,
+      userId,
+      role: 'user',
+      content: '还在吗',
+    });
+
+    expect((await store.getConversation(userId, conversation.id))?.archivedAt).toBeNull();
+  });
+
+  it('does not update or delete another user\'s conversation', async () => {
+    const alice = await freshUser();
+    const bob = await freshUser();
+    const conversation = await store.createConversation(alice, 'Alice 的对话');
+
+    expect(await store.getConversation(bob, conversation.id)).toBeNull();
+    expect(
+      await store.updateConversation(bob, conversation.id, { title: '不是你的' }),
+    ).toBeNull();
+    expect(await store.deleteConversation(bob, conversation.id)).toBe(false);
+    expect((await store.getConversation(alice, conversation.id))?.title).toBe('Alice 的对话');
+  });
+
   // -------------------------------------------------- preferences, feedback --
 
   it('round-trips a JSON preference', async () => {

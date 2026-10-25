@@ -80,6 +80,22 @@ SINGLE_USER_ID=00000000-0000-4000-8000-000000000001
 这不是认证：它假设这台机器只有一个使用者。要放到别人能访问的地方之前，仍然需要
 真正的登录和授权。
 
+## 会话生命周期
+
+会话可以被创建、改名、归档和删除。归档是可逆的，删除不是：
+
+| 方法 | 路径 | 作用 |
+|---|---|---|
+| `POST` | `/api/conversations` | 创建空会话，可选 `{ "title": "..." }` |
+| `GET` | `/api/conversations` | 列出活跃会话；`?includeArchived=1` 连归档一起 |
+| `GET` | `/api/conversations/:id` | 读一个会话 |
+| `PATCH` | `/api/conversations/:id` | `{ "title": "..." }` 改名，`{ "archived": true }` 归档/恢复 |
+| `DELETE` | `/api/conversations/:id` | 永久删除会话和它的消息 |
+
+归档只隐藏，不删消息；删除会级联 `messages`。`agent_runs.conversation_id` 和
+`memories.source_message_id` 是 `ON DELETE SET NULL`，所以观测记录和记忆不会因为
+删掉一段对话而消失。
+
 ## 命令
 
 | 命令 | 作用 |

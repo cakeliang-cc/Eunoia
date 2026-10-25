@@ -16,6 +16,8 @@
 
 import { randomUUID } from 'node:crypto';
 import type {
+  ConversationListOptions,
+  ConversationPatch,
   ConversationStore,
   MemoryListOptions,
   MemoryStore,
@@ -48,6 +50,7 @@ interface StoredConversation {
   startedAt: Date;
   lastTurnAt: Date | null;
   turnCount: number;
+  archivedAt: Date | null;
   messages: Message[];
 }
 
@@ -220,6 +223,48 @@ export class InMemoryStore implements Store {
 
   // ----------------------------------------------------- conversations -----
 
+  async createConversation(userId: string, title?: string | null): Promise<Conversation> {
+    const conversation: StoredConversation = {
+      id: randomUUID(),
+      userId,
+      title: title ?? null,
+      startedAt: new Date(),
+      lastTurnAt: null,
+      turnCount: 0,
+      archivedAt: null,
+      messages: [],
+    };
+    this.#conversations.set(conversation.id, conversation);
+    return conversation;
+  }
+
+  async getConversation(userId: string, conversationId: string): Promise<Conversation | null> {
+    const conversation = this.#conversations.get(conversationId);
+    return conversation && conversation.userId === userId ? conversation : null;
+  }
+
+  async updateConversation(
+    userId: string,
+    conversationId: string,
+    patch: ConversationPatch,
+  ): Promise<Conversation | null> {
+    const conversation = this.#conversations.get(conversationId);
+    if (!conversation || conversation.userId !== userId) return null;
+
+    if (patch.title !== undefined) conversation.title = patch.title;
+    if (patch.archived !== undefined) {
+      conversation.archivedAt = patch.archived ? new Date() : null;
+    }
+    return conversation;
+  }
+
+  async deleteConversation(userId: string, conversationId: string): Promise<boolean> {
+    const conversation = this.#conversations.get(conversationId);
+    if (!conversation || conversation.userId !== userId) return false;
+    this.#conversations.delete(conversationId);
+    return true;
+  }
+
   async ensureConversation(userId: string, conversationId?: string | null): Promise<Conversation> {
     const id = conversationId ?? randomUUID();
     const existing = this.#conversations.get(id);
@@ -232,6 +277,7 @@ export class InMemoryStore implements Store {
       startedAt: new Date(),
       lastTurnAt: null,
       turnCount: 0,
+      archivedAt: null,
       messages: [],
     };
     this.#conversations.set(id, conversation);
@@ -252,7 +298,9 @@ export class InMemoryStore implements Store {
     content: string;
   }): Promise<Message> {
     const conversation = this.#conversations.get(message.conversationId);
-    if (!conversation) throw new Error(`unknown conversation ${message.conversationId}`);
+    if (!conversation || conversation.userId !== message.userId) {
+      throw new Error(`unknown conversation ${message.conversationId} for this user`);
+    }
 
     const stored: Message = {
       id: randomUUID(),
@@ -265,6 +313,8 @@ export class InMemoryStore implements Store {
     conversation.messages.push(stored);
     if (message.role === 'user') conversation.turnCount += 1;
     conversation.lastTurnAt = stored.createdAt;
+    // Same rule as Postgres: writing into an archived thread resumes it.
+    conversation.archivedAt = null;
     return stored;
   }
 
@@ -294,10 +344,20 @@ export class InMemoryStore implements Store {
     };
   }
 
-  async listConversations(userId: string, limit = 30): Promise<Conversation[]> {
+  async listConversations(
+    userId: string,
+    options: ConversationListOptions = {},
+  ): Promise<Conversation[]> {
+    const limit = options.limit ?? 30;
     return [...this.#conversations.values()]
       .filter((conversation) => conversation.userId === userId)
-      .sort((a, b) => (b.lastTurnAt?.getTime() ?? 0) - (a.lastTurnAt?.getTime() ?? 0))
+      .filter((conversation) => options.includeArchived || conversation.archivedAt === null)
+      .sort((a, b) => {
+        // Active rows first, then archived; within each group, newest first.
+        const archived = Number(a.archivedAt !== null) - Number(b.archivedAt !== null);
+        if (archived !== 0) return archived;
+        return (b.lastTurnAt?.getTime() ?? 0) - (a.lastTurnAt?.getTime() ?? 0);
+      })
       .slice(0, limit);
   }
 

@@ -15,6 +15,8 @@
 import type { Pool, PoolClient } from 'pg';
 import type {
   AgentRunRecord,
+  ConversationListOptions,
+  ConversationPatch,
   EvaluationCaseRecord,
   EvaluationResultRecord,
   FeedbackRecord,
@@ -107,6 +109,7 @@ interface ConversationRow {
   started_at: Date;
   last_turn_at: Date | null;
   turn_count: number;
+  archived_at: Date | null;
 }
 
 function toConversation(row: ConversationRow): Conversation {
@@ -117,6 +120,7 @@ function toConversation(row: ConversationRow): Conversation {
     startedAt: row.started_at,
     lastTurnAt: row.last_turn_at,
     turnCount: Number(row.turn_count),
+    archivedAt: row.archived_at,
   };
 }
 
@@ -295,10 +299,65 @@ export class PostgresStore implements Store {
 
   // ------------------------------------------------------- conversations -----
 
+  async createConversation(userId: string, title?: string | null): Promise<Conversation> {
+    const { rows } = await this.#pool.query<ConversationRow>(
+      `INSERT INTO conversations (user_id, title)
+       VALUES ($1, $2)
+       RETURNING id, user_id, title, started_at, last_turn_at, turn_count, archived_at`,
+      [userId, title ?? null],
+    );
+    const row = rows[0];
+    if (!row) throw new Error('conversation insert produced no row');
+    return toConversation(row);
+  }
+
+  async getConversation(userId: string, conversationId: string): Promise<Conversation | null> {
+    const { rows } = await this.#pool.query<ConversationRow>(
+      `SELECT id, user_id, title, started_at, last_turn_at, turn_count, archived_at
+         FROM conversations WHERE id = $1 AND user_id = $2`,
+      [conversationId, userId],
+    );
+    return rows[0] ? toConversation(rows[0]) : null;
+  }
+
+  async updateConversation(
+    userId: string,
+    conversationId: string,
+    patch: ConversationPatch,
+  ): Promise<Conversation | null> {
+    const values: unknown[] = [conversationId, userId];
+    const sets: string[] = [];
+
+    if (patch.title !== undefined) {
+      values.push(patch.title);
+      sets.push(`title = $${values.length}`);
+    }
+    if (patch.archived !== undefined) {
+      sets.push(patch.archived ? 'archived_at = now()' : 'archived_at = NULL');
+    }
+    if (sets.length === 0) return this.getConversation(userId, conversationId);
+
+    const { rows } = await this.#pool.query<ConversationRow>(
+      `UPDATE conversations SET ${sets.join(', ')}
+        WHERE id = $1 AND user_id = $2
+        RETURNING id, user_id, title, started_at, last_turn_at, turn_count, archived_at`,
+      values,
+    );
+    return rows[0] ? toConversation(rows[0]) : null;
+  }
+
+  async deleteConversation(userId: string, conversationId: string): Promise<boolean> {
+    const result = await this.#pool.query(
+      `DELETE FROM conversations WHERE id = $1 AND user_id = $2`,
+      [conversationId, userId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async ensureConversation(userId: string, conversationId?: string | null): Promise<Conversation> {
     if (conversationId) {
       const existing = await this.#pool.query<ConversationRow>(
-        `SELECT id, user_id, title, started_at, last_turn_at, turn_count
+        `SELECT id, user_id, title, started_at, last_turn_at, turn_count, archived_at
            FROM conversations WHERE id = $1 AND user_id = $2`,
         [conversationId, userId],
       );
@@ -309,7 +368,7 @@ export class PostgresStore implements Store {
       `INSERT INTO conversations (user_id, id)
        VALUES ($1, COALESCE($2::uuid, gen_random_uuid()))
        ON CONFLICT (id) DO NOTHING
-       RETURNING id, user_id, title, started_at, last_turn_at, turn_count`,
+       RETURNING id, user_id, title, started_at, last_turn_at, turn_count, archived_at`,
       [userId, conversationId ?? null],
     );
     if (rows[0]) return toConversation(rows[0]);
@@ -325,7 +384,7 @@ export class PostgresStore implements Store {
      */
     const fresh = await this.#pool.query<ConversationRow>(
       `INSERT INTO conversations (user_id) VALUES ($1)
-       RETURNING id, user_id, title, started_at, last_turn_at, turn_count`,
+       RETURNING id, user_id, title, started_at, last_turn_at, turn_count, archived_at`,
       [userId],
     );
 
@@ -352,6 +411,18 @@ export class PostgresStore implements Store {
     try {
       await client.query('BEGIN');
 
+      // Lock and verify ownership before writing. The two foreign keys alone do
+      // not say that this message belongs to *this* conversation's owner, so a
+      // store caller with a mismatched pair used to be able to write a message
+      // under one person into another person's thread.
+      const owned = await client.query(
+        `SELECT 1 FROM conversations WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+        [message.conversationId, message.userId],
+      );
+      if (!owned.rows[0]) {
+        throw new Error(`unknown conversation ${message.conversationId} for this user`);
+      }
+
       const { rows } = await client.query<MessageRow>(
         `INSERT INTO messages (conversation_id, user_id, role, content, token_estimate)
          VALUES ($1, $2, $3, $4, $5)
@@ -368,6 +439,10 @@ export class PostgresStore implements Store {
       await client.query(
         `UPDATE conversations
             SET last_turn_at = now(),
+                -- A reply in an archived thread is a resume, not a new message
+                -- in a hidden one. Unarchive it so the list and the transcript
+                -- cannot disagree about whether it is active.
+                archived_at = NULL,
                 turn_count = turn_count + CASE WHEN $2 = 'user' THEN 1 ELSE 0 END
           WHERE id = $1`,
         [message.conversationId, message.role],
@@ -398,11 +473,19 @@ export class PostgresStore implements Store {
     return rows.reverse().map(toMessage);
   }
 
-  async listConversations(userId: string, limit = 30): Promise<Conversation[]> {
+  async listConversations(
+    userId: string,
+    options: ConversationListOptions = {},
+  ): Promise<Conversation[]> {
+    const limit = options.limit ?? 30;
+    const archivedFilter = options.includeArchived ? '' : 'AND archived_at IS NULL';
     const { rows } = await this.#pool.query<ConversationRow>(
-      `SELECT id, user_id, title, started_at, last_turn_at, turn_count
-         FROM conversations WHERE user_id = $1
-        ORDER BY last_turn_at DESC NULLS LAST, started_at DESC
+      `SELECT id, user_id, title, started_at, last_turn_at, turn_count, archived_at
+         FROM conversations
+        WHERE user_id = $1 ${archivedFilter}
+        ORDER BY (archived_at IS NOT NULL) ASC,
+                 last_turn_at DESC NULLS LAST,
+                 started_at DESC
         LIMIT $2`,
       [userId, limit],
     );

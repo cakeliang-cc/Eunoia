@@ -105,6 +105,14 @@ export interface Conversation {
   readonly startedAt: Date;
   readonly lastTurnAt: Date | null;
   readonly turnCount: number;
+  /**
+   * When this conversation was put away.
+   *
+   * Archived rows stay readable and keep their messages; they are only hidden
+   * from the ordinary history list. Deletion is the destructive operation, and
+   * it is a different one on purpose.
+   */
+  readonly archivedAt: Date | null;
 }
 
 /** Human-readable labels, used when rendering memories into the prompt. */
@@ -122,6 +130,15 @@ export const MEMORY_SOURCE_LABELS: Readonly<Record<MemorySource, string>> = {
 
 /** How long a conversation name can get before it is cut. */
 export const CONVERSATION_TITLE_CHARS = 24;
+
+/**
+ * The cap for a name the person typed.
+ *
+ * Larger than the derived title because a person who deliberately names a
+ * conversation is doing filing, and 24 characters is a preview, not a name.
+ * Still bounded: this value goes into a list row and eventually a model prompt.
+ */
+export const CONVERSATION_TITLE_MAX_CHARS = 80;
 
 /**
  * Name a conversation after the message that opened it.

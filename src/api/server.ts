@@ -24,8 +24,9 @@ import { log } from '../observability/logging.ts';
 import { installTracing } from '../observability/tracing.ts';
 import { WorkingMemory } from '../memory/working-memory.ts';
 import type { Store } from '../memory/store.ts';
+import type { ConversationPatch } from '../memory/store.ts';
 import type { MemoryStatus } from '../memory/types.ts';
-import { MEMORY_STATUSES } from '../memory/types.ts';
+import { CONVERSATION_TITLE_MAX_CHARS, MEMORY_STATUSES } from '../memory/types.ts';
 import { runTurn, type TurnRunner } from '../service/chat.ts';
 import { selectStore } from '../db/pool.ts';
 import { clearIdentity, readIdentity, resolveIdentity, singleUserId } from './identity.ts';
@@ -104,6 +105,65 @@ export function parseChatRequest(raw: unknown): ChatPayload | string {
   }
 
   return { message: trimmed, conversationId: (conversationId as string | null) ?? null };
+}
+
+export interface CreateConversationPayload {
+  readonly title: string | null;
+}
+
+type TitleResult =
+  | { readonly ok: true; readonly value: string | null }
+  | { readonly ok: false; readonly error: string };
+
+function normalizeTitle(raw: unknown): TitleResult {
+  if (raw === null) return { ok: true, value: null };
+  if (typeof raw !== 'string') {
+    return { ok: false, error: 'field "title" must be a string or null' };
+  }
+  const title = raw.replace(/\s+/g, ' ').trim();
+  if (title.length > CONVERSATION_TITLE_MAX_CHARS) {
+    return {
+      ok: false,
+      error: `field "title" exceeds ${CONVERSATION_TITLE_MAX_CHARS} characters`,
+    };
+  }
+  return { ok: true, value: title.length > 0 ? title : null };
+}
+
+/** `POST /api/conversations`: an empty conversation, optionally named. */
+export function parseCreateConversation(raw: unknown): CreateConversationPayload | string {
+  const body = asObject(raw);
+  if (!body) return 'body must be a JSON object';
+  if ('archived' in body) {
+    return 'field "archived" is not allowed when creating a conversation';
+  }
+  if (!('title' in body)) return { title: null };
+
+  const title = normalizeTitle(body.title);
+  return title.ok ? { title: title.value } : title.error;
+}
+
+/** `PATCH /api/conversations/:id`: rename and/or archive. */
+export function parseConversationPatch(raw: unknown): ConversationPatch | string {
+  const body = asObject(raw);
+  if (!body) return 'body must be a JSON object';
+
+  const patch: { title?: string | null; archived?: boolean } = {};
+  if ('title' in body) {
+    const title = normalizeTitle(body.title);
+    if (!title.ok) return title.error;
+    patch.title = title.value;
+  }
+  if ('archived' in body) {
+    if (typeof body.archived !== 'boolean') {
+      return 'field "archived" must be a boolean';
+    }
+    patch.archived = body.archived;
+  }
+  if (patch.title === undefined && patch.archived === undefined) {
+    return 'at least one of "title" or "archived" is required';
+  }
+  return patch;
 }
 
 export interface AppDependencies {
@@ -246,9 +306,33 @@ export function createApp(deps: AppDependencies) {
 
     // ---------------------------------------------------------- history -----
 
+    if (req.method === 'POST' && pathname === '/api/conversations') {
+      const userId = await identify(req, res);
+
+      let raw: unknown;
+      try {
+        raw = await readJsonBody(req);
+      } catch (error) {
+        sendJson(res, 400, { error: error instanceof Error ? error.message : 'bad request' });
+        return true;
+      }
+
+      const parsed = parseCreateConversation(raw);
+      if (typeof parsed === 'string') {
+        sendJson(res, 400, { error: parsed });
+        return true;
+      }
+
+      const conversation = await store.createConversation(userId, parsed.title);
+      sendJson(res, 201, { conversation });
+      return true;
+    }
+
     if (req.method === 'GET' && pathname === '/api/conversations') {
       const userId = await identify(req, res);
-      const conversations = await store.listConversations(userId);
+      const conversations = await store.listConversations(userId, {
+        includeArchived: url.searchParams.get('includeArchived') === '1',
+      });
       sendJson(res, 200, { conversations });
       return true;
     }
@@ -256,8 +340,72 @@ export function createApp(deps: AppDependencies) {
     const messagesMatch = /^\/api\/conversations\/([0-9a-f-]{36})\/messages$/.exec(pathname);
     if (req.method === 'GET' && messagesMatch) {
       const userId = await identify(req, res);
-      const messages = await store.listMessages(userId, messagesMatch[1] as string);
+      const id = messagesMatch[1] as string;
+      // A missing conversation is a 404, not an empty transcript: "this id does
+      // not exist" and "you have not said anything yet" are different answers.
+      if (!(await store.getConversation(userId, id))) {
+        sendJson(res, 404, { error: 'conversation not found' });
+        return true;
+      }
+      const messages = await store.listMessages(userId, id);
       sendJson(res, 200, { messages });
+      return true;
+    }
+
+    const conversationMatch = /^\/api\/conversations\/([0-9a-f-]{36})$/.exec(pathname);
+
+    if (req.method === 'GET' && conversationMatch) {
+      const userId = await identify(req, res);
+      const conversation = await store.getConversation(userId, conversationMatch[1] as string);
+      if (!conversation) {
+        sendJson(res, 404, { error: 'conversation not found' });
+        return true;
+      }
+      sendJson(res, 200, { conversation });
+      return true;
+    }
+
+    if (req.method === 'PATCH' && conversationMatch) {
+      const userId = await identify(req, res);
+
+      let raw: unknown;
+      try {
+        raw = await readJsonBody(req);
+      } catch (error) {
+        sendJson(res, 400, { error: error instanceof Error ? error.message : 'bad request' });
+        return true;
+      }
+
+      const parsed = parseConversationPatch(raw);
+      if (typeof parsed === 'string') {
+        sendJson(res, 400, { error: parsed });
+        return true;
+      }
+
+      const id = conversationMatch[1] as string;
+      const conversation = await store.updateConversation(userId, id, parsed);
+      if (!conversation) {
+        sendJson(res, 404, { error: 'conversation not found' });
+        return true;
+      }
+      if (parsed.archived === true) working.forget(id);
+      sendJson(res, 200, { conversation });
+      return true;
+    }
+
+    if (req.method === 'DELETE' && conversationMatch) {
+      const userId = await identify(req, res);
+      const id = conversationMatch[1] as string;
+      const deleted = await store.deleteConversation(userId, id);
+      if (!deleted) {
+        sendJson(res, 404, { error: 'conversation not found' });
+        return true;
+      }
+      // The in-process copy is keyed by conversation id and has no row to
+      // notice a deletion. Without this, a stale working set could survive the
+      // delete and be replayed if the same id were somehow reused.
+      working.forget(id);
+      sendJson(res, 200, { deleted: id });
       return true;
     }
 

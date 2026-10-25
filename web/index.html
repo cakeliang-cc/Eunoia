@@ -218,11 +218,14 @@
      the first one did. */
   .danger-zone button[data-armed="true"] { background: var(--danger); color: var(--bg); }
 
-  /* Conversation history. A row is a button, not a div with a click handler:
-     it is focusable, it answers to Enter, and it reads as pressable. */
+  /* Conversation history. The open control is still a real button: it is
+     focusable, answers to Enter, and reads as pressable. The lifecycle actions
+     sit beside it rather than inside it, because a button cannot contain
+     another button. */
+  .thread-row { display: flex; align-items: stretch; gap: 2px; margin: 0 0 6px; }
   .thread {
-    display: block; width: 100%; text-align: left; cursor: pointer;
-    padding: 11px 12px; margin: 0 0 6px; border-radius: 8px;
+    flex: 1 1 auto; min-width: 0; display: block; width: 100%; text-align: left; cursor: pointer;
+    padding: 11px 12px; margin: 0; border-radius: 8px;
     border: 1px solid transparent; background: none; color: inherit;
     font: inherit; line-height: 1.5;
   }
@@ -231,6 +234,26 @@
   .thread .name { font-size: 14px; display: block; }
   .thread .name.unnamed { color: var(--muted); }
   .thread .when { font-size: 12px; color: var(--muted); margin-top: 3px; display: block; }
+  .thread-actions { display: flex; flex-direction: column; justify-content: center; gap: 1px; flex: 0 0 auto; }
+  .thread-actions button {
+    border: none; background: none; color: var(--muted); font: inherit;
+    font-size: 11px; line-height: 1.4; padding: 1px 5px; border-radius: 4px; cursor: pointer;
+  }
+  .thread-actions button:hover { color: var(--accent); }
+  .thread-actions button.thread-delete:hover { color: var(--danger); }
+  .thread-actions button[data-armed="true"] { background: var(--danger); color: var(--bg); }
+  .thread-actions button[data-armed="true"]:hover { color: var(--bg); }
+  .thread-rename { display: flex; flex: 1 1 auto; gap: 4px; align-items: center; padding: 6px 0; }
+  .thread-rename input {
+    flex: 1 1 auto; min-width: 0; padding: 6px 8px; font: inherit; font-size: 13px;
+    color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  }
+  .thread-rename input:focus { outline: none; border-color: var(--accent); }
+  .thread-rename button { font-size: 12px; padding: 4px 8px; }
+  .history-tools { display: flex; justify-content: flex-end; margin-bottom: 4px; }
+  .history-tools button { font-size: 12px; padding: 2px 9px; }
+  .history-note { color: var(--danger); font-size: 12px; line-height: 1.5; margin-bottom: 6px; }
+  .history-note:empty { display: none; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
@@ -293,6 +316,10 @@
       <button id="history-close" type="button">关闭</button>
     </header>
     <div class="drawer-body">
+      <div class="history-tools">
+        <button id="history-archived" type="button" aria-pressed="false">显示已归档</button>
+      </div>
+      <div id="history-note" class="history-note"></div>
       <div id="history-list"></div>
     </div>
   </div>
@@ -308,6 +335,7 @@ const state = {
   conversationId: null,
   sending: false,
   memoryEnabled: true,
+  showArchived: false,
   feedback: new Map(),
 };
 
@@ -656,11 +684,28 @@ async function loadConversation(id) {
   return true;
 }
 
+function setHistoryNote(text) {
+  $('history-note').textContent = text;
+}
+
+/** Clear the transcript and forget which conversation it was. */
+function clearConversationView() {
+  rememberConversation(null);
+  transcript.textContent = '';
+  transcript.classList.add('empty');
+  input.focus();
+}
+
 async function refreshHistory() {
   const list = $('history-list');
   list.textContent = '';
+  setHistoryNote('');
 
-  const response = await fetch('/api/conversations').catch(() => null);
+  // Archived rows are a separate view, not a second list. The server keeps them
+  // out of the ordinary response, so the toggle has to ask for them explicitly.
+  const response = await fetch(
+    state.showArchived ? '/api/conversations?includeArchived=1' : '/api/conversations',
+  ).catch(() => null);
   if (!response || !response.ok) {
     list.append(el('div', 'empty-note', '读不到历史对话。'));
     return;
@@ -673,22 +718,142 @@ async function refreshHistory() {
   }
 
   for (const conversation of conversations) {
-    const row = el('button', 'thread');
-    row.type = 'button';
+    const archived = Boolean(conversation.archivedAt);
+    const row = el('div', 'thread-row');
+
+    const open = el('button', 'thread');
+    open.type = 'button';
     const named = Boolean(conversation.title);
-    row.append(
+    open.append(
       el('span', `name${named ? '' : ' unnamed'}`, conversation.title ?? '（没有名字的对话）'),
     );
-    row.append(el('span', 'when', whenLabel(conversation.lastTurnAt ?? conversation.startedAt)));
-    row.setAttribute('aria-current', String(conversation.id === state.conversationId));
-    row.onclick = async () => {
+    const when = whenLabel(conversation.lastTurnAt ?? conversation.startedAt);
+    open.append(el('span', 'when', archived ? `${when} · 已归档` : when));
+    open.setAttribute('aria-current', String(conversation.id === state.conversationId));
+    open.onclick = async () => {
       // Already open: just close the drawer rather than re-fetching what is
       // already on screen.
       if (conversation.id !== state.conversationId) await loadConversation(conversation.id);
       $('history').dataset.open = 'false';
     };
+
+    // A conversation has a lifecycle, so the row does too: rename and archive
+    // are reversible; delete asks twice because it is not.
+    const actions = el('div', 'thread-actions');
+    const rename = el('button', null, '改名');
+    rename.type = 'button';
+    rename.onclick = () => beginRename(row, conversation);
+
+    const archive = el('button', null, archived ? '恢复' : '归档');
+    archive.type = 'button';
+    archive.onclick = () => void setArchived(conversation, !archived);
+
+    const remove = el('button', 'thread-delete', '删除');
+    remove.type = 'button';
+    remove.onclick = () => void deleteThread(conversation, remove);
+
+    actions.append(rename, archive, remove);
+    row.append(open, actions);
     list.append(row);
   }
+}
+
+function beginRename(row, conversation) {
+  setHistoryNote('');
+  row.textContent = '';
+
+  const editor = el('div', 'thread-rename');
+  const field = el('input');
+  field.value = conversation.title ?? '';
+  field.setAttribute('maxlength', '80');
+  field.setAttribute('aria-label', '对话名称');
+
+  const save = el('button', 'primary', '保存');
+  save.type = 'button';
+  const cancel = el('button', null, '取消');
+  cancel.type = 'button';
+
+  const commit = async () => {
+    save.disabled = true;
+    const response = await fetch(`/api/conversations/${conversation.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: field.value }),
+    }).catch(() => null);
+    save.disabled = false;
+
+    if (!response || !response.ok) {
+      setHistoryNote('改名失败，稍后再试。');
+      field.focus();
+      return;
+    }
+    await refreshHistory();
+  };
+
+  save.onclick = () => void commit();
+  cancel.onclick = () => void refreshHistory();
+  field.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void commit();
+    } else if (event.key === 'Escape') {
+      void refreshHistory();
+    }
+  });
+
+  editor.append(field, save, cancel);
+  row.append(editor);
+  field.focus();
+}
+
+async function setArchived(conversation, archived) {
+  setHistoryNote('');
+  const response = await fetch(`/api/conversations/${conversation.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ archived }),
+  }).catch(() => null);
+
+  if (!response || !response.ok) {
+    setHistoryNote(archived ? '归档失败，稍后再试。' : '恢复失败，稍后再试。');
+    return;
+  }
+
+  // Archiving the conversation that is on screen would leave an open thread
+  // with no row in the list. Start clean instead of hiding it underneath.
+  if (archived && state.conversationId === conversation.id) clearConversationView();
+  await refreshHistory();
+}
+
+async function deleteThread(conversation, button) {
+  if (button.dataset.armed !== 'true') {
+    button.dataset.armed = 'true';
+    button.textContent = '确认删除';
+    setTimeout(() => {
+      if (!button.isConnected) return;
+      button.dataset.armed = 'false';
+      button.textContent = '删除';
+    }, 4000);
+    return;
+  }
+
+  setHistoryNote('');
+  button.disabled = true;
+  button.textContent = '删除中…';
+  const response = await fetch(`/api/conversations/${conversation.id}`, {
+    method: 'DELETE',
+  }).catch(() => null);
+
+  if (!response || !response.ok) {
+    setHistoryNote('删除失败，稍后再试。');
+    button.disabled = false;
+    button.dataset.armed = 'false';
+    button.textContent = '删除';
+    return;
+  }
+
+  if (state.conversationId === conversation.id) clearConversationView();
+  await refreshHistory();
 }
 
 // -------------------------------------------------------------- memory ------
@@ -841,10 +1006,7 @@ $('new-conversation').onclick = () => {
   // Forget the id as well as clearing the screen: otherwise the next reload
   // would pull the old conversation back and the "new" one would have been a
   // view change rather than a new conversation.
-  rememberConversation(null);
-  transcript.textContent = '';
-  transcript.classList.add('empty');
-  input.focus();
+  clearConversationView();
 };
 
 $('memory-toggle').onclick = () => void openDrawer();
@@ -867,6 +1029,12 @@ $('history-toggle').onclick = () => {
   void refreshHistory();
 };
 $('history-close').onclick = () => { $('history').dataset.open = 'false'; };
+$('history-archived').onclick = () => {
+  state.showArchived = !state.showArchived;
+  $('history-archived').setAttribute('aria-pressed', String(state.showArchived));
+  $('history-archived').textContent = state.showArchived ? '隐藏已归档' : '显示已归档';
+  void refreshHistory();
+};
 $('history').addEventListener('click', (event) => {
   if (event.target === $('history')) $('history').dataset.open = 'false';
 });
