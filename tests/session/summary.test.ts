@@ -11,13 +11,30 @@ import {
   cleanSummary,
   renderArchivedSummary,
   renderSummaryPrompt,
+  SUMMARY_SYSTEM_PROMPT,
 } from '../../src/session/summary.ts';
+
+describe('SUMMARY_SYSTEM_PROMPT', () => {
+  it('requires a structured checkpoint and preserves corrections and quotes', () => {
+    expect(SUMMARY_SYSTEM_PROMPT).toContain('## 当前主线');
+    expect(SUMMARY_SYSTEM_PROMPT).toContain('## 重要事实与偏好');
+    expect(SUMMARY_SYSTEM_PROMPT).toContain('## 人物与关系');
+    expect(SUMMARY_SYSTEM_PROMPT).toContain('## 情绪与连续性');
+    expect(SUMMARY_SYSTEM_PROMPT).toContain('## 承诺与未完成');
+    expect(SUMMARY_SYSTEM_PROMPT).toContain('## 最近状态');
+    expect(SUMMARY_SYSTEM_PROMPT).toContain('## 需要保留的原话');
+    expect(SUMMARY_SYSTEM_PROMPT).toContain('## 关键背景');
+    expect(SUMMARY_SYSTEM_PROMPT).toContain('不要原样复述旧摘要');
+  });
+});
 
 describe('renderArchivedSummary', () => {
   it('labels the block as an earlier-conversation summary', () => {
     const block = renderArchivedSummary('用户最近在准备面试。');
     expect(block).toContain('# 更早的对话');
     expect(block).toContain('用户最近在准备面试。');
+    expect(block).toContain('<compacted-summary>');
+    expect(block).toContain('</compacted-summary>');
     expect(block).not.toContain('用户：');
   });
 });

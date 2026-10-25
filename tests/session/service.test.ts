@@ -124,6 +124,23 @@ describe('SessionService compaction', () => {
     expect(await store.listMessages(USER, conversationId)).toHaveLength(6);
   });
 
+  it('does not advance the boundary when the summary is not smaller than the shadowed content', async () => {
+    const { store, conversationId, messages } = await seed(3, 10);
+    const sessions = new SessionService(store, {
+      config: config({ summaryTargetTokens: 2_000 }),
+      summarize: async () => '大'.repeat(500),
+    });
+
+    const result = await sessions.compact(USER, conversationId, {
+      protectSeq: messages.at(-1)!.seq,
+    });
+
+    expect(result.compacted).toBe(false);
+    expect(result.reason).toBe('summary_failed');
+    expect(await store.getSummary(conversationId)).toBeNull();
+    expect(await store.listMessages(USER, conversationId)).toHaveLength(3);
+  });
+
   it('leaves a short conversation alone', async () => {
     const { store, conversationId } = await seed(2, 10);
     const sessions = new SessionService(store, {

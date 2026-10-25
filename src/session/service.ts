@@ -23,6 +23,7 @@ import {
 import type { SessionStore, ConversationListOptions, ConversationPatch } from './store.ts';
 import {
   cleanSummary,
+  renderArchivedSummary,
   SUMMARY_PROMPT_VERSION,
   type SummaryGenerator,
 } from './summary.ts';
@@ -298,6 +299,21 @@ export class SessionService {
         this.#config.summaryTargetTokens,
         mode,
       );
+
+      // A checkpoint that is not smaller than what it replaces has not freed
+      // context. Refuse it instead of advancing the boundary and making the
+      // next request larger; the raw messages stay intact and the fallback
+      // truncation path remains available.
+      const shadowedTokens =
+        estimateTokens(previous?.summary ?? '', mode) +
+        estimateMessagesTokens(older, mode);
+      const framedSummaryTokens = estimateTokens(renderArchivedSummary(summary), mode);
+      if (framedSummaryTokens >= shadowedTokens) {
+        throw new Error(
+          `summary is not smaller than shadowed content (${framedSummaryTokens} >= ${shadowedTokens})`,
+        );
+      }
+
       const record: ConversationSummary = {
         conversationId,
         summary,
