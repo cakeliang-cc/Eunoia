@@ -1,4 +1,4 @@
-# designFreeAI — INFP 陪伴 Agent
+# Eunoia — INFP 陪伴 Agent
 
 一个从 0 到 1 长出来的长期陪伴 Agent。
 
