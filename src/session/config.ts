@@ -11,11 +11,16 @@
  * as "why did it forget?".
  */
 
+import type { ModelProfile } from '../models/types.ts';
 import type { TokenEstimatorMode } from './tokens.ts';
 
 export interface SessionConfig {
   readonly compactionEnabled: boolean;
-  readonly inputBudgetTokens: number;
+  /**
+   * Explicit override. `null` means "use the selected model's default budget";
+   * either way the value is capped by the model's context window.
+   */
+  readonly inputBudgetTokens: number | null;
   readonly promptReserveTokens: number;
   readonly compactTriggerRatio: number;
   readonly keepRecentMessages: number;
@@ -35,7 +40,9 @@ export interface SessionConfig {
 
 export const DEFAULT_SESSION_CONFIG: SessionConfig = {
   compactionEnabled: true,
-  inputBudgetTokens: 200_000,
+  // The model profile supplies 200k for DeepSeek. An explicit env value is a
+  // cap/override, not the only source.
+  inputBudgetTokens: null,
   promptReserveTokens: 8_000,
   compactTriggerRatio: 0.85,
   keepRecentMessages: 8,
@@ -85,6 +92,21 @@ function number(
   return value;
 }
 
+function optionalInteger(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  min: number,
+  max: number,
+): number | null {
+  const raw = env[name]?.trim();
+  if (!raw) return null;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    throw new Error(`${name} must be an integer between ${min} and ${max}, got ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
 function boolean(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean {
   const raw = env[name]?.trim().toLowerCase();
   if (!raw) return fallback;
@@ -94,13 +116,13 @@ function boolean(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boole
 }
 
 export function sessionConfig(env: NodeJS.ProcessEnv = process.env): SessionConfig {
-  const inputBudgetTokens = integer(env, 'SESSION_INPUT_BUDGET_TOKENS', 200_000, 4_096, 2_000_000);
+  const inputBudgetTokens = optionalInteger(env, 'SESSION_INPUT_BUDGET_TOKENS', 4_096, 2_000_000);
   const promptReserveTokens = integer(
     env,
     'SESSION_PROMPT_RESERVE_TOKENS',
     8_000,
     0,
-    inputBudgetTokens - 1_024,
+    1_000_000,
   );
   const summaryMaxInputTokens = integer(
     env,
@@ -135,7 +157,12 @@ export function sessionConfig(env: NodeJS.ProcessEnv = process.env): SessionConf
   };
 }
 
-/** The usable replay budget after the system prompt and memory blocks. */
-export function sessionReplayBudget(config: SessionConfig): number {
-  return config.inputBudgetTokens - config.promptReserveTokens;
+/** The usable replay budget for one model after the prompt and memory blocks. */
+export function sessionReplayBudget(config: SessionConfig, model: ModelProfile): number {
+  const cap = Math.max(
+    1_024,
+    model.contextWindowTokens - model.maxOutputTokens - model.safetyBufferTokens,
+  );
+  const requested = config.inputBudgetTokens ?? model.defaultInputBudgetTokens;
+  return Math.max(1_024, Math.min(requested, cap) - config.promptReserveTokens);
 }

@@ -19,6 +19,7 @@ import { importSpecifiers, readSources } from '../helpers/sources.ts';
  */
 const CORE_DIRS = [
   'src/agent/',
+  'src/models/',
   'src/session/',
   'src/memory/',
   'src/tools/',
@@ -123,10 +124,14 @@ describe('core / transport boundary (ADR 006)', () => {
       for (const specifier of importSpecifiers(source)) {
         const targetsMemory = specifier.includes('/memory/') || specifier.startsWith('../memory/');
         const targetsSession = specifier.includes('/session/') || specifier.startsWith('../session/');
+        const targetsProvider = specifier.includes('/provider/') || specifier.startsWith('../provider/');
         if (isSession && targetsMemory) {
           violations.push(`${relativePath} imports "${specifier}"`);
         }
         if (isMemory && targetsSession) {
+          violations.push(`${relativePath} imports "${specifier}"`);
+        }
+        if (isSession && targetsProvider) {
           violations.push(`${relativePath} imports "${specifier}"`);
         }
       }
@@ -150,7 +155,7 @@ describe('core / transport boundary (ADR 006)', () => {
    * them SDK-free is what makes the provider — and potentially the harness —
    * replaceable without touching them.
    */
-  const SDK_IMPORT_ALLOWED_DIRS = ['src/agent/', 'src/observability/'];
+  const SDK_IMPORT_ALLOWED_DIRS = ['src/agent/', 'src/observability/', 'src/provider/'];
 
   it('product-logic and transport layers do not import a vendor SDK', async () => {
     const sources = await readSources();

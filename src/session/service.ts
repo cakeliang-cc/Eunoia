@@ -13,6 +13,8 @@
  */
 
 import { log } from '../observability/logging.ts';
+import { defaultModelProfile, modelProfile, summaryModelProfile } from '../models/registry.ts';
+import type { ModelProfile } from '../models/types.ts';
 import {
   sessionConfig,
   sessionReplayBudget,
@@ -36,6 +38,12 @@ import type {
 export interface SessionServiceOptions {
   readonly config?: SessionConfig;
   readonly summarize?: SummaryGenerator;
+  /** Model used by conversations whose `modelId` is null. */
+  readonly model?: ModelProfile;
+  /** Model profile used for summary calls, so its own context caps chunks. */
+  readonly summaryModel?: ModelProfile;
+  /** Resolver for a pinned conversation model; defaults to the catalog. */
+  readonly resolveModel?: (modelId: string) => ModelProfile;
   readonly now?: () => Date;
 }
 
@@ -59,12 +67,18 @@ export class SessionService {
   readonly #store: SessionStore;
   readonly #config: SessionConfig;
   readonly #summarize: SummaryGenerator | undefined;
+  readonly #defaultModel: ModelProfile;
+  readonly #summaryModel: ModelProfile;
+  readonly #resolveModel: (modelId: string) => ModelProfile;
   readonly #now: () => Date;
 
   constructor(store: SessionStore, options: SessionServiceOptions = {}) {
     this.#store = store;
     this.#config = options.config ?? sessionConfig();
     this.#summarize = options.summarize;
+    this.#defaultModel = options.model ?? defaultModelProfile();
+    this.#summaryModel = options.summaryModel ?? summaryModelProfile();
+    this.#resolveModel = options.resolveModel ?? modelProfile;
     this.#now = options.now ?? (() => new Date());
   }
 
@@ -72,8 +86,12 @@ export class SessionService {
     return this.#config;
   }
 
-  create(userId: string, title?: string | null): Promise<Conversation> {
-    return this.#store.createConversation(userId, title);
+  create(
+    userId: string,
+    title?: string | null,
+    modelId?: string | null,
+  ): Promise<Conversation> {
+    return this.#store.createConversation(userId, title, modelId);
   }
 
   get(userId: string, conversationId: string): Promise<Conversation | null> {
@@ -156,6 +174,7 @@ export class SessionService {
   ): Promise<SessionReplay> {
     const conversation = await this.#store.getConversation(userId, conversationId);
     if (!conversation) throw new Error(`conversation ${conversationId} not found`);
+    const model = this.#modelFor(conversation);
 
     let summary = await this.#store.getSummary(conversationId);
     let messages = await this.#store.messagesAfter(
@@ -164,7 +183,9 @@ export class SessionService {
       this.#config.replayMaxMessages,
     );
 
-    if (this.#shouldCompact(summary, messages)) {
+    const budget = sessionReplayBudget(this.#config, model);
+
+    if (this.#shouldCompact(summary, messages, budget)) {
       const result = await this.compact(userId, conversationId, options);
       if (result.compacted) {
         summary = await this.#store.getSummary(conversationId);
@@ -177,7 +198,6 @@ export class SessionService {
     }
 
     const summaryText = summary?.summary ?? null;
-    const budget = sessionReplayBudget(this.#config);
     const summaryTokens = summaryText ? estimateTokens(summaryText, this.#config.tokenEstimator) : 0;
     const total = summaryTokens + estimateMessagesTokens(messages, this.#config.tokenEstimator);
 
@@ -243,9 +263,15 @@ export class SessionService {
     }
 
     const mode = this.#config.tokenEstimator;
+    const summaryCap = Math.max(
+      1_024,
+      this.#summaryModel.contextWindowTokens
+        - this.#summaryModel.maxOutputTokens
+        - this.#summaryModel.safetyBufferTokens,
+    );
     const maxChunkTokens = Math.max(
       1_024,
-      this.#config.summaryMaxInputTokens
+      Math.min(this.#config.summaryMaxInputTokens, summaryCap)
         - estimateTokens(previous?.summary ?? '', mode)
         - 256,
     );
@@ -277,7 +303,7 @@ export class SessionService {
         summary,
         throughSeq: older[older.length - 1]!.seq,
         summaryTokens: estimateTokens(summary, mode),
-        model: this.#config.summaryModel,
+        model: this.#summaryModel.id,
         promptVersion: SUMMARY_PROMPT_VERSION,
         updatedAt: this.#now(),
       };
@@ -334,15 +360,24 @@ export class SessionService {
     return compacted;
   }
 
-  #shouldCompact(summary: ConversationSummary | null, messages: readonly Message[]): boolean {
+  #shouldCompact(
+    summary: ConversationSummary | null,
+    messages: readonly Message[],
+    budget: number,
+  ): boolean {
     if (!this.#config.compactionEnabled || !this.#summarize) return false;
     if (messages.length < this.#config.compactMinMessages) return false;
 
     const mode = this.#config.tokenEstimator;
     const summaryTokens = summary ? estimateTokens(summary.summary, mode) : 0;
     const total = summaryTokens + estimateMessagesTokens(messages, mode);
-    const budget = sessionReplayBudget(this.#config);
     return total > budget * this.#config.compactTriggerRatio;
+  }
+
+  #modelFor(conversation: Conversation): ModelProfile {
+    return conversation.modelId
+      ? this.#resolveModel(conversation.modelId)
+      : this.#defaultModel;
   }
 
   #keepStart(messages: readonly Message[], protectSeq?: number): number {

@@ -20,6 +20,7 @@ import { join } from 'node:path';
 
 import { installProvider } from '../agent/model-client.ts';
 import { createSummaryGenerator } from '../agent/summarizer.ts';
+import type { AgentOptions } from '../agent/infp-agent.ts';
 import { PROMPT_VERSION } from '../agent/instructions.ts';
 import { log } from '../observability/logging.ts';
 import { installTracing } from '../observability/tracing.ts';
@@ -28,8 +29,11 @@ import type { Store } from '../store.ts';
 import type { MemoryStatus } from '../memory/types.ts';
 import { MEMORY_STATUSES } from '../memory/types.ts';
 import { CONVERSATION_TITLE_MAX_CHARS } from '../session/types.ts';
-import { sessionConfig } from '../session/config.ts';
+import { sessionConfig, sessionReplayBudget } from '../session/config.ts';
 import { SessionService } from '../session/service.ts';
+import { MODEL_CATALOG } from '../models/catalog.ts';
+import { defaultModelProfile, isKnownModelId, summaryModelProfile } from '../models/registry.ts';
+import { providerFor } from '../provider/index.ts';
 import { runTurn, type TurnRunner } from '../service/chat.ts';
 import { selectStore } from '../db/pool.ts';
 import { clearIdentity, readIdentity, resolveIdentity, singleUserId } from './identity.ts';
@@ -112,6 +116,24 @@ export function parseChatRequest(raw: unknown): ChatPayload | string {
 
 export interface CreateConversationPayload {
   readonly title: string | null;
+  readonly modelId: string | null;
+}
+
+type StringOrNullResult =
+  | { readonly ok: true; readonly value: string | null }
+  | { readonly ok: false; readonly error: string };
+
+function normalizeModelId(raw: unknown): StringOrNullResult {
+  if (raw === null || raw === undefined) return { ok: true, value: null };
+  if (typeof raw !== 'string') {
+    return { ok: false, error: 'field "modelId" must be a string or null' };
+  }
+  const id = raw.trim();
+  if (id.length === 0) return { ok: true, value: null };
+  if (!isKnownModelId(id)) {
+    return { ok: false, error: `unknown model id ${JSON.stringify(id)}` };
+  }
+  return { ok: true, value: id };
 }
 
 type TitleResult =
@@ -133,25 +155,30 @@ function normalizeTitle(raw: unknown): TitleResult {
   return { ok: true, value: title.length > 0 ? title : null };
 }
 
-/** `POST /api/conversations`: an empty conversation, optionally named. */
+/** `POST /api/conversations`: an empty conversation, optionally named or pinned. */
 export function parseCreateConversation(raw: unknown): CreateConversationPayload | string {
   const body = asObject(raw);
   if (!body) return 'body must be a JSON object';
   if ('archived' in body) {
     return 'field "archived" is not allowed when creating a conversation';
   }
-  if (!('title' in body)) return { title: null };
 
-  const title = normalizeTitle(body.title);
-  return title.ok ? { title: title.value } : title.error;
+  const title = 'title' in body ? normalizeTitle(body.title) : ({ ok: true, value: null } as const);
+  if (!title.ok) return title.error;
+  const model = 'modelId' in body
+    ? normalizeModelId(body.modelId)
+    : ({ ok: true, value: null } as const);
+  if (!model.ok) return model.error;
+
+  return { title: title.value, modelId: model.value };
 }
 
-/** `PATCH /api/conversations/:id`: rename and/or archive. */
+/** `PATCH /api/conversations/:id`: rename, archive, or pin a model. */
 export function parseConversationPatch(raw: unknown): ConversationPatch | string {
   const body = asObject(raw);
   if (!body) return 'body must be a JSON object';
 
-  const patch: { title?: string | null; archived?: boolean } = {};
+  const patch: { title?: string | null; archived?: boolean; modelId?: string | null } = {};
   if ('title' in body) {
     const title = normalizeTitle(body.title);
     if (!title.ok) return title.error;
@@ -163,8 +190,17 @@ export function parseConversationPatch(raw: unknown): ConversationPatch | string
     }
     patch.archived = body.archived;
   }
-  if (patch.title === undefined && patch.archived === undefined) {
-    return 'at least one of "title" or "archived" is required';
+  if ('modelId' in body) {
+    const model = normalizeModelId(body.modelId);
+    if (!model.ok) return model.error;
+    patch.modelId = model.value;
+  }
+  if (
+    patch.title === undefined &&
+    patch.archived === undefined &&
+    patch.modelId === undefined
+  ) {
+    return 'at least one of "title", "archived" or "modelId" is required';
   }
   return patch;
 }
@@ -188,6 +224,8 @@ export interface AppDependencies {
    * persistence the test never asked for.
    */
   readonly storeKind?: 'postgres' | 'memory';
+  /** Explicit provider for the companion run; supplied by the composition root. */
+  readonly modelProvider?: AgentOptions['modelProvider'];
   /**
    * Injected so the routes can be tested over real HTTP without a model call.
    * Production leaves it unset and `runTurn` uses the real runner.
@@ -252,7 +290,7 @@ export function createApp(deps: AppDependencies) {
 
     await pipeEventsAsSse(
       runTurn(
-        { store, session: sessions, runner: deps.runner },
+        { store, session: sessions, modelProvider: deps.modelProvider, runner: deps.runner },
         {
           userId,
           conversationId: parsed.conversationId,
@@ -313,6 +351,18 @@ export function createApp(deps: AppDependencies) {
       return true;
     }
 
+    if (req.method === 'GET' && pathname === '/api/models') {
+      sendJson(res, 200, {
+        models: Object.values(MODEL_CATALOG).map((profile) => ({
+          id: profile.id,
+          providerId: profile.providerId,
+          contextWindowTokens: profile.contextWindowTokens,
+          defaultInputBudgetTokens: profile.defaultInputBudgetTokens,
+        })),
+      });
+      return true;
+    }
+
     // ---------------------------------------------------------- history -----
 
     if (req.method === 'POST' && pathname === '/api/conversations') {
@@ -332,7 +382,7 @@ export function createApp(deps: AppDependencies) {
         return true;
       }
 
-      const conversation = await sessions.create(userId, parsed.title);
+      const conversation = await sessions.create(userId, parsed.title, parsed.modelId);
       sendJson(res, 201, { conversation });
       return true;
     }
@@ -580,24 +630,40 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
   log.info('server.store', { kind, detail });
 
   const config = sessionConfig();
+  const model = defaultModelProfile();
+  const summaryModel = summaryModelProfile();
+  const provider = providerFor(model.providerId);
+  const modelProvider = provider.createModelProvider();
   const sessions = new SessionService(store, {
     config,
-    summarize: createSummaryGenerator(config.summaryModel),
+    model,
+    summaryModel,
+    summarize: createSummaryGenerator(provider, summaryModel.id),
   });
   log.info('server.session', {
     compaction: config.compactionEnabled,
-    input_budget: config.inputBudgetTokens,
+    model: model.id,
+    provider: provider.profile.id,
+    context_window: model.contextWindowTokens,
+    input_budget: sessionReplayBudget(config, model),
+    max_input_budget:
+      model.contextWindowTokens - model.maxOutputTokens - model.safetyBufferTokens,
     prompt_reserve: config.promptReserveTokens,
     trigger_ratio: config.compactTriggerRatio,
     keep_recent_messages: config.keepRecentMessages,
     keep_recent_tokens: config.keepRecentTokens,
-    summary_model: config.summaryModel,
+    summary_model: summaryModel.id,
     summary_chunk_tokens: config.summaryMaxInputTokens,
     idle_compact_minutes: config.idleCompactMinutes,
     token_estimator: config.tokenEstimator,
   });
 
-  const server = createApp({ store, sessions, storeKind: kind });
+  const server = createApp({
+    store,
+    sessions,
+    storeKind: kind,
+    modelProvider,
+  });
 
   server.on('close', () => {
     void store.close();

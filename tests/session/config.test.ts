@@ -8,17 +8,20 @@
 
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SESSION_CONFIG, sessionConfig, sessionReplayBudget } from '../../src/session/config.ts';
+import { defaultModelProfile } from '../../src/models/registry.ts';
 
 describe('sessionConfig', () => {
   it('uses the agreed defaults when the environment is empty', () => {
     expect(sessionConfig({})).toEqual(DEFAULT_SESSION_CONFIG);
   });
 
-  it('derives the replay budget from total input minus the prompt reserve', () => {
-    expect(sessionReplayBudget(DEFAULT_SESSION_CONFIG)).toBe(192_000);
+  it('derives the replay budget from the model default and the prompt reserve', () => {
+    const config = sessionConfig({});
+    expect(config.inputBudgetTokens).toBeNull();
+    expect(sessionReplayBudget(config, defaultModelProfile({}))).toBe(192_000);
   });
 
-  it('accepts overrides', () => {
+  it('uses an explicit override as a cap, bounded by the model context', () => {
     const config = sessionConfig({
       SESSION_INPUT_BUDGET_TOKENS: '64000',
       SESSION_PROMPT_RESERVE_TOKENS: '4000',
@@ -32,6 +35,7 @@ describe('sessionConfig', () => {
     expect(config.keepRecentMessages).toBe(12);
     expect(config.idleCompactMinutes).toBe(60);
     expect(config.tokenEstimator).toBe('chars4');
+    expect(sessionReplayBudget(config, defaultModelProfile({}))).toBe(60_000);
   });
 
   it('rejects malformed numbers instead of silently using a default', () => {

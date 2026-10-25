@@ -114,6 +114,7 @@ interface ConversationRow {
   last_turn_at: Date | null;
   turn_count: number;
   archived_at: Date | null;
+  model_id: string | null;
 }
 
 function toConversation(row: ConversationRow): Conversation {
@@ -125,6 +126,7 @@ function toConversation(row: ConversationRow): Conversation {
     lastTurnAt: row.last_turn_at,
     turnCount: Number(row.turn_count),
     archivedAt: row.archived_at,
+    modelId: row.model_id,
   };
 }
 
@@ -325,12 +327,16 @@ export class PostgresStore implements Store {
 
   // ------------------------------------------------------- conversations -----
 
-  async createConversation(userId: string, title?: string | null): Promise<Conversation> {
+  async createConversation(
+    userId: string,
+    title?: string | null,
+    modelId?: string | null,
+  ): Promise<Conversation> {
     const { rows } = await this.#pool.query<ConversationRow>(
-      `INSERT INTO conversations (user_id, title)
-       VALUES ($1, $2)
-       RETURNING id, user_id, title, started_at, last_turn_at, turn_count, archived_at`,
-      [userId, title ?? null],
+      `INSERT INTO conversations (user_id, title, model_id)
+       VALUES ($1, $2, $3)
+       RETURNING id, user_id, title, started_at, last_turn_at, turn_count, archived_at, model_id`,
+      [userId, title ?? null, modelId ?? null],
     );
     const row = rows[0];
     if (!row) throw new Error('conversation insert produced no row');
@@ -339,7 +345,7 @@ export class PostgresStore implements Store {
 
   async getConversation(userId: string, conversationId: string): Promise<Conversation | null> {
     const { rows } = await this.#pool.query<ConversationRow>(
-      `SELECT id, user_id, title, started_at, last_turn_at, turn_count, archived_at
+      `SELECT id, user_id, title, started_at, last_turn_at, turn_count, archived_at, model_id
          FROM conversations WHERE id = $1 AND user_id = $2`,
       [conversationId, userId],
     );
@@ -361,12 +367,16 @@ export class PostgresStore implements Store {
     if (patch.archived !== undefined) {
       sets.push(patch.archived ? 'archived_at = now()' : 'archived_at = NULL');
     }
+    if (patch.modelId !== undefined) {
+      values.push(patch.modelId);
+      sets.push(`model_id = $${values.length}`);
+    }
     if (sets.length === 0) return this.getConversation(userId, conversationId);
 
     const { rows } = await this.#pool.query<ConversationRow>(
       `UPDATE conversations SET ${sets.join(', ')}
         WHERE id = $1 AND user_id = $2
-        RETURNING id, user_id, title, started_at, last_turn_at, turn_count, archived_at`,
+        RETURNING id, user_id, title, started_at, last_turn_at, turn_count, archived_at, model_id`,
       values,
     );
     return rows[0] ? toConversation(rows[0]) : null;
@@ -383,7 +393,7 @@ export class PostgresStore implements Store {
   async ensureConversation(userId: string, conversationId?: string | null): Promise<Conversation> {
     if (conversationId) {
       const existing = await this.#pool.query<ConversationRow>(
-        `SELECT id, user_id, title, started_at, last_turn_at, turn_count, archived_at
+        `SELECT id, user_id, title, started_at, last_turn_at, turn_count, archived_at, model_id
            FROM conversations WHERE id = $1 AND user_id = $2`,
         [conversationId, userId],
       );
@@ -394,7 +404,7 @@ export class PostgresStore implements Store {
       `INSERT INTO conversations (user_id, id)
        VALUES ($1, COALESCE($2::uuid, gen_random_uuid()))
        ON CONFLICT (id) DO NOTHING
-       RETURNING id, user_id, title, started_at, last_turn_at, turn_count, archived_at`,
+       RETURNING id, user_id, title, started_at, last_turn_at, turn_count, archived_at, model_id`,
       [userId, conversationId ?? null],
     );
     if (rows[0]) return toConversation(rows[0]);
@@ -410,7 +420,7 @@ export class PostgresStore implements Store {
      */
     const fresh = await this.#pool.query<ConversationRow>(
       `INSERT INTO conversations (user_id) VALUES ($1)
-       RETURNING id, user_id, title, started_at, last_turn_at, turn_count, archived_at`,
+       RETURNING id, user_id, title, started_at, last_turn_at, turn_count, archived_at, model_id`,
       [userId],
     );
 
@@ -567,7 +577,7 @@ export class PostgresStore implements Store {
     const limit = options.limit ?? 30;
     const archivedFilter = options.includeArchived ? '' : 'AND archived_at IS NULL';
     const { rows } = await this.#pool.query<ConversationRow>(
-      `SELECT id, user_id, title, started_at, last_turn_at, turn_count, archived_at
+      `SELECT id, user_id, title, started_at, last_turn_at, turn_count, archived_at, model_id
          FROM conversations
         WHERE user_id = $1 ${archivedFilter}
         ORDER BY (archived_at IS NOT NULL) ASC,

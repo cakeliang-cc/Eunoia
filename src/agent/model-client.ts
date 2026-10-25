@@ -28,32 +28,29 @@
  * See docs/adr/005-agent-runtime.md.
  */
 
-import { OpenAIProvider, setDefaultModelProvider } from '@openai/agents';
-import { DEEPSEEK_BASE_URL, MODEL_IDS, resolveApiKey } from '../config.ts';
+import { setDefaultModelProvider, type ModelProvider } from '@openai/agents';
+import { MODEL_IDS } from '../config.ts';
+import { defaultProviderId, providerFor } from '../provider/index.ts';
 
 /** The model used by the companion itself. */
 export const COMPANION_MODEL = MODEL_IDS.companion;
 
 /**
- * Build the DeepSeek-backed provider.
+ * Build the configured provider.
  *
- * Throws if no API key is configured, rather than letting the SDK fail later
- * with an opaque authentication error.
+ * The adapter owns credentials and protocol; this function only bridges it to
+ * the SDK's process-level default for callers that have not moved to explicit
+ * per-run injection yet.
  */
-export function createProvider(): OpenAIProvider {
-  return new OpenAIProvider({
-    apiKey: resolveApiKey(),
-    baseURL: DEEPSEEK_BASE_URL,
-    useResponses: true,
-  });
+export function createProvider(): ModelProvider {
+  return providerFor(defaultProviderId()).createModelProvider();
 }
 
 /**
- * Install DeepSeek as the default model provider.
+ * Install the configured provider as the SDK default.
  *
- * Call once before constructing an agent. Separated from `createProvider` so
- * that tests which never make a network call can build an agent without needing
- * a credential.
+ * Compatibility path for entry points that still rely on a global provider.
+ * The companion run itself passes its provider explicitly.
  */
 export function installProvider(): void {
   setDefaultModelProvider(createProvider());

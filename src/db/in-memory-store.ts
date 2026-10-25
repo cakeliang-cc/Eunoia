@@ -51,6 +51,7 @@ interface StoredConversation {
   lastTurnAt: Date | null;
   turnCount: number;
   archivedAt: Date | null;
+  modelId: string | null;
   messages: Message[];
 }
 
@@ -227,7 +228,11 @@ export class InMemoryStore implements Store {
 
   // ----------------------------------------------------- conversations -----
 
-  async createConversation(userId: string, title?: string | null): Promise<Conversation> {
+  async createConversation(
+    userId: string,
+    title?: string | null,
+    modelId?: string | null,
+  ): Promise<Conversation> {
     const conversation: StoredConversation = {
       id: randomUUID(),
       userId,
@@ -236,6 +241,7 @@ export class InMemoryStore implements Store {
       lastTurnAt: null,
       turnCount: 0,
       archivedAt: null,
+      modelId: modelId ?? null,
       messages: [],
     };
     this.#conversations.set(conversation.id, conversation);
@@ -259,6 +265,7 @@ export class InMemoryStore implements Store {
     if (patch.archived !== undefined) {
       conversation.archivedAt = patch.archived ? new Date() : null;
     }
+    if (patch.modelId !== undefined) conversation.modelId = patch.modelId;
     return conversation;
   }
 
@@ -283,6 +290,7 @@ export class InMemoryStore implements Store {
       lastTurnAt: null,
       turnCount: 0,
       archivedAt: null,
+      modelId: null,
       messages: [],
     };
     this.#conversations.set(id, conversation);

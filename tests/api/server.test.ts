@@ -26,6 +26,7 @@ import { InMemoryStore } from '../../src/db/in-memory-store.ts';
 import { createApp, MEMORY_ENABLED_KEY, parseChatRequest } from '../../src/api/server.ts';
 import { IDENTITY_COOKIE } from '../../src/api/identity.ts';
 import { PROMPT_VERSION } from '../../src/agent/instructions.ts';
+import { MODEL_IDS } from '../../src/config.ts';
 import type { TurnRunner } from '../../src/service/chat.ts';
 import type { AgentEvent } from '../../src/agent/events.ts';
 
@@ -245,6 +246,17 @@ describe('DELETE /api/me', () => {
   });
 });
 
+describe('GET /api/models', () => {
+  it('lists the model profiles with their context capability', async () => {
+    const { status, body } = await api('/api/models');
+    expect(status).toBe(200);
+    expect(body.models.map((model: { id: string }) => model.id).sort()).toEqual(
+      [MODEL_IDS.companion, MODEL_IDS.fast].sort(),
+    );
+    expect(body.models[0].contextWindowTokens).toBeGreaterThan(0);
+  });
+});
+
 describe('GET /health', () => {
   it('reports ok and the prompt version', async () => {
     const { status, body } = await api('/health');
@@ -442,6 +454,34 @@ describe('conversation lifecycle', () => {
     expect(status).toBe(201);
     expect(body.conversation.title).toBeNull();
     expect(body.conversation.turnCount).toBe(0);
+    expect(body.conversation.modelId).toBeNull();
+  });
+
+  it('pins a model per conversation and rejects unknown ids', async () => {
+    const cookie = await newIdentity();
+    const created = await api('/api/conversations', {
+      method: 'POST',
+      cookie,
+      body: JSON.stringify({ modelId: MODEL_IDS.fast }),
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.conversation.modelId).toBe(MODEL_IDS.fast);
+    const id = created.body.conversation.id as string;
+
+    const repinned = await api(`/api/conversations/${id}`, {
+      method: 'PATCH',
+      cookie,
+      body: JSON.stringify({ modelId: MODEL_IDS.companion }),
+    });
+    expect(repinned.status).toBe(200);
+    expect(repinned.body.conversation.modelId).toBe(MODEL_IDS.companion);
+
+    const unknown = await api('/api/conversations', {
+      method: 'POST',
+      cookie,
+      body: JSON.stringify({ modelId: 'deepseek-chat' }),
+    });
+    expect(unknown.status).toBe(400);
   });
 
   it('deletes the messages with the conversation', async () => {

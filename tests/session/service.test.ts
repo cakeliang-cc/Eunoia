@@ -10,6 +10,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { InMemoryStore } from '../../src/db/in-memory-store.ts';
+import { MODEL_IDS } from '../../src/config.ts';
+import { modelProfile } from '../../src/models/registry.ts';
 import { DEFAULT_SESSION_CONFIG, type SessionConfig } from '../../src/session/config.ts';
 import { SessionService } from '../../src/session/service.ts';
 import type { SummaryRequest } from '../../src/session/summary.ts';
@@ -131,6 +133,47 @@ describe('SessionService compaction', () => {
 
     const replay = await sessions.prepare(USER, conversationId);
     expect(replay.summary).toBeNull();
+  });
+
+  it('uses the pinned model’s budget, not the process default', async () => {
+    const store = new InMemoryStore();
+    await store.ensureUser(USER);
+    const big = modelProfile(MODEL_IDS.companion);
+    const small = {
+      ...big,
+      id: 'small-test',
+      contextWindowTokens: 2_000,
+      maxOutputTokens: 10,
+      safetyBufferTokens: 10,
+      defaultInputBudgetTokens: 1_200,
+    };
+
+    const smallConversation = await store.createConversation(USER, 'small', 'small-test');
+    for (let index = 0; index < 20; index += 1) {
+      await store.appendMessage({
+        conversationId: smallConversation.id,
+        userId: USER,
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        content: `第${index + 1}轮`.padEnd(30, '话'),
+      });
+    }
+    const last = (await store.listMessages(USER, smallConversation.id)).at(-1)!;
+
+    const sessions = new SessionService(store, {
+      config: config({
+        inputBudgetTokens: null,
+        promptReserveTokens: 40,
+        compactTriggerRatio: 0.5,
+        keepRecentMessages: 1,
+      }),
+      model: big,
+      resolveModel: (id) => (id === 'small-test' ? small : big),
+      summarize: async () => '小模型摘要',
+    });
+
+    const replay = await sessions.prepare(USER, smallConversation.id, { protectSeq: last.seq });
+    expect(replay.summary).toBe('小模型摘要');
+    expect(replay.throughSeq).toBeLessThan(last.seq);
   });
 
   it('compacts an idle conversation once it is older than the threshold', async () => {

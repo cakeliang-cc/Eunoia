@@ -120,6 +120,31 @@ SINGLE_USER_ID=00000000-0000-4000-8000-000000000001
 空闲压缩关闭（0）
 ```
 
+## 模型与 provider
+
+模型能力和 provider 连接是分开的：
+
+- `src/models/`：`ModelProfile`（context window、max output、默认预算、token 估算）
+- `src/provider/`：provider adapter（base URL、密钥、Responses/Chat 协议）
+- `src/session/`：只消费 plain model profile，不 import provider 或 SDK
+
+DeepSeek 两个模型目前都是 1M context，但默认会话预算仍是 200k：
+
+```text
+effective budget = min(
+  显式 SESSION_INPUT_BUDGET_TOKENS ?? model.defaultInputBudgetTokens,
+  model.contextWindowTokens - maxOutputTokens - safetyBufferTokens
+)
+```
+
+所以小模型 200k / 160k 的 context 会自动把自己的可用预算压低；显式提高预算也不会
+超过模型 context。每个会话可以 pin 一个模型（`conversations.model_id`），
+`POST /api/conversations` 或 `PATCH /api/conversations/:id` 传 `modelId` 即可；
+不设则继承 `COMPANION_MODEL_ID`。
+
+provider 目前只注册了 DeepSeek；SDK 的创建被限制在 `src/provider/` 和
+`src/agent/`，session 层不会接触到它。
+
 ## 命令
 
 | 命令 | 作用 |

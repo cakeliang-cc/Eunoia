@@ -27,11 +27,17 @@ export interface ConversationPatch {
   /** `null` clears the name; the list then falls back to its unnamed label. */
   readonly title?: string | null;
   readonly archived?: boolean;
+  /** `null` clears the pin and returns the conversation to the process default. */
+  readonly modelId?: string | null;
 }
 
 export interface SessionStore {
   /** Create an empty conversation. The first message is not required to exist. */
-  createConversation(userId: string, title?: string | null): Promise<Conversation>;
+  createConversation(
+    userId: string,
+    title?: string | null,
+    modelId?: string | null,
+  ): Promise<Conversation>;
 
   /** Read one conversation owned by this user, or null. */
   getConversation(userId: string, conversationId: string): Promise<Conversation | null>;

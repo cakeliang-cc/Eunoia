@@ -44,6 +44,11 @@ export interface Conversation {
    * it is a different one on purpose.
    */
   readonly archivedAt: Date | null;
+  /**
+   * The model pinned to this conversation, or null to inherit the process
+   * default. A pinned id also pins that model's context budget.
+   */
+  readonly modelId: string | null;
 }
 
 /**

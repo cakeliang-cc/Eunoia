@@ -66,6 +66,13 @@ export interface TurnDependencies {
    */
   readonly session?: SessionService;
   /**
+   * Per-run provider supplied by the composition root.
+   *
+   * Typed through `AgentOptions` so this orchestration layer never imports a
+   * vendor SDK directly.
+   */
+  readonly modelProvider?: AgentOptions['modelProvider'];
+  /**
    * Injectable so tests and the evaluation replay mode can drive the whole turn
    * — retrieval, safety, persistence and all — without a model call.
    */
@@ -188,6 +195,7 @@ export async function* runTurn(
       sourceMessageId: userMessageId,
       now: deps.now?.(),
     }),
+    model: conversation.modelId ?? COMPANION_MODEL,
     relationshipBlock: context.relationshipBlock,
     narrativeBlock: context.narrativeBlock,
     archivedSummaryBlock: replay.summary ? renderArchivedSummary(replay.summary) : null,
@@ -206,6 +214,7 @@ export async function* runTurn(
     signal: request.signal,
     history,
     tools: agentOptions.tools,
+    ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
   })) {
     if (event.type === 'completed') {
       reply = event.text;

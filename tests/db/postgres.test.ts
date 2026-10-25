@@ -23,6 +23,7 @@ import type { Pool } from 'pg';
 import { createPool, describeTarget } from '../../src/db/pool.ts';
 import { migrate } from '../../src/db/migrate.ts';
 import { PostgresStore } from '../../src/db/postgres-store.ts';
+import { MODEL_IDS } from '../../src/config.ts';
 
 const url = process.env.DATABASE_URL?.trim() ?? '';
 const enabled = url.length > 0;
@@ -384,6 +385,16 @@ describe.skipIf(!enabled)('PostgresStore', () => {
     expect(await store.deleteConversation(userId, created.id)).toBe(true);
     expect(await store.getConversation(userId, created.id)).toBeNull();
     expect(await store.listMessages(userId, created.id)).toEqual([]);
+  });
+
+  it('persists a per-conversation model pin', async () => {
+    const userId = await freshUser();
+    const conversation = await store.createConversation(userId, '模型自检', MODEL_IDS.fast);
+    expect(conversation.modelId).toBe(MODEL_IDS.fast);
+    expect((await store.getConversation(userId, conversation.id))?.modelId).toBe(MODEL_IDS.fast);
+
+    const cleared = await store.updateConversation(userId, conversation.id, { modelId: null });
+    expect(cleared?.modelId).toBeNull();
   });
 
   it('unarchives a conversation when a new message is written', async () => {

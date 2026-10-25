@@ -15,7 +15,7 @@
  * behavioural layer be tested against a fake runner with no model in the loop.
  */
 
-import { Agent, run, type Tool } from '@openai/agents';
+import { Agent, run, type ModelProvider, type Tool } from '@openai/agents';
 import type { AgentEvent, ThinkingDoneEvent } from './events.ts';
 import { buildInstructions } from './instructions.ts';
 import { COMPANION_MODEL } from './model-client.ts';
@@ -39,6 +39,11 @@ export interface StreamReplyOptions {
   readonly tools?: readonly Tool[];
   /** Per-turn override appended to the system prompt. See `src/safety/`. */
   readonly safetyDirective?: string | null;
+  /**
+   * The provider for this run. Supplied explicitly by the composition root so
+   * multiple providers can coexist without a process-global default.
+   */
+  readonly modelProvider?: ModelProvider;
 }
 
 export interface AgentOptions {
@@ -52,14 +57,19 @@ export interface AgentOptions {
   readonly narrativeBlock?: string | null;
   /** A compacted checkpoint of turns no longer in the raw window. */
   readonly archivedSummaryBlock?: string | null;
+  /** Pin the companion model for this turn; defaults to the process model. */
+  readonly model?: string;
+  /** Provider used when the turn is executed; explicit, not process-global. */
+  readonly modelProvider?: ModelProvider;
 }
 
 /**
  * Construct the companion.
  *
- * Requires the default model provider to be installed first — see
- * `installProvider()` in `model-client.ts`. Keeping construction separate from
- * provider setup means tests can build an agent without a live credential.
+ * The model id can be pinned per conversation. The provider is supplied when
+ * the run starts (`streamReply({ modelProvider })`); tests can build an agent
+ * without a live credential, and multiple providers no longer need a
+ * process-global default.
  */
 export function createCompanionAgent(options: AgentOptions = {}): Agent {
   return new Agent({
@@ -71,7 +81,7 @@ export function createCompanionAgent(options: AgentOptions = {}): Agent {
       memoryBlock: options.memoryBlock,
       safetyDirective: options.safetyDirective,
     }),
-    model: COMPANION_MODEL,
+    model: options.model ?? COMPANION_MODEL,
     tools: [...(options.tools ?? [])],
   });
 }
@@ -265,6 +275,7 @@ export async function* streamReply(
       stream: true as const,
       signal: options.signal,
       maxTurns: options.maxTurns,
+      ...(options.modelProvider ? { modelProvider: options.modelProvider } : {}),
     });
 
     for await (const event of result) {

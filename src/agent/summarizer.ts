@@ -1,7 +1,7 @@
 /**
  * The one model call compaction needs.
  *
- * This lives in the agent layer because it constructs a vendor client. The
+ * This lives in the agent layer because it talks to a provider adapter. The
  * session layer only knows the `SummaryGenerator` port, so it cannot leak an SDK
  * import or a provider-specific option into the summary boundary.
  *
@@ -10,8 +10,8 @@
  * long conversations more expensive for no visible gain.
  */
 
-import OpenAI from 'openai';
-import { DEEPSEEK_BASE_URL, MODEL_IDS, resolveApiKey } from '../config.ts';
+import { MODEL_IDS } from '../config.ts';
+import { defaultProviderId, providerFor, type ProviderAdapter } from '../provider/index.ts';
 import {
   renderSummaryPrompt,
   SUMMARY_SYSTEM_PROMPT,
@@ -19,14 +19,10 @@ import {
 } from '../session/summary.ts';
 
 export function createSummaryGenerator(
+  provider: ProviderAdapter = providerFor(defaultProviderId()),
   model: string = MODEL_IDS.fast,
 ): SummaryGenerator {
-  const client = new OpenAI({
-    apiKey: resolveApiKey(),
-    baseURL: DEEPSEEK_BASE_URL,
-    maxRetries: 1,
-    timeout: 60_000,
-  });
+  const client = provider.createClient();
 
   return async (request) => {
     const completion = await client.chat.completions.create({
