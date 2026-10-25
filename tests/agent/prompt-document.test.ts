@@ -64,6 +64,12 @@ function section(heading: string): string {
 }
 
 describe('the prompt document', () => {
+  it('names the agent Eunoia, and tells it not to sign every sentence', () => {
+    const body = section('身份');
+    expect(body).toContain('你是 Eunoia');
+    expect(body).toContain('没人问，就不必提');
+  });
+
   it('is markdown with the sections spec §11 asks for', () => {
     const required = [
       '身份',
@@ -72,6 +78,7 @@ describe('the prompt document', () => {
       '四种视角',
       '记忆规则',
       '检索到的记忆',
+      '现在',
       '对话规则',
       '安全规则',
       '工具规则',

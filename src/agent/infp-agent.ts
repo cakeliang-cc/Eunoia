@@ -37,8 +37,13 @@ export interface StreamReplyOptions {
   readonly history?: readonly ConversationTurn[];
   /** Tools the agent may call. Empty means none. */
   readonly tools?: readonly Tool[];
-  /** Per-turn override appended to the system prompt. See `src/safety/`. */
-  readonly safetyDirective?: string | null;
+  /**
+   * Per-turn context sent as a trailing system input item.
+   *
+   * It deliberately lives after the history: putting it in the system prompt
+   * would make every changed memory or clock invalidate the cached history.
+   */
+  readonly context?: string | null;
   /**
    * The provider for this run. Supplied explicitly by the composition root so
    * multiple providers can coexist without a process-global default.
@@ -48,15 +53,6 @@ export interface StreamReplyOptions {
 
 export interface AgentOptions {
   readonly tools?: readonly Tool[];
-  readonly safetyDirective?: string | null;
-  /** Retrieved memories, already rendered. See `src/memory/render.ts`. */
-  readonly memoryBlock?: string | null;
-  /** How long we have known each other. See `src/session/relationship.ts`. */
-  readonly relationshipBlock?: string | null;
-  /** The themes they are living through. See `src/memory/narrative.ts`. */
-  readonly narrativeBlock?: string | null;
-  /** A compacted checkpoint of turns no longer in the raw window. */
-  readonly archivedSummaryBlock?: string | null;
   /** Pin the companion model for this turn; defaults to the process model. */
   readonly model?: string;
   /** Provider used when the turn is executed; explicit, not process-global. */
@@ -74,13 +70,8 @@ export interface AgentOptions {
 export function createCompanionAgent(options: AgentOptions = {}): Agent {
   return new Agent({
     name: AGENT_NAME,
-    instructions: buildInstructions({
-      relationshipBlock: options.relationshipBlock,
-      narrativeBlock: options.narrativeBlock,
-      archivedSummaryBlock: options.archivedSummaryBlock,
-      memoryBlock: options.memoryBlock,
-      safetyDirective: options.safetyDirective,
-    }),
+    // Stable bytes only. Per-turn context is sent after the history instead.
+    instructions: buildInstructions(),
     model: options.model ?? COMPANION_MODEL,
     tools: [...(options.tools ?? [])],
   });
@@ -195,7 +186,8 @@ export type RunInputItem =
       readonly status: 'completed';
       readonly content: { readonly type: 'output_text'; readonly text: string }[];
       readonly type: 'message';
-    };
+    }
+  | { readonly role: 'system'; readonly content: string; readonly type: 'message' };
 
 /**
  * Build the run input.
@@ -206,15 +198,22 @@ export type RunInputItem =
  * means the exact prompt sent on a turn is reconstructible from our own data,
  * which is what the evaluation runner needs.
  *
- * The single-message case passes a bare string: it is the shape the provider
- * sees most often, and there is no reason to make the common path go through the
- * array form.
+ * The per-turn context is appended after the current user message, never
+ * before it. That ordering keeps the persisted history as the leading bytes of
+ * the next request: the context is new tail, not a changed head. DeepSeek's
+ * Responses API accepts a `system` input item in this position.
+ *
+ * The single-message, no-context case still passes a bare string: it is the
+ * shape the provider sees most often, and there is no reason to make the common
+ * path go through the array form.
  */
 export function buildRunInput(
   message: string,
   history: readonly ConversationTurn[] = [],
+  context?: string | null,
 ): string | RunInputItem[] {
-  if (history.length === 0) return message;
+  const trailing = context?.trim();
+  if (history.length === 0 && !trailing) return message;
 
   const items: RunInputItem[] = history.map((turn) =>
     turn.role === 'user'
@@ -228,7 +227,45 @@ export function buildRunInput(
   );
 
   items.push({ role: 'user', content: message, type: 'message' });
+  if (trailing) {
+    items.push({ role: 'system', content: trailing, type: 'message' });
+  }
   return items;
+}
+
+/**
+ * Server-measured prompt-cache usage, when the provider reports it.
+ *
+ * The Responses API puts cached input tokens in `input_tokens_details`;
+ * Chat Completions uses top-level fields. This helper accepts both, and returns
+ * null rather than inventing a number when the provider said nothing.
+ */
+export function cacheUsageOf(
+  usage:
+    | {
+        readonly inputTokens?: number;
+        readonly promptTokens?: number;
+        readonly inputTokensDetails?: readonly Record<string, number>[];
+        readonly promptTokensDetails?: Record<string, number>;
+      }
+    | null
+    | undefined,
+): { input_tokens: number; cached_tokens: number; cache_hit_rate: number } | null {
+  if (!usage) return null;
+  const input = usage.inputTokens ?? usage.promptTokens ?? 0;
+  if (!(input > 0)) return null;
+
+  let cached = 0;
+  for (const detail of usage.inputTokensDetails ?? []) {
+    cached += Number(detail.cached_tokens ?? 0);
+  }
+  cached += Number(usage.promptTokensDetails?.cached_tokens ?? 0);
+
+  return {
+    input_tokens: input,
+    cached_tokens: cached,
+    cache_hit_rate: Number((cached / input).toFixed(4)),
+  };
 }
 
 /**
@@ -271,7 +308,7 @@ export async function* streamReply(
   };
 
   try {
-    const result = await run(agent, buildRunInput(message, options.history), {
+    const result = await run(agent, buildRunInput(message, options.history, options.context), {
       stream: true as const,
       signal: options.signal,
       maxTurns: options.maxTurns,
@@ -331,6 +368,7 @@ export async function* streamReply(
     const final = (result as { finalOutput?: unknown }).finalOutput;
     const text = typeof final === 'string' && final.length > 0 ? final : collected;
 
+    const cache = cacheUsageOf(result.state?.usage);
     log.info('agent.turn_completed', {
       duration_ms: Date.now() - startedAt,
       reply_fingerprint: `len=${text.length}`,
@@ -338,6 +376,7 @@ export async function* streamReply(
       // goes to the person watching it, not into a log line (spec §14).
       reasoning_chars: reasoningChars,
       used_tools: sawToolCall,
+      ...(cache ?? {}),
     });
 
     yield { type: 'completed', text };

@@ -38,6 +38,7 @@ import {
 } from '../agent/infp-agent.ts';
 import { createMemoryTools } from '../agent/tools.ts';
 import { PROMPT_VERSION } from '../agent/instructions.ts';
+import { buildRuntimeContext } from '../agent/runtime-context.ts';
 import { COMPANION_MODEL } from '../agent/model-client.ts';
 import { contentFingerprint, log } from '../observability/logging.ts';
 import { buildTurnContext } from './context.ts';
@@ -78,6 +79,12 @@ export interface TurnDependencies {
    */
   readonly runner?: TurnRunner;
   readonly now?: () => Date;
+  /**
+   * IANA zone for the situation block. Omitted, the process zone is used.
+   * A client that knows the person's zone should pass it: the process zone
+   * is right only while the server and the person share one.
+   */
+  readonly timeZone?: string;
 }
 
 export interface TurnRequest {
@@ -160,9 +167,11 @@ export async function* runTurn(
   });
   const userMessageId = userMessage?.id ?? null;
 
+  const now = deps.now?.() ?? new Date();
   const context = await buildTurnContext(deps.store, request.userId, message, {
-    now: deps.now?.() ?? new Date(),
+    now,
     retrieve: request.retrieve,
+    ...(deps.timeZone ? { timeZone: deps.timeZone } : {}),
   });
   const riskLevel = request.riskLevel ?? context.risk.level;
 
@@ -193,16 +202,19 @@ export async function* runTurn(
       store: deps.store,
       userId: request.userId,
       sourceMessageId: userMessageId,
-      now: deps.now?.(),
+      now,
     }),
     model: conversation.modelId ?? COMPANION_MODEL,
+  };
+  const agent = createCompanionAgent(agentOptions);
+  const runtimeContext = buildRuntimeContext({
     relationshipBlock: context.relationshipBlock,
     narrativeBlock: context.narrativeBlock,
     archivedSummaryBlock: replay.summary ? renderArchivedSummary(replay.summary) : null,
+    situationBlock: context.situationBlock,
     memoryBlock: context.memoryBlock,
     safetyDirective: safetyDirectiveFor(riskLevel),
-  };
-  const agent = createCompanionAgent(agentOptions);
+  });
 
   const buffer = riskLevel === 'crisis';
   let reply = '';
@@ -214,6 +226,7 @@ export async function* runTurn(
     signal: request.signal,
     history,
     tools: agentOptions.tools,
+    context: runtimeContext,
     ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
   })) {
     if (event.type === 'completed') {

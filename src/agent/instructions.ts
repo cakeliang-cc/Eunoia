@@ -1,9 +1,8 @@
 /**
  * The companion's system prompt — loaded, not written here (spec §11).
  *
- * The prompt is a document: `prompts/companion.md`. This module reads it, strips
- * the editor's note at the top, and composes it with the per-turn parts. The
- * prose used to live here as template literals, which put the thing most likely
+ * The prompt is a document: `prompts/companion.md`. This module reads it and
+ * strips the editor's note at the top. The prose used to live here as template literals, which put the thing most likely
  * to be edited (the companion's voice) inside the thing least likely to be edited
  * casually (code that hashes, caches and versions it). Anyone tuning how the
  * companion talks had to edit TypeScript to do it, and every such edit risked
@@ -18,10 +17,9 @@
  *   startup means the version is derived from the same bytes the model reads,
  *   rather than from a copy of them that might be stale.
  *
- * What survives here is the composition: this file decides *what goes around* the
- * prompt (retrieved memory, a safety directive) and in which order. Order is not
- * cosmetic — the stable prefix is what prompt caching keys on, and a safety
- * directive has to come after the rules it overrides to read as an override.
+ * What survives here is the stable prompt. Per-turn blocks — the clock, retrieved
+ * memory, a safety directive — are assembled by `runtime-context.ts` and sent
+ * after the current user message, so a change there does not move this prefix.
  */
 
 import { createHash } from 'node:crypto';
@@ -56,78 +54,21 @@ function loadPrompt(): string {
 /**
  * The stable prompt — everything that does not change between turns.
  *
- * Read once per process, and the same string every time: `buildInstructions()`
- * is called per turn, and a prompt rebuilt per turn is both wasted work and a
- * cache miss (spec §14).
+ * Read once per process. `buildInstructions()` returns this string and nothing
+ * else: a prompt rebuilt per turn is both wasted work and a cache miss
+ * (spec §14).
  */
 export const STABLE_INSTRUCTIONS = loadPrompt();
 
-export interface InstructionOptions {
-  /**
-   * How long we have known each other, or an empty string (spec §25).
-   *
-   * First of the per-turn blocks. It changes rarely — only when a conversation
-   * is added, not when a message is — so putting it before `memoryBlock` means
-   * consecutive turns share a prefix that runs through the whole relationship
-   * block rather than stopping at the previous turn's retrieved memories. The
-   * ordering is a cache decision as much as a reading order, and the two agree
-   * here: the frame comes before what is in it.
-   */
-  readonly relationshipBlock?: string | null;
-  /**
-   * The themes this person is living through, or an empty string (spec §43).
-   *
-   * After the relationship block and before the retrieved memories, which is
-   * also the order of how often each changes: the relationship moves when a
-   * conversation is added, a theme when one is written or rewritten, and the
-   * retrieved memories every turn.
-   */
-  readonly narrativeBlock?: string | null;
-  /**
-   * The checkpoint for turns that were compacted out of the raw window.
-   *
-   * It changes only when compaction runs, so it sits before the per-turn
-   * retrieved-memory block: a rare change should not invalidate the prefix on
-   * every turn.
-   */
-  readonly archivedSummaryBlock?: string | null;
-  /**
-   * The retrieved-memory block for this turn, or an empty string.
-   *
-   * Placed after everything stable and before the safety directive, because it
-   * is the only per-turn content that is *background* rather than an
-   * instruction. Prompt caching still applies: the cache key is the prefix, and
-   * appending after it does not disturb it (spec §14).
-   */
-  readonly memoryBlock?: string | null;
-  /**
-   * Appended last, after everything else. A safety directive overrides the
-   * behavioural policy by design (spec §10), and a rule that overrides earlier
-   * rules has to come after them to read as an override.
-   */
-  readonly safetyDirective?: string | null;
-}
-
-/** Compose the full system prompt for a turn. */
-export function buildInstructions(options: InstructionOptions = {}): string {
-  const sections = [STABLE_INSTRUCTIONS];
-
-  const relationshipBlock = options.relationshipBlock?.trim();
-  if (relationshipBlock) sections.push(relationshipBlock);
-
-  const narrativeBlock = options.narrativeBlock?.trim();
-  if (narrativeBlock) sections.push(narrativeBlock);
-
-  const archivedSummaryBlock = options.archivedSummaryBlock?.trim();
-  if (archivedSummaryBlock) sections.push(archivedSummaryBlock);
-
-  const memoryBlock = options.memoryBlock?.trim();
-  if (memoryBlock) sections.push(memoryBlock);
-
-  const directive = options.safetyDirective?.trim();
-  if (directive) sections.push(directive);
-
-  return sections.join('\n\n');
+/**
+ * The stable system prompt, and only that.
+ *
+ * Per-turn blocks are assembled by `buildRuntimeContext()` and sent after the
+ * current user message. Putting them here would invalidate the cached history
+ * whenever a memory or the clock changed.
+ */
+export function buildInstructions(): string {
+  return STABLE_INSTRUCTIONS;
 }
 
 /**

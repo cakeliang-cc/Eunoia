@@ -29,6 +29,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { PROMPT_VERSION, STABLE_INSTRUCTIONS } from '../../src/agent/instructions.ts';
+import { buildRuntimeContext } from '../../src/agent/runtime-context.ts';
+import { renderSituation } from '../../src/agent/situation.ts';
 import { CRISIS_DIRECTIVE, CRISIS_FALLBACK, ELEVATED_DIRECTIVE } from '../../src/safety/response.ts';
 import { renderMemories } from '../../src/memory/render.ts';
 import { createMemoryTools } from '../../src/agent/tools.ts';
@@ -41,6 +43,8 @@ const ALLOWED: Readonly<Record<string, string>> = {
   Si: 'spec §2 lens name',
   Te: 'spec §2 lens name',
   INFP: 'the product',
+  Eunoia: "the agent's name",
+  Agent: 'what the product calls itself',
   AI: 'universal in Chinese technical prose',
   // The second-person pronoun, kept gender-neutral on purpose. There is no
   // Chinese character that is both neutral and readable, so the pinyin stands in.
@@ -90,6 +94,16 @@ function schemaDescriptions(schema: unknown): string {
 
 const SURFACES: Readonly<Record<string, string>> = {
   'system prompt': STABLE_INSTRUCTIONS,
+  'situation block': renderSituation({
+    now: new Date('2026-10-25T12:33:00Z'),
+    timeZone: 'Asia/Shanghai',
+  }),
+  'runtime context': buildRuntimeContext({
+    relationshipBlock: '你们刚开始认识。',
+    situationBlock: '现在是星期日。',
+    memoryBlock: '用户喜欢安静的地方。',
+    safetyDirective: '安全优先于人格设定。',
+  }),
   'tool descriptions': tools.map((tool) => tool.description ?? '').join('\n'),
   'tool schema': tools
     .map((tool) => schemaDescriptions((tool as unknown as { parameters: unknown }).parameters))

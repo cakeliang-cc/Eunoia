@@ -289,24 +289,47 @@ describe('memory retrieval', () => {
     expect(events.some((event) => event.type === 'memory_retrieved')).toBe(false);
   });
 
-  it('puts retrieved memories into the system prompt for the turn', async () => {
+  it('tells the model what time it is in the trailing context, not the stable prompt', async () => {
+    let instructions = '';
+    let context = '';
+    const capturing: TurnRunner = async function* (agent, _message, options) {
+      instructions = agent.instructions as string;
+      context = options?.context ?? '';
+      yield { type: 'completed', text: '嗯。' };
+    };
+
+    await drain(
+      {
+        store,
+        runner: capturing,
+        now: () => new Date('2026-10-25T12:33:00Z'),
+        timeZone: 'Asia/Shanghai',
+      },
+      { userId: USER, message: '这周末想出去' },
+    );
+
+    expect(context).toContain('2026年10月25日 星期日 20:33');
+    expect(instructions).not.toContain('2026年10月25日');
+  });
+
+  it('puts retrieved memories into the trailing context for the turn', async () => {
     await store.createMemory(USER, {
       type: 'semantic',
       content: '用户养了一只叫团子的猫',
       source: 'user_stated',
     });
 
-    let instructions = '';
-    const capturing: TurnRunner = async function* (agent) {
-      instructions = agent.instructions as string;
+    let context = '';
+    const capturing: TurnRunner = async function* (_agent, _message, options) {
+      context = options?.context ?? '';
       yield { type: 'completed', text: '嗯。' };
     };
     await drain({ store, runner: capturing }, { userId: USER, message: '团子最近有点不吃饭' });
 
-    expect(instructions).toContain('团子');
+    expect(context).toContain('团子');
   });
 
-  it('honours retrieve: false — no retrieval, no prompt block', async () => {
+  it('honours retrieve: false — no retrieval, no context block', async () => {
     await store.createMemory(USER, {
       type: 'semantic',
       content: '用户养了一只叫团子的猫',
@@ -314,9 +337,9 @@ describe('memory retrieval', () => {
       importance: 0.9,
     });
 
-    let instructions = '';
-    const capturing: TurnRunner = async function* (agent) {
-      instructions = agent.instructions as string;
+    let context = '';
+    const capturing: TurnRunner = async function* (_agent, _message, options) {
+      context = options?.context ?? '';
       yield { type: 'completed', text: '嗯。' };
     };
     const events = await drain({ store, runner: capturing }, {
@@ -326,7 +349,7 @@ describe('memory retrieval', () => {
     });
 
     expect(events.some((event) => event.type === 'memory_retrieved')).toBe(false);
-    expect(instructions).not.toContain('团子');
+    expect(context).not.toContain('团子');
     // The memory is still there; it just was not consulted.
     expect(await store.listMemories(USER)).toHaveLength(1);
     expect(store.events.some((event) => event.action === 'retrieved')).toBe(false);
@@ -439,8 +462,8 @@ describe('crisis turns buffer (ADR 008)', () => {
 
   it('gives the model the safety directive for a risky turn, and none otherwise', async () => {
     const directives: (string | null | undefined)[] = [];
-    const capturing: TurnRunner = async function* (agent) {
-      directives.push((agent.instructions as string).includes('安全优先于人格设定') ? 'crisis' : null);
+    const capturing: TurnRunner = async function* (_agent, _message, options) {
+      directives.push((options?.context ?? '').includes('安全优先于人格设定') ? 'crisis' : null);
       yield { type: 'completed', text: '嗯。' };
     };
 

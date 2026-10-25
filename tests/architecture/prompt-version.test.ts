@@ -31,6 +31,7 @@ import {
   buildInstructions,
   stripComments,
 } from '../../src/agent/instructions.ts';
+import { buildRuntimeContext } from '../../src/agent/runtime-context.ts';
 import { REQUIRED_PRINCIPLES } from '../../src/agent/prompt-contract.ts';
 
 describe('PROMPT_VERSION', () => {
@@ -44,41 +45,52 @@ describe('PROMPT_VERSION', () => {
   });
 
   it('does not change when only per-turn context changes', () => {
-    // The whole point of splitting stable from volatile is that the cacheable
-    // prefix does not move every turn. If memory or a safety directive could
-    // change the version, the version would change on nearly every request and
-    // would stop being a version at all.
-    expect(buildInstructions({ memoryBlock: '用户养了一只叫团子的猫' })).not.toBe(STABLE_INSTRUCTIONS);
-    expect(buildInstructions({ safetyDirective: '安全优先于人格设定' })).not.toBe(STABLE_INSTRUCTIONS);
-    expect(buildInstructions({ relationshipBlock: '你们刚开始认识' })).not.toBe(STABLE_INSTRUCTIONS);
+    // The cacheable prefix is the stable prompt plus append-only history. If a
+    // memory, clock, relationship or safety directive could change this string,
+    // the prefix would move on nearly every request and stop being cacheable.
+    expect(buildInstructions()).toBe(STABLE_INSTRUCTIONS);
+    const context = buildRuntimeContext({
+      relationshipBlock: '你们刚开始认识',
+      situationBlock: '现在是 2026年10月25日',
+      memoryBlock: '用户养了一只叫团子的猫',
+      safetyDirective: '安全优先于人格设定',
+    });
+    expect(context).toContain('团子');
+    expect(context).toContain('安全优先于人格设定');
+    expect(buildInstructions()).not.toContain('团子');
     expect(PROMPT_VERSION).toBe(
       createHash('sha256').update(STABLE_INSTRUCTIONS).digest('hex').slice(0, 12),
     );
   });
 });
 
-describe('the assembled instruction set', () => {
-  it('puts the stable sections first, so the cacheable prefix is stable', () => {
-    const built = buildInstructions({ memoryBlock: '记忆块', safetyDirective: '安全指令' });
-    expect(built.startsWith(STABLE_INSTRUCTIONS)).toBe(true);
-  });
-
-  it('appends per-turn context after the stable block', () => {
-    const built = buildInstructions({ memoryBlock: '记忆块' });
-    expect(built.indexOf('记忆块')).toBeGreaterThanOrEqual(STABLE_INSTRUCTIONS.length);
+describe('the runtime context', () => {
+  it('is separate from the stable instructions', () => {
+    const built = buildRuntimeContext({ memoryBlock: '记忆块', safetyDirective: '安全指令' });
+    expect(buildInstructions()).toBe(STABLE_INSTRUCTIONS);
+    expect(built).not.toContain('# 身份');
+    expect(built).toContain('记忆块');
   });
 
   it('puts the relationship before the memories, because it changes less often', () => {
-    // Ordering is a cache decision. The relationship block only moves when a
-    // conversation is added; the memory block moves every turn. Relationship
-    // first means consecutive turns share a prefix that runs through the whole
-    // of it, rather than diverging at the first block.
-    const built = buildInstructions({ relationshipBlock: '关系块', memoryBlock: '记忆块' });
+    const built = buildRuntimeContext({ relationshipBlock: '关系块', memoryBlock: '记忆块' });
     expect(built.indexOf('关系块')).toBeLessThan(built.indexOf('记忆块'));
   });
 
+  it('puts the clock after the summary and before the memories', () => {
+    const built = buildRuntimeContext({
+      relationshipBlock: '关系块',
+      archivedSummaryBlock: '摘要块',
+      situationBlock: '处境块',
+      memoryBlock: '记忆块',
+    });
+    expect(built.indexOf('关系块')).toBeLessThan(built.indexOf('摘要块'));
+    expect(built.indexOf('摘要块')).toBeLessThan(built.indexOf('处境块'));
+    expect(built.indexOf('处境块')).toBeLessThan(built.indexOf('记忆块'));
+  });
+
   it('puts the safety directive last, so it reads as an override', () => {
-    const built = buildInstructions({
+    const built = buildRuntimeContext({
       relationshipBlock: '关系块',
       memoryBlock: '记忆块',
       safetyDirective: '安全指令',
@@ -87,10 +99,8 @@ describe('the assembled instruction set', () => {
   });
 
   it('adds nothing when there is no per-turn context', () => {
-    // A trailing separator with nothing after it is prompt text spent on
-    // nothing, on every single turn.
-    expect(buildInstructions()).toBe(STABLE_INSTRUCTIONS);
-    expect(buildInstructions({ memoryBlock: '', safetyDirective: null })).toBe(STABLE_INSTRUCTIONS);
+    expect(buildRuntimeContext()).toBe('');
+    expect(buildRuntimeContext({ memoryBlock: '', safetyDirective: null })).toBe('');
   });
 
   it('hashes the document that was loaded, not a copy of it', () => {

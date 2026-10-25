@@ -1,28 +1,30 @@
 /**
  * Assembling what the model sees for one turn.
  *
- * Four things happen here, and all of them are decided before a single token is
+ * Five things happen here, and all of them are decided before a single token is
  * generated:
  *
- *   1. **How long we have known each other** is derived and stated (spec §25).
- *   2. **The themes they are living through** are carried (spec §43).
- *   3. **Memory is retrieved and rendered.** Automatic, not left to the model's
+ *   1. **When this turn is happening** is stated: date, weekday, clock, zone.
+ *      There is always a now, so this block is never empty and never gated.
+ *   2. **How long we have known each other** is derived and stated (spec §25).
+ *   3. **The themes they are living through** are carried (spec §43).
+ *   4. **Memory is retrieved and rendered.** Automatic, not left to the model's
  *      discretion. The alternative — trusting the model to call `search_memory`
  *      when it should — fails silently and invisibly: nothing errors, the reply
  *      just does not know something it should have. Retrieval here is
  *      deterministic, budgeted, and testable without a model call, which is what
  *      makes spec §18's memory requirements into assertions rather than hopes.
- *   4. **Risk is assessed.** A high-risk message changes the instruction set for
+ *   5. **Risk is assessed.** A high-risk message changes the instruction set for
  *      the turn (spec §10). Assessing it here rather than after the reply means
  *      the safety directive shapes generation instead of trying to patch it
  *      afterwards.
  *
- * Steps 1 and 2 are **unconditional**, and that is the one place this file
- * deliberately parts company with step 3. A relationship and a running story are
- * not things that become relevant: "is this our first conversation" is a question
- * about every turn or none, and a theme is phrased differently every time it
- * comes up, so a similarity gate would drop it on exactly the turns it was
- * written for. See `src/session/relationship.ts` and `src/memory/narrative.ts`.
+ * The clock and the relationship are unconditional. A theme is not
+ * relevance-gated either — it is phrased differently every time it comes up,
+ * so a similarity gate would drop it on exactly the turns it was written for —
+ * but it is switched off with `retrieve: false`, because it is memory. See
+ * `src/session/relationship.ts` and `src/memory/narrative.ts`. Retrieval is
+ * the step that is gated.
  *
  * The cost of automatic retrieval, by contrast, is real and stated in
  * `AUTO_INJECT_BUDGET`: four loosely-related memories volunteered every turn
@@ -33,11 +35,20 @@ import type { MemoryStore } from '../memory/store.ts';
 import type { SessionStore } from '../session/store.ts';
 import { AUTO_INJECT_BUDGET, selectMemories } from '../memory/retrieval.ts';
 import { renderMemories } from '../memory/render.ts';
+import { renderSituation } from '../agent/situation.ts';
 import { describeRelationship, renderRelationship } from '../session/relationship.ts';
 import { selectNarratives, renderNarratives } from '../memory/narrative.ts';
 import { assessRisk, type RiskAssessment } from '../safety/risk.ts';
 
 export interface TurnContext {
+  /**
+   * When this turn is happening. Never empty: a turn always has a now.
+   *
+   * Not relevance-gated, for the same reason as the relationship block. "What
+   * day is it" is true of every turn, and a clock that appeared only when the
+   * message mentioned time would be absent on "这周末想出去".
+   */
+  readonly situationBlock: string;
   /** Ready to append to the system prompt. Empty string when nothing matched. */
   readonly memoryBlock: string;
   readonly memoryCount: number;
@@ -71,6 +82,11 @@ export interface TurnContext {
 
 export interface BuildContextOptions {
   readonly now?: Date;
+  /**
+   * IANA zone for the situation block. Omitted, the process zone is used,
+   * which is the person's zone on the single-user machine this runs on.
+   */
+  readonly timeZone?: string;
   /** Disable retrieval, for turns where it would be noise (evaluation cases). */
   readonly retrieve?: boolean;
 }
@@ -93,9 +109,14 @@ export async function buildTurnContext(
 ): Promise<TurnContext> {
   const risk = assessRisk(message);
   const relationshipBlock = await relationshipFor(store, userId, options.now);
+  const situationBlock = renderSituation({
+    ...(options.now ? { now: options.now } : {}),
+    ...(options.timeZone ? { timeZone: options.timeZone } : {}),
+  });
 
   if (options.retrieve === false) {
     return {
+      situationBlock,
       memoryBlock: '',
       memoryCount: 0,
       memoryConsidered: 0,
@@ -142,6 +163,7 @@ export async function buildTurnContext(
   }
 
   return {
+    situationBlock,
     memoryBlock: renderMemories(selected, { maxChars: AUTO_INJECT_BUDGET.maxChars }),
     memoryCount: selected.length,
     memoryConsidered: candidates.length,

@@ -22,6 +22,7 @@ import {
   buildInstructions,
   stripComments,
 } from '../../src/agent/instructions.ts';
+import { buildRuntimeContext } from '../../src/agent/runtime-context.ts';
 
 describe('loading the prompt', () => {
   it('reads it from the document beside the module', () => {
@@ -45,7 +46,7 @@ describe('loading the prompt', () => {
   });
 
   it('puts the archived summary before the per-turn memory block', () => {
-    const text = buildInstructions({
+    const text = buildRuntimeContext({
       archivedSummaryBlock: '# 更早的对话\n\n摘要',
       memoryBlock: '# 关于你记得的事',
     });

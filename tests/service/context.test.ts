@@ -89,6 +89,30 @@ describe('buildTurnContext', () => {
   });
 });
 
+describe('the situation block', () => {
+  it('states the clock for the turn, in the given zone', async () => {
+    const context = await buildTurnContext(store, USER, '在吗', {
+      now: new Date('2026-10-25T12:33:00Z'),
+      timeZone: 'Asia/Shanghai',
+    });
+    expect(context.situationBlock).toContain('2026年10月25日 星期日 20:33');
+    expect(context.situationBlock).toContain('中国标准时间');
+  });
+
+  it('is present even when retrieval is off', async () => {
+    // "这周末" does not mention a clock, and evaluation turns set retrieve
+    // false. The day is still the day.
+    const context = await buildTurnContext(store, USER, '这周末想出去', {
+      retrieve: false,
+      now: new Date('2026-10-25T12:33:00Z'),
+      timeZone: 'UTC',
+    });
+    expect(context.situationBlock).toContain('12:33');
+    expect(context.situationBlock).toContain('协调世界时');
+    expect(context.memoryBlock).toBe('');
+  });
+});
+
 describe('the relationship block', () => {
   it('says nothing before there has been a conversation', async () => {
     // Nothing has happened between us, so there is nothing to describe. The
