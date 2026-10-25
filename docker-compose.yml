@@ -14,10 +14,14 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: designfree
-      POSTGRES_PASSWORD: designfree
+      # No default password: compose must fail rather than start a database
+      # everybody on the network can enter with `designfree`.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: designfree
     ports:
-      - '5433:5432'
+      # Loopback only. Publishing `5433:5432` would expose the database on
+      # every interface, which Docker does even when a host firewall says no.
+      - '127.0.0.1:5433:5432'
     volumes:
       # Named volume, not a bind mount: the data outlives `docker compose down`
       # and is only removed by an explicit `down -v`.

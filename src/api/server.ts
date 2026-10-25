@@ -28,7 +28,7 @@ import type { MemoryStatus } from '../memory/types.ts';
 import { MEMORY_STATUSES } from '../memory/types.ts';
 import { runTurn, type TurnRunner } from '../service/chat.ts';
 import { selectStore } from '../db/pool.ts';
-import { clearIdentity, readIdentity, resolveIdentity } from './identity.ts';
+import { clearIdentity, readIdentity, resolveIdentity, singleUserId } from './identity.ts';
 import { pipeEventsAsSse } from './sse.ts';
 
 /** Reject absurd bodies rather than buffering them. */
@@ -109,6 +109,16 @@ export function parseChatRequest(raw: unknown): ChatPayload | string {
 export interface AppDependencies {
   readonly store: Store;
   readonly working?: WorkingMemory;
+  /**
+   * Which store the process actually selected.
+   *
+   * Reported by `/health` because the in-memory fallback is silent on the page
+   * and looks exactly like "my history disappeared": the server keeps working,
+   * but every restart starts from nothing. Tests inject a store directly and
+   * leave this unset, which reports as `unknown` rather than claiming
+   * persistence the test never asked for.
+   */
+  readonly storeKind?: 'postgres' | 'memory';
   /**
    * Injected so the routes can be tested over real HTTP without a model call.
    * Production leaves it unset and `runTurn` uses the real runner.
@@ -201,6 +211,9 @@ export function createApp(deps: AppDependencies) {
       sendJson(res, ok ? 200 : 503, {
         status: ok ? 'ok' : 'degraded',
         prompt_version: PROMPT_VERSION,
+        store: deps.storeKind ?? 'unknown',
+        persistent: deps.storeKind === 'postgres',
+        single_user: singleUserId() !== null,
       });
       return true;
     }
@@ -403,13 +416,19 @@ async function serveIndex(res: ServerResponse): Promise<void> {
 /** Start the server. Exported so tests can bind an ephemeral port. */
 export async function startServer(port = Number(process.env.PORT ?? 8787)) {
   installTracing();
+
+  // Validate before the process starts listening: a typo in SINGLE_USER_ID
+  // should refuse to boot, not hand every request a new identity later.
+  const single = singleUserId();
+  if (single) log.info('server.single_user', { userId: single });
+
   installProvider();
 
   const { store, kind, detail } = await selectStore();
   log.info('server.store', { kind, detail });
 
   const working = new WorkingMemory();
-  const server = createApp({ store, working });
+  const server = createApp({ store, working, storeKind: kind });
 
   // Without this the process grows by one conversation's working set per
   // conversation, forever.
@@ -421,8 +440,33 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     void store.close();
   });
 
-  server.listen(port, () => log.info('server.listening', { port }));
+  const host = bindHost();
+  if (!isLoopback(host)) {
+    log.warn('server.public_bind', {
+      host,
+      note: 'no authentication is enabled; anyone who can reach this port is the user',
+    });
+  }
+  server.listen(port, host, () => log.info('server.listening', { host, port }));
   return server;
+}
+
+/**
+ * Where the HTTP server listens.
+ *
+ * Loopback by default. The previous version used the runtime's default, which
+ * is every interface — the page looked local at `127.0.0.1:8787`, but the
+ * socket was reachable from the LAN. With no login, that is the whole account.
+ * Remote access has to be an explicit decision (`HOST=0.0.0.0`) and still needs
+ * a real auth layer before it is safe.
+ */
+export function bindHost(env: NodeJS.ProcessEnv = process.env): string {
+  const value = env.HOST?.trim();
+  return value && value.length > 0 ? value : '127.0.0.1';
+}
+
+function isLoopback(host: string): boolean {
+  return host === '127.0.0.1' || host === '::1' || host === 'localhost';
 }
 
 // Run directly: `node src/api/server.ts`

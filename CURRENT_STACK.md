@@ -72,7 +72,8 @@ ANTHROPIC_API_KEY   = unset
 OPENAI_API_KEY      = unset
 OPENAI_BASE_URL     = unset
 DEEPSEEK_API_KEY    = unset
-DATABASE_URL        = unset
+DATABASE_URL        = SET (postgres://designfree@127.0.0.1:5433/designfree; password in .env)
+SINGLE_USER_ID      = SET (单用户模式，cookie 不再决定身份)
 ```
 
 该端点是 DeepSeek，它**同时**暴露 OpenAI 兼容与 Anthropic 兼容的 API。

@@ -36,16 +36,25 @@
 
 ```bash
 npm install
-docker compose up -d        # Postgres 17 + pgvector，端口 5433
-npm run migrate             # 应用 migrations/001_init.sql
-npm run dev                 # http://localhost:8787
+cp .env.example .env       # 填 DEEPSEEK_API_KEY，并生成同一个 POSTGRES_PASSWORD / DATABASE_URL 密码
+docker compose up -d       # Postgres 17 + pgvector，端口 5433，只绑 127.0.0.1
+npm run migrate            # 应用 migrations/001_init.sql
+npm run dev                # http://127.0.0.1:8787
 ```
 
-服务启动时会打印它选中了哪个 store。**没有 `DATABASE_URL` 时会退回内存 store**
-——功能都是好的，只是重启后什么都不剩。这条退路是为了让 `npm test` 不需要容器，
-不是拿来真的用的。
+`npm run dev` 会读取 `.env`。**默认必须连 Postgres**：没有 `DATABASE_URL`
+时会退回内存 store，功能都是好的，只是重启后什么都不剩。这条退路是为了让
+`npm test` 不需要容器，不是拿来真的用的。`/health` 会返回当前用的 store：
 
-启动前先设好密钥：
+```json
+{"status":"ok","store":"postgres","persistent":true,"single_user":true}
+```
+
+HTTP 默认只绑 `127.0.0.1`，Postgres 也只绑 `127.0.0.1:5433`。要远程访问，
+先加认证；在只有单用户、没有登录的情况下，`HOST=0.0.0.0` 等于把整个记忆库
+交给同网段的任何人。
+
+启动前先设好密钥（写进 `.env` 或从 shell 继承）：
 
 ```bash
 export DEEPSEEK_API_KEY=...        # 推荐
@@ -54,6 +63,22 @@ export ANTHROPIC_AUTH_TOKEN=...
 ```
 
 见 `.env.example`。
+
+## 单用户模式（当前默认）
+
+还没有登录功能，所以开发时所有请求都属于同一个人：
+
+```bash
+# .env
+SINGLE_USER_ID=00000000-0000-4000-8000-000000000001
+```
+
+设了它之后，cookie 不再决定身份。换浏览器、清 cookie、开隐私窗口，看到的都是
+同一份历史和记忆；路由仍然传 `userId`，只是它对这个进程来说是常量。留空则退回
+按 cookie 区分用户，测试和将来接登录时用。
+
+这不是认证：它假设这台机器只有一个使用者。要放到别人能访问的地方之前，仍然需要
+真正的登录和授权。
 
 ## 命令
 
@@ -65,6 +90,7 @@ export ANTHROPIC_AUTH_TOKEN=...
 | `npm run eval` | 人格评测，真实调用；产出一份可重放的记录 |
 | `npm run eval:replay` | 对最近一次记录重新打分，免费且即时 |
 | `npm run cleanup` | 保留期清扫——用 `--dry-run` 先看它会删什么 |
+| `npm run backup` | 用 `pg_dump` 备份到 `backups/`，并校验 dump 可读 |
 | `npm run typecheck` / `npm run lint` | 另外两道门禁 |
 | `npm run migrate` | 应用 migration |
 | `npm run build` / `npm start` | 编译到 `dist/`，然后运行。日常开发用不到 |
@@ -78,8 +104,18 @@ Postgres 集成测试在没设 `DATABASE_URL` 时会自动跳过，因为一个�
 就是赶时间的人一定会跳过的那个：
 
 ```bash
-DATABASE_URL=postgres://designfree:designfree@localhost:5433/designfree npm test
+DATABASE_URL='postgres://designfree:<password>@127.0.0.1:5433/designfree' npm test
 ```
+
+备份：
+
+```bash
+npm run backup
+# backups/designfree-<timestamp>.dump
+```
+
+备份文件在 `.gitignore` 里，不会进仓库；默认权限是 `600`。恢复前先确认
+`pg_restore --list` 能读出它，再恢复到临时库验证，不要直接覆盖正在用的库。
 
 ## 架构
 

@@ -43,6 +43,36 @@ export const IDENTITY_COOKIE = 'df_uid';
 export const IDENTITY_HEADER = 'x-user-id';
 
 /**
+ * Optional single-user mode.
+ *
+ * The product has no login yet, and for a local companion there is exactly one
+ * person. In that mode every request belongs to one fixed user, so the history
+ * and memory panels are "mine" regardless of which browser, cookie jar, or
+ * private window opened the page. The cookie is still honoured when this is
+ * unset, which keeps the multi-user tests and a future login path intact.
+ */
+export const SINGLE_USER_ENV = 'SINGLE_USER_ID';
+
+/** UUID, which is also what `users.id` is. */
+const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The one user, if single-user mode is on.
+ *
+ * Throws on a malformed value instead of ignoring it. Silently falling back to
+ * cookie identities here would produce exactly the bug this mode exists to
+ * prevent: a page that looks logged in as one person but writes as another.
+ */
+export function singleUserId(env: NodeJS.ProcessEnv = process.env): string | null {
+  const raw = env[SINGLE_USER_ENV]?.trim();
+  if (!raw) return null;
+  if (!ID_PATTERN.test(raw)) {
+    throw new Error(`${SINGLE_USER_ENV} must be a UUID, got ${JSON.stringify(raw)}`);
+  }
+  return raw;
+}
+
+/**
  * The attributes every identity cookie carries, set or cleared.
  *
  * One constant, because a browser only replaces a cookie whose name, domain and
@@ -53,9 +83,6 @@ const PATH_AND_FLAGS = 'Path=/; HttpOnly; SameSite=Lax';
 
 /** A year, which is indefinitely for a handle with no expiry semantics. */
 const ONE_YEAR_SECONDS = 31536000;
-
-/** A UUID, which is also what `users.id` is. */
-const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function parseCookies(header: string | undefined): Record<string, string> {
   if (!header) return {};
@@ -87,6 +114,9 @@ export interface Identity {
  * described above.
  */
 export function resolveIdentity(req: IncomingMessage, res: ServerResponse): Identity {
+  const single = singleUserId();
+  if (single) return { userId: single, created: false };
+
   const existing = readIdentity(req);
   if (existing) return { userId: existing, created: false };
 
@@ -107,6 +137,9 @@ export function resolveIdentity(req: IncomingMessage, res: ServerResponse): Iden
  * answer with a cookie for a row that no longer exists.
  */
 export function readIdentity(req: IncomingMessage): string | null {
+  const single = singleUserId();
+  if (single) return single;
+
   const fromHeader = firstHeader(req.headers[IDENTITY_HEADER]);
   if (fromHeader && ID_PATTERN.test(fromHeader)) return fromHeader;
 

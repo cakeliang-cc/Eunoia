@@ -6,7 +6,7 @@
  * gets skipped by whoever is in a hurry, and then it is not a suite.
  *
  *     docker compose up -d
- *     DATABASE_URL=postgres://designfree:designfree@localhost:5433/designfree npm test
+ *     DATABASE_URL=postgres://designfree:<password>@127.0.0.1:5433/designfree npm test
  *
  * What this file is for: the in-memory store is the one the behavioural tests
  * run against, so the *only* thing that can go wrong here is the SQL. These

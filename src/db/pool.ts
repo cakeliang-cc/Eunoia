@@ -9,7 +9,8 @@
 import { Pool } from 'pg';
 import type { Store } from '../memory/store.ts';
 
-export const DEFAULT_DATABASE_URL = 'postgres://designfree:designfree@localhost:5433/designfree';
+export const DEFAULT_DATABASE_URL =
+  'postgres://designfree:<password>@127.0.0.1:5433/designfree';
 
 export function databaseUrl(env: NodeJS.ProcessEnv = process.env): string | null {
   const explicit = env.DATABASE_URL?.trim();
