@@ -3,324 +3,1077 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f3ee">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#131311">
 <title>Eunoia</title>
-<style>
-  /* Tokens first, so a colour is changed in one place. */
-  :root {
-    --bg: #faf9f7;
-    --surface: #ffffff;
-    --border: #e8e4dd;
-    --text: #2f2c28;
-    --muted: #86807a;
-    --accent: #6b7f6e;
-    --accent-soft: #eef2ee;
-    --danger: #a4553f;
-    --warn-bg: #fdf6ec;
-    --warn-border: #e8d5b0;
-    /* The reasoning block gets its own tone rather than reusing the accent:
-       it is not part of the reply, and it should read as a margin note. */
-    --think: #b08a4a;
-    --think-bg: #fbf7f0;
-    --think-border: #e6d9c2;
-    --shadow: 0 1px 2px rgba(47, 44, 40, .05);
-    --radius: 14px;
-    --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
-            "Microsoft YaHei", system-ui, sans-serif;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #1c1b19;
-      --surface: #262421;
-      --border: #3a3733;
-      --text: #e8e4dd;
-      --muted: #948e87;
-      --accent: #93a896;
-      --accent-soft: #2f3630;
-      --danger: #d08a72;
-      --warn-bg: #33291d;
-      --warn-border: #574430;
-      --think: #c9a468;
-      --think-bg: #2a251d;
-      --think-border: #443a2b;
-      --shadow: 0 1px 2px rgba(0, 0, 0, .22);
+<script>
+  // Resolve the theme before the first paint. The stylesheet only has two
+  // states, so an explicit choice has to be written onto <html> rather than
+  // left to a media query that cannot be overridden by the toggle.
+  (function () {
+    try {
+      var stored = localStorage.getItem('df_theme');
+      var system = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.dataset.theme =
+        stored === 'dark' || stored === 'light' ? stored : (system ? 'dark' : 'light');
+    } catch (error) {
+      document.documentElement.dataset.theme = 'light';
     }
+  })();
+</script>
+<style>
+  /* --------------------------------------------------------------- tokens --
+     Warm paper, sage ink, one accent. The workspace is meant to recede so the
+     conversation stays the brightest thing on screen. */
+  :root {
+    color-scheme: light;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI",
+                 "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC",
+                    "Noto Serif SC", Georgia, serif;
+
+    --canvas: #f5f3ee;
+    --canvas-glow: #fdfcf8;
+    --sidebar: #faf9f5;
+    --surface: #fffefb;
+    --surface-2: #f1eee7;
+    --surface-3: #e9e5db;
+    --line: #e5e0d5;
+    --line-strong: #d3ccbd;
+    --ink: #24211c;
+    --ink-2: #565149;
+    --muted: #6f6a5f;
+    --faint: #786f63;
+    --accent: #4e6a56;
+    --accent-strong: #3d5644;
+    --accent-soft: #e7efe7;
+    --accent-softer: #f1f5f0;
+    --accent-ink: #34503d;
+    --on-accent: #f7faf6;
+    --user-bubble: #e8eee7;
+    --user-border: #dbe4d9;
+    --danger: #a24e3b;
+    --danger-soft: #fbefeb;
+    --danger-border: #eed5cc;
+    --on-danger: #fff;
+    --warn-bg: #fbf4e8;
+    --warn-border: #ecdcbc;
+    --warn-ink: #6f5527;
+    --think: #7f663b;
+    --think-bg: #f6f1e7;
+    --think-border: #e7ddc9;
+    --dot: rgba(80, 74, 63, .075);
+
+    --shadow-xs: 0 1px 2px rgba(36, 33, 28, .04);
+    --shadow-sm: 0 2px 8px -2px rgba(36, 33, 28, .08), 0 1px 2px rgba(36, 33, 28, .04);
+    --shadow-md: 0 12px 34px -14px rgba(36, 33, 28, .18), 0 2px 8px -2px rgba(36, 33, 28, .06);
+    --shadow-lg: 0 30px 80px -30px rgba(28, 25, 20, .35);
+
+    --radius-sm: 9px;
+    --radius: 14px;
+    --radius-lg: 20px;
   }
 
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --canvas: #131311;
+    --canvas-glow: #1b1b18;
+    --sidebar: #181816;
+    --surface: #201f1c;
+    --surface-2: #282722;
+    --surface-3: #302f29;
+    --line: #302f2a;
+    --line-strong: #3d3b34;
+    --ink: #ebe7df;
+    --ink-2: #bcb6ab;
+    --muted: #a39c8f;
+    --faint: #948d81;
+    --accent: #9dbaa4;
+    --accent-strong: #b6d0bc;
+    --accent-soft: #243028;
+    --accent-softer: #1f2a23;
+    --accent-ink: #c6dccb;
+    --on-accent: #152017;
+    --user-bubble: #243028;
+    --user-border: #314137;
+    --danger: #d3846d;
+    --danger-soft: #2f211d;
+    --danger-border: #4a3029;
+    --on-danger: #2a1510;
+    --warn-bg: #2d261b;
+    --warn-border: #4a3d27;
+    --warn-ink: #d9c18b;
+    --think: #c6a86d;
+    --think-bg: #28241c;
+    --think-border: #3e3729;
+    --dot: rgba(255, 255, 255, .035);
+
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, .2);
+    --shadow-sm: 0 2px 8px -2px rgba(0, 0, 0, .35), 0 1px 2px rgba(0, 0, 0, .2);
+    --shadow-md: 0 12px 34px -14px rgba(0, 0, 0, .55), 0 2px 8px -2px rgba(0, 0, 0, .3);
+    --shadow-lg: 0 30px 80px -30px rgba(0, 0, 0, .7);
+  }
+
+  /* ----------------------------------------------------------------- base -- */
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body {
     margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font);
+    overflow: hidden;
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans);
     font-size: 16px;
     line-height: 1.7;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  h1, h2, p { margin: 0; }
+  button, input, textarea { font: inherit; }
+  button { color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  button:disabled { cursor: default; opacity: .5; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ::selection { background: var(--accent-soft); color: var(--ink); }
+
+  * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--line-strong); border-radius: 999px;
+    border: 2px solid transparent; background-clip: padding-box;
   }
 
-  .app { display: flex; flex-direction: column; height: 100dvh; max-width: 760px; margin: 0 auto; }
-
-  header {
-    display: flex; align-items: center; gap: 8px;
-    padding: 10px 16px; border-bottom: 1px solid var(--border);
-    background: var(--surface); flex: 0 0 auto;
+  .icon {
+    width: 18px; height: 18px; display: block; flex: 0 0 auto;
+    fill: none; stroke: currentColor; stroke-width: 1.7;
+    stroke-linecap: round; stroke-linejoin: round;
   }
-  header h1 { font-size: 15px; font-weight: 600; margin: 0; flex: 1; }
-  header .sub { font-size: 12px; color: var(--muted); font-weight: 400; }
-
-  button {
-    font: inherit; color: var(--text); background: transparent;
-    border: 1px solid var(--border); border-radius: 999px;
-    padding: 5px 12px; font-size: 13px; cursor: pointer;
-  }
-  button:hover { border-color: var(--accent); color: var(--accent); }
-  button:disabled { opacity: .45; cursor: default; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.primary:hover { opacity: .9; color: #fff; }
-
-  main { flex: 1 1 auto; overflow-y: auto; padding: 20px 16px 8px; }
-  main.empty::before {
-    content: "说点什么吧。\A这里没有别人。";
-    white-space: pre-line;
-    display: block; margin-top: 22vh; text-align: center;
-    color: var(--muted); font-size: 14px; line-height: 2;
+  .sr {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap;
   }
 
-  .turn { margin-bottom: 20px; display: flex; flex-direction: column; animation: rise .26s ease-out; }
+  .app { display: flex; height: 100vh; height: 100dvh; width: 100%; overflow: hidden; }
+
+  /* -------------------------------------------------------------- sidebar -- */
+  .sidebar {
+    position: relative; z-index: 30;
+    flex: 0 0 292px; width: 292px;
+    display: flex; flex-direction: column; min-height: 0;
+    background: var(--sidebar);
+    border-right: 1px solid var(--line);
+  }
+
+  .sidebar-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: calc(20px + env(safe-area-inset-top)) 18px 16px;
+  }
+  .brand { display: flex; align-items: center; gap: 11px; min-width: 0; flex: 1; }
+  .brand-mark {
+    width: 37px; height: 37px; border-radius: 12px; flex: 0 0 auto;
+    display: grid; place-items: center; color: var(--on-accent);
+    background: linear-gradient(145deg, var(--accent) 0%, var(--accent-strong) 100%);
+    box-shadow: 0 7px 18px -8px rgba(61, 86, 68, .65),
+                inset 0 1px 0 rgba(255, 255, 255, .2);
+  }
+  .brand-mark .icon { width: 21px; height: 21px; stroke-width: 1.6; }
+  .brand-copy { min-width: 0; }
+  .brand-copy h1 {
+    font-family: var(--font-display); font-size: 21px; font-weight: 600;
+    line-height: 1.1; letter-spacing: -.015em;
+  }
+  .brand-copy span {
+    display: block; margin-top: 3px;
+    font-size: 10px; font-weight: 500; letter-spacing: .16em;
+    color: var(--muted); text-transform: uppercase;
+  }
+
+  .new-chat {
+    display: flex; align-items: center; gap: 10px;
+    margin: 2px 14px 20px; padding: 10px 12px;
+    border: 1px solid var(--line); border-radius: 12px;
+    background: var(--surface); box-shadow: var(--shadow-xs);
+    font-size: 13.5px; font-weight: 500; text-align: left;
+    transition: border-color .16s ease, background .16s ease, transform .16s ease;
+  }
+  .new-chat:hover { border-color: var(--line-strong); background: var(--surface-2); }
+  .new-chat:active { transform: translateY(1px); }
+  .new-chat-icon {
+    width: 27px; height: 27px; border-radius: 8px;
+    display: grid; place-items: center; flex: 0 0 auto;
+    color: var(--accent-strong); background: var(--accent-soft);
+  }
+  .new-chat-icon .icon { width: 15px; height: 15px; stroke-width: 2; }
+  .new-chat::after {
+    content: ""; width: 5px; height: 5px; margin-left: auto;
+    border-right: 1.4px solid var(--faint); border-top: 1.4px solid var(--faint);
+    transform: rotate(45deg);
+  }
+
+  .sidebar-section { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 10px; }
+  .section-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; padding: 0 8px 8px;
+  }
+  .section-label {
+    font-size: 10px; font-weight: 600; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--muted); white-space: nowrap;
+  }
+  .history-tools button {
+    padding: 3px 7px; border-radius: 999px;
+    font-size: 10.5px; color: var(--muted);
+    transition: color .16s ease, background .16s ease;
+  }
+  .history-tools button:hover { color: var(--ink-2); background: var(--surface-2); }
+  .history-tools button[aria-pressed="true"] { color: var(--accent-strong); background: var(--accent-soft); }
+
+  .sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 0 14px; }
+  .history-note {
+    color: var(--danger); font-size: 11.5px; line-height: 1.5;
+    padding: 0 9px 6px;
+  }
+  .history-note:empty { display: none; }
+  .thread-list { display: flex; flex-direction: column; gap: 2px; }
+
+  .thread-row {
+    position: relative; display: flex; align-items: stretch;
+    border-radius: 12px;
+    transition: background .16s ease, box-shadow .16s ease;
+  }
+  /* The selected tint belongs to the whole row so the lifecycle actions sit
+     inside the same surface instead of floating beside the highlight. */
+  .thread-row.active {
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px var(--user-border);
+  }
+  .thread {
+    flex: 1; min-width: 0;
+    display: grid; grid-template-columns: 16px minmax(0, 1fr);
+    grid-template-rows: auto auto; align-items: center;
+    column-gap: 8px; padding: 9px 38px 9px 10px;
+    border: 1px solid transparent; border-radius: 12px;
+    text-align: left; transition: background .16s ease, border-color .16s ease;
+  }
+  .thread:hover { background: var(--surface-2); }
+  .thread[aria-current="true"] { background: transparent; border-color: transparent; }
+  .thread-row.active .thread:hover { background: transparent; }
+  .thread-mark {
+    grid-row: 1 / span 2; justify-self: center;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--line-strong); transition: background .16s ease, box-shadow .16s ease;
+  }
+  .thread[aria-current="true"] .thread-mark {
+    background: var(--accent); box-shadow: 0 0 0 3px var(--accent-softer);
+  }
+  .thread .name {
+    grid-column: 2; min-width: 0;
+    font-size: 13px; font-weight: 500; line-height: 1.45;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .thread .name.unnamed { color: var(--muted); font-weight: 400; }
+  .thread .when {
+    grid-column: 2; margin-top: 1px;
+    font-size: 10.5px; line-height: 1.4; color: var(--muted);
+  }
+  .thread[aria-current="true"] .name { color: var(--accent-ink); }
+
+  .thread-actions {
+    position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: 0;
+    padding: 2px; border-radius: 8px;
+    background: var(--surface); box-shadow: var(--shadow-xs);
+    opacity: 0; pointer-events: none;
+    transition: opacity .15s ease;
+  }
+  .thread-row:hover .thread-actions,
+  .thread-row:focus-within .thread-actions { opacity: 1; pointer-events: auto; }
+  .thread-row.active .thread-actions { background: var(--accent-soft); box-shadow: none; }
+  .thread-actions button {
+    padding: 1px 5px; border-radius: 5px;
+    font-size: 10.5px; line-height: 1.45; color: var(--muted);
+    transition: color .14s ease, background .14s ease;
+  }
+  .thread-actions button:hover { color: var(--accent-strong); background: var(--accent-softer); }
+  .thread-actions button.thread-delete:hover { color: var(--danger); background: var(--danger-soft); }
+  .thread-actions button[data-armed="true"] { color: var(--on-danger); background: var(--danger); }
+  .thread-actions button[data-armed="true"]:hover { color: var(--on-danger); }
+
+  .thread-rename {
+    display: flex; flex: 1; align-items: center; gap: 4px;
+    padding: 5px 4px;
+  }
+  .thread-rename input {
+    flex: 1; min-width: 0; padding: 6px 8px;
+    border: 1px solid var(--line-strong); border-radius: 7px;
+    background: var(--surface); color: var(--ink);
+    font-size: 12.5px;
+  }
+  .thread-rename input:focus { outline: none; border-color: var(--accent); }
+  .thread-rename button {
+    padding: 5px 8px; border-radius: 7px;
+    border: 1px solid var(--line); font-size: 11.5px;
+  }
+  .thread-rename button.primary { border-color: var(--accent); }
+
+  .sidebar-foot {
+    flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px;
+    padding: 12px 14px calc(15px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    background: linear-gradient(to top, var(--sidebar) 72%, transparent);
+  }
+  .memory-entry {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 9px 10px; border: 1px solid var(--line); border-radius: 12px;
+    background: var(--surface); text-align: left;
+    transition: border-color .16s ease, box-shadow .16s ease;
+  }
+  .memory-entry:hover { border-color: var(--line-strong); box-shadow: var(--shadow-xs); }
+  .memory-entry-icon {
+    width: 31px; height: 31px; flex: 0 0 auto; border-radius: 9px;
+    display: grid; place-items: center;
+    color: var(--accent-strong); background: var(--accent-soft);
+  }
+  .memory-entry-icon .icon { width: 16px; height: 16px; }
+  .memory-entry-copy { flex: 1; min-width: 0; }
+  .memory-entry-copy strong { display: block; font-size: 12.5px; font-weight: 550; line-height: 1.4; }
+  .memory-entry-copy span { display: block; font-size: 10.5px; color: var(--muted); line-height: 1.4; }
+  .memory-entry > .icon { width: 14px; height: 14px; color: var(--faint); }
+
+  .sidebar-tools { display: flex; gap: 4px; }
+  .tool-button {
+    flex: 1; display: flex; align-items: center; gap: 7px;
+    padding: 7px 9px; border-radius: 8px;
+    font-size: 11px; color: var(--muted);
+    transition: color .16s ease, background .16s ease;
+  }
+  .tool-button:hover { color: var(--ink-2); background: var(--surface-2); }
+  .tool-button .icon { width: 14px; height: 14px; }
+  .theme-icon-sun { display: none; }
+  :root[data-theme="dark"] .theme-icon-sun { display: block; }
+  :root[data-theme="dark"] .theme-icon-moon { display: none; }
+  .sidebar-note {
+    display: flex; align-items: center; gap: 6px;
+    margin: 1px 4px 0; font-size: 10px; color: var(--faint);
+  }
+  .sidebar-note .icon { width: 12px; height: 12px; }
+
+  .sidebar-scrim {
+    position: fixed; inset: 0; z-index: 25;
+    background: rgba(24, 21, 17, .42);
+    -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+    opacity: 0; pointer-events: none; transition: opacity .25s ease;
+  }
+
+  /* ------------------------------------------------------------ workspace -- */
+  .workspace {
+    position: relative; flex: 1; min-width: 0;
+    display: flex; flex-direction: column;
+    background:
+      radial-gradient(1100px 520px at 76% -12%, var(--canvas-glow), transparent 66%),
+      var(--canvas);
+  }
+  .workspace::before {
+    content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    background-image: radial-gradient(var(--dot) 1px, transparent 1px);
+    background-size: 22px 22px; opacity: .62;
+    -webkit-mask-image: linear-gradient(to bottom, #000, transparent 58%);
+    mask-image: linear-gradient(to bottom, #000, transparent 58%);
+  }
+
+  .topbar {
+    position: relative; z-index: 6; flex: 0 0 auto;
+    display: flex; align-items: center; gap: 12px;
+    height: calc(64px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 26px 0;
+    border-bottom: 1px solid var(--line);
+    background: var(--canvas);
+    background: color-mix(in srgb, var(--canvas) 84%, transparent);
+    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  }
+  .topbar-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .topbar-eyebrow {
+    font-size: 9px; font-weight: 600; letter-spacing: .2em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  #thread-title {
+    display: block; max-width: 520px;
+    font-size: 13.5px; font-weight: 550; line-height: 1.4;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .topbar-actions { display: flex; align-items: center; gap: 7px; }
+  .status {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 9px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--surface); color: var(--muted);
+    font-size: 10.5px; white-space: nowrap;
+  }
+  .status i {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .status[data-off="true"] i { background: var(--faint); box-shadow: 0 0 0 3px var(--surface-2); }
+  .soft-button {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 32px; padding: 0 11px; border: 1px solid var(--line);
+    border-radius: 9px; background: var(--surface);
+    color: var(--ink-2); font-size: 11.5px;
+    transition: border-color .16s ease, background .16s ease, color .16s ease;
+  }
+  .soft-button:hover { border-color: var(--line-strong); background: var(--surface-2); color: var(--ink); }
+  .soft-button .icon { width: 15px; height: 15px; }
+  .icon-button {
+    width: 32px; height: 32px; flex: 0 0 auto;
+    display: grid; place-items: center; border-radius: 9px;
+    color: var(--muted);
+    transition: color .16s ease, background .16s ease;
+  }
+  .icon-button:hover { color: var(--ink); background: var(--surface-2); }
+  .icon-button .icon { width: 18px; height: 18px; }
+  .mobile-only { display: none; }
+  .sidebar-close { display: none; }
+
+  .chat-stage { position: relative; z-index: 1; flex: 1; min-height: 0; }
+
+  .transcript {
+    height: 100%; overflow-y: auto; overscroll-behavior: contain;
+    padding: 34px clamp(20px, 4vw, 56px) 22px;
+  }
+  .transcript > * { width: min(820px, 100%); margin-left: auto; margin-right: auto; }
+
+  /* ------------------------------------------------------------ empty hero -- */
+  .empty-hero {
+    position: absolute; inset: 0; z-index: 2;
+    display: none; overflow-y: auto;
+    justify-content: center; align-items: flex-start;
+    padding: 30px clamp(20px, 5vw, 60px) 54px;
+  }
+  #transcript.empty + .empty-hero { display: flex; }
+  .empty-inner {
+    width: min(684px, 100%); margin: auto;
+    text-align: center;
+    animation: hero-in .55s cubic-bezier(.2, .8, .2, 1) both;
+  }
+  .hero-mark {
+    width: 58px; height: 58px; margin: 0 auto 22px;
+    display: grid; place-items: center; border-radius: 19px;
+    color: var(--on-accent);
+    background: linear-gradient(145deg, var(--accent) 0%, var(--accent-strong) 100%);
+    box-shadow: 0 18px 40px -18px rgba(61, 86, 68, .65),
+                inset 0 1px 0 rgba(255, 255, 255, .22);
+  }
+  .hero-mark .icon { width: 30px; height: 30px; stroke-width: 1.45; }
+  .hero-eyebrow {
+    margin-bottom: 11px;
+    font-size: 10px; font-weight: 600; letter-spacing: .24em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  .empty-inner h2 {
+    margin-bottom: 12px;
+    font-family: var(--font-display);
+    font-size: clamp(32px, 4vw, 43px);
+    font-weight: 500; line-height: 1.18; letter-spacing: -.025em;
+  }
+  .empty-inner > p {
+    max-width: 470px; margin: 0 auto 30px;
+    color: var(--muted); font-size: 14px; line-height: 1.85;
+  }
+  .starter-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px; text-align: left;
+  }
+  .starter {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 13px 15px; border: 1px solid var(--line); border-radius: 13px;
+    background: var(--surface); color: var(--ink-2);
+    font-size: 12.5px; line-height: 1.5; text-align: left;
+    box-shadow: var(--shadow-xs);
+    transition: transform .16s ease, border-color .16s ease,
+                box-shadow .16s ease, color .16s ease;
+  }
+  .starter::after {
+    content: "→"; flex: 0 0 auto;
+    color: var(--faint); font-size: 12px; transition: transform .16s ease, color .16s ease;
+  }
+  .starter:hover {
+    transform: translateY(-1px); border-color: var(--line-strong);
+    color: var(--ink); box-shadow: var(--shadow-sm);
+  }
+  .starter:hover::after { transform: translateX(2px); color: var(--accent); }
+  .empty-inner .hero-foot {
+    margin: 22px auto 0; font-size: 10.5px; color: var(--faint);
+  }
+
+  /* --------------------------------------------------------------- turns --- */
+  .turn {
+    display: flex; flex-direction: column;
+    margin-bottom: 27px;
+    animation: rise .3s cubic-bezier(.2, .8, .2, 1) both;
+  }
   .turn.user { align-items: flex-end; }
-  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .bubble { max-width: 82%; min-width: 0; word-break: break-word; }
 
-  .bubble {
-    max-width: 84%; padding: 10px 14px; border-radius: var(--radius);
-    word-break: break-word;
+  .user .bubble {
+    padding: 10px 15px;
+    border: 1px solid var(--user-border);
+    border-radius: 17px 17px 5px 17px;
+    background: var(--user-bubble);
+    box-shadow: var(--shadow-xs);
+    white-space: pre-wrap;
+    font-size: 14.5px; line-height: 1.75;
   }
-  .user .bubble { background: var(--accent-soft); border-bottom-right-radius: 4px; white-space: pre-wrap; }
+  .user .text { font-size: 14.5px; line-height: 1.75; }
+
   .assistant .bubble {
-    background: var(--surface); border: 1px solid var(--border);
-    border-bottom-left-radius: 4px; box-shadow: var(--shadow);
+    position: relative;
+    max-width: 100%;
+    padding: 1px 0 0 46px;
   }
-
-  /* The reply itself. `pre-wrap` lives here rather than on the bubble so the
-     thinking block above it is not affected by the reply's whitespace. */
-  .text { white-space: pre-wrap; }
+  .assistant .bubble::before {
+    content: "e";
+    position: absolute; left: 0; top: 0;
+    width: 30px; height: 30px;
+    display: grid; place-items: center;
+    border: 1px solid var(--user-border); border-radius: 10px;
+    background: var(--accent-soft); color: var(--accent-strong);
+    font-family: var(--font-display); font-size: 15px; font-weight: 600;
+    line-height: 1;
+  }
+  .text {
+    white-space: pre-wrap;
+    font-size: 15px; line-height: 1.88;
+  }
   .text[data-streaming="true"]::after {
-    content: ""; display: inline-block; width: 2px; height: 1em;
-    margin-left: 2px; vertical-align: -2px; background: var(--accent);
+    content: ""; display: inline-block;
+    width: 2px; height: 1em; margin-left: 2px; vertical-align: -2px;
+    background: var(--accent);
     animation: caret 1s step-end infinite;
   }
-  @keyframes caret { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
 
-  /* Three dots for the gap before anything at all has arrived — the ~1.5s
-     between sending and the first reasoning token. */
-  .dots { display: flex; gap: 4px; align-items: center; padding: 4px 0; }
+  .meta {
+    display: flex; align-items: center; gap: 10px;
+    min-height: 24px; margin-top: 4px;
+    font-size: 11px; color: var(--muted);
+  }
+  .assistant .meta { padding-left: 46px; }
+  .user .meta { display: none; }
+  .meta > span:last-child { display: flex; align-items: center; gap: 2px; }
+  .meta button {
+    padding: 3px 8px; border: 1px solid transparent; border-radius: 7px;
+    font-size: 11px; color: var(--muted);
+    transition: color .14s ease, background .14s ease;
+  }
+  .meta button:hover { color: var(--ink-2); background: var(--surface-2); }
+  .meta button[aria-pressed="true"] { color: var(--accent-strong); background: var(--accent-soft); }
+
+  /* ------------------------------------------------------------ thinking ---
+     A margin note, not the reply: separate muted tone, collapsed as soon as the
+     answer starts, and still openable afterwards. */
+  .thinking { margin: 0 0 11px; }
+  .thinking[data-open="false"] .thinking-body { display: none; }
+  .thinking-head {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 10px 5px 9px;
+    border: 1px solid var(--think-border); border-radius: 999px;
+    background: var(--think-bg); color: var(--think);
+    font-size: 11px; line-height: 1.4; text-align: left;
+    transition: border-color .16s ease;
+  }
+  .thinking-head:hover { border-color: var(--think); }
+  .thinking-head .label { flex: 1; }
+  .thinking-head .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--think);
+    animation: think 1.6s ease-in-out infinite;
+  }
+  .thinking[data-state="done"] .thinking-head .dot { animation: none; opacity: .42; }
+  .thinking-head .chev {
+    width: 5px; height: 5px; margin-top: -2px; margin-left: 1px;
+    border-right: 1.3px solid currentColor; border-bottom: 1.3px solid currentColor;
+    transform: rotate(45deg); transition: transform .18s ease;
+  }
+  .thinking[data-open="true"] .thinking-head .chev { margin-top: 3px; transform: rotate(-135deg); }
+  .thinking-body {
+    margin-top: 8px; padding: 10px 12px;
+    border: 1px solid var(--think-border); border-radius: 12px;
+    background: var(--think-bg);
+    color: var(--ink-2);
+    font-size: 12.5px; line-height: 1.78;
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 190px; overflow-y: auto; overscroll-behavior: contain;
+  }
+  .thinking[data-open="true"][data-state="live"] .thinking-body::after {
+    content: ""; display: inline-block;
+    width: 2px; height: .95em; margin-left: 2px; vertical-align: -2px;
+    background: var(--think);
+    animation: caret 1s step-end infinite;
+  }
+
+  .dots { display: inline-flex; align-items: center; gap: 5px; padding: 7px 1px; }
   .dots span {
-    width: 6px; height: 6px; border-radius: 50%; background: var(--muted);
+    width: 5px; height: 5px; border-radius: 50%; background: var(--muted);
     animation: dot 1.4s ease-in-out infinite;
   }
   .dots span:nth-child(2) { animation-delay: .18s; }
   .dots span:nth-child(3) { animation-delay: .36s; }
-  @keyframes dot { 0%, 100% { opacity: .3; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
-
-  /* -------------------------------------------------------- thinking ------
-     The model thinks for several seconds before its first visible character.
-     This is that window, shown rather than hidden.
-
-     It is a margin note, not part of the reply: a separate muted tone, closed
-     the moment the answer starts, and openable if the person wants to read it.
-     See docs/adr/010-reasoning-is-forwarded.md. */
-  .thinking { margin: 0 0 10px; }
-  .thinking[data-open="false"] .thinking-body { display: none; }
-
-  .thinking-head {
-    display: flex; align-items: center; gap: 7px; width: 100%;
-    margin: 0; padding: 0; border: none; background: transparent;
-    font: inherit; font-size: 12.5px; color: var(--muted);
-    text-align: left; cursor: pointer;
-  }
-  .thinking-head:hover { color: var(--think); }
-  .thinking-head .label { flex: 1; }
-  .thinking-head .dot {
-    flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%;
-    background: var(--think); animation: think 1.6s ease-in-out infinite;
-  }
-  @keyframes think { 0%, 100% { opacity: .3; transform: scale(.75); } 50% { opacity: 1; transform: scale(1.1); } }
-  .thinking[data-state="done"] .thinking-head .dot { animation: none; opacity: .45; transform: none; }
-
-  /* A chevron drawn from one border, so no markup has to carry an icon. */
-  .thinking-head .chev {
-    flex: 0 0 auto; width: 5px; height: 5px; margin-top: -3px;
-    border-right: 1.4px solid currentColor; border-bottom: 1.4px solid currentColor;
-    transform: rotate(45deg); transition: transform .18s ease;
-  }
-  .thinking[data-open="true"] .thinking-head .chev { margin-top: 2px; transform: rotate(-135deg); }
-
-  .thinking-body {
-    margin-top: 8px; padding: 9px 12px;
-    border-left: 2px solid var(--think-border); border-radius: 0 8px 8px 0;
-    background: var(--think-bg);
-    font-size: 13px; line-height: 1.75; color: var(--muted);
-    white-space: pre-wrap; word-break: break-word;
-    max-height: 170px; overflow-y: auto; overscroll-behavior: contain;
-  }
-  .thinking[data-open="true"][data-state="live"] .thinking-body::after {
-    content: ""; display: inline-block; width: 2px; height: .95em;
-    margin-left: 2px; vertical-align: -2px; background: var(--think);
-    animation: caret 1s step-end infinite;
-  }
-
-  .meta { font-size: 12px; color: var(--muted); margin: 6px 2px 0; display: flex; gap: 12px; align-items: center; min-height: 22px; }
-  .meta button { border: none; padding: 2px 6px; font-size: 12px; }
-  .meta button[aria-pressed="true"] { color: var(--accent); }
 
   .notice {
-    margin: 0 0 16px; padding: 10px 14px; border-radius: var(--radius);
-    background: var(--warn-bg); border: 1px solid var(--warn-border);
-    font-size: 13px; line-height: 1.6;
+    margin: 0 auto 18px; padding: 11px 14px;
+    border: 1px solid var(--warn-border); border-radius: 12px;
+    background: var(--warn-bg); color: var(--warn-ink);
+    font-size: 12.5px; line-height: 1.65;
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .turn, .dots span, .thinking-head .dot { animation: none; }
+  /* ------------------------------------------------------------- composer -- */
+  .composer-dock {
+    position: relative; z-index: 6; flex: 0 0 auto;
+    padding: 8px clamp(20px, 4vw, 56px) calc(16px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, var(--canvas) 74%, transparent);
   }
-
-  footer { flex: 0 0 auto; padding: 10px 16px calc(14px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--border); }
-  .composer { display: flex; gap: 8px; align-items: flex-end; }
+  .composer-wrap { width: min(820px, 100%); margin: 0 auto; }
+  .composer {
+    padding: 3px;
+    border: 1px solid var(--line); border-radius: var(--radius-lg);
+    background: var(--surface); box-shadow: var(--shadow-md);
+    transition: border-color .18s ease, box-shadow .18s ease;
+  }
+  .composer:focus-within {
+    border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+    box-shadow: 0 0 0 4px var(--accent-softer), var(--shadow-md);
+  }
   textarea {
-    flex: 1; resize: none; font: inherit; color: var(--text); background: var(--bg);
-    border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 10px 12px; max-height: 160px; line-height: 1.6;
+    display: block; width: 100%; max-height: 200px; min-height: 49px;
+    padding: 12px 14px 4px;
+    border: 0; outline: none; resize: none;
+    background: transparent; color: var(--ink);
+    font-size: 14.5px; line-height: 1.68;
   }
-  textarea:focus { outline: none; border-color: var(--accent); }
+  textarea::placeholder { color: var(--faint); }
+  textarea:focus { outline: none; }
+  .composer-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 2px 5px 5px 14px;
+  }
+  .composer-hint {
+    flex: 1; min-width: 0;
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10.5px; color: var(--faint);
+    white-space: nowrap; overflow: hidden;
+  }
+  .composer-hint .icon { width: 12px; height: 12px; }
+  .composer-hint kbd {
+    padding: 0 4px; border: 1px solid var(--line); border-radius: 4px;
+    background: var(--surface-2); color: var(--muted);
+    font-family: var(--font-sans); font-size: 9.5px; line-height: 1.6;
+  }
+  .hint-sep { opacity: .55; }
+  .send {
+    width: 37px; height: 37px; flex: 0 0 auto;
+    display: grid; place-items: center; border-radius: 12px;
+    background: var(--accent); color: var(--on-accent);
+    box-shadow: 0 7px 16px -7px rgba(61, 86, 68, .65);
+    transition: background .16s ease, transform .16s ease, opacity .16s ease;
+  }
+  .send:hover { background: var(--accent-strong); transform: translateY(-1px); }
+  .send:active { transform: none; }
+  .send:disabled { opacity: .5; transform: none; }
+  .send .icon { width: 18px; height: 18px; stroke-width: 1.9; }
+  .composer.has-text .send { background: var(--accent-strong); }
+  .composer-foot {
+    margin: 7px 0 0; text-align: center;
+    font-size: 10px; color: var(--faint);
+  }
 
-  /* Memory drawer */
+  /* --------------------------------------------------------------- drawer -- */
   .drawer {
-    position: fixed; inset: 0; background: rgba(0,0,0,.32);
-    display: none; justify-content: flex-end; z-index: 20;
+    position: fixed; inset: 0; z-index: 60;
+    display: none; justify-content: flex-end;
+    background: rgba(20, 18, 15, .4);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
   }
   .drawer[data-open="true"] { display: flex; }
   .drawer-panel {
-    width: min(440px, 92vw); height: 100%; background: var(--bg);
-    display: flex; flex-direction: column; border-left: 1px solid var(--border);
+    width: min(452px, 100vw); height: 100%;
+    display: flex; flex-direction: column;
+    border-left: 1px solid var(--line);
+    background: var(--sidebar); box-shadow: var(--shadow-lg);
+    animation: panel-in .3s cubic-bezier(.2, .8, .2, 1) both;
   }
-  .drawer-panel header { border-bottom: 1px solid var(--border); }
-  .drawer-body { flex: 1; overflow-y: auto; padding: 12px 16px 24px; }
-  .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
-  .row:last-child { border-bottom: none; }
-  .memory { padding: 12px 0; border-bottom: 1px solid var(--border); }
-  .memory p { margin: 0 0 6px; font-size: 14px; line-height: 1.6; }
-  .tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11px; color: var(--muted); }
-  .tag { border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
-  .tag.unconfirmed { border-color: var(--warn-border); background: var(--warn-bg); }
-  .empty-note { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
-  .danger-zone { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
-  .danger-zone .sub { color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 6px; }
-  .danger-zone button { color: var(--danger); border-color: var(--danger); }
-  /* Armed. The second click is the one that deletes, so it must not look like
-     the first one did. */
-  .danger-zone button[data-armed="true"] { background: var(--danger); color: var(--bg); }
+  .panel-head {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+    padding: calc(22px + env(safe-area-inset-top)) 22px 17px;
+    border-bottom: 1px solid var(--line);
+  }
+  .panel-title { flex: 1; min-width: 0; }
+  .panel-eyebrow {
+    display: block; margin-bottom: 3px;
+    font-size: 9px; font-weight: 600; letter-spacing: .2em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  .panel-title h2 {
+    font-family: var(--font-display);
+    font-size: 22px; font-weight: 500; line-height: 1.2; letter-spacing: -.01em;
+  }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 18px 22px 32px; }
 
-  /* Conversation history. The open control is still a real button: it is
-     focusable, answers to Enter, and reads as pressable. The lifecycle actions
-     sit beside it rather than inside it, because a button cannot contain
-     another button. */
-  .thread-row { display: flex; align-items: stretch; gap: 2px; margin: 0 0 6px; }
-  .thread {
-    flex: 1 1 auto; min-width: 0; display: block; width: 100%; text-align: left; cursor: pointer;
-    padding: 11px 12px; margin: 0; border-radius: 8px;
-    border: 1px solid transparent; background: none; color: inherit;
-    font: inherit; line-height: 1.5;
+  .memory-switch {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 14px 15px; margin-bottom: 24px;
+    border: 1px solid var(--line); border-radius: 14px;
+    background: var(--surface); box-shadow: var(--shadow-xs);
   }
-  .thread:hover { background: var(--think-bg); }
-  .thread[aria-current="true"] { background: var(--think-bg); border-color: var(--think-border); }
-  .thread .name { font-size: 14px; display: block; }
-  .thread .name.unnamed { color: var(--muted); }
-  .thread .when { font-size: 12px; color: var(--muted); margin-top: 3px; display: block; }
-  .thread-actions { display: flex; flex-direction: column; justify-content: center; gap: 1px; flex: 0 0 auto; }
-  .thread-actions button {
-    border: none; background: none; color: var(--muted); font: inherit;
-    font-size: 11px; line-height: 1.4; padding: 1px 5px; border-radius: 4px; cursor: pointer;
+  .memory-switch-copy { flex: 1; min-width: 0; }
+  .memory-switch-copy strong { display: block; font-size: 13px; font-weight: 550; line-height: 1.5; }
+  .memory-switch-copy p { margin-top: 4px; font-size: 11.5px; line-height: 1.6; color: var(--muted); }
+  #memory-enable {
+    flex: 0 0 auto; min-width: 54px; height: 29px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--surface-2); color: var(--muted);
+    font-size: 11px; font-weight: 550;
+    transition: background .16s ease, color .16s ease, border-color .16s ease;
   }
-  .thread-actions button:hover { color: var(--accent); }
-  .thread-actions button.thread-delete:hover { color: var(--danger); }
-  .thread-actions button[data-armed="true"] { background: var(--danger); color: var(--bg); }
-  .thread-actions button[data-armed="true"]:hover { color: var(--bg); }
-  .thread-rename { display: flex; flex: 1 1 auto; gap: 4px; align-items: center; padding: 6px 0; }
-  .thread-rename input {
-    flex: 1 1 auto; min-width: 0; padding: 6px 8px; font: inherit; font-size: 13px;
-    color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  #memory-enable[aria-pressed="true"] {
+    border-color: transparent; background: var(--accent); color: var(--on-accent);
   }
-  .thread-rename input:focus { outline: none; border-color: var(--accent); }
-  .thread-rename button { font-size: 12px; padding: 4px 8px; }
-  .history-tools { display: flex; justify-content: flex-end; margin-bottom: 4px; }
-  .history-tools button { font-size: 12px; padding: 2px 9px; }
-  .history-note { color: var(--danger); font-size: 12px; line-height: 1.5; margin-bottom: 6px; }
-  .history-note:empty { display: none; }
-  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+  .panel-section-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; margin-bottom: 9px; padding: 0 2px;
+  }
+  .section-count { font-size: 10.5px; color: var(--muted); }
+  .memory-list { display: flex; flex-direction: column; gap: 9px; }
+  .memory {
+    padding: 13px 14px 12px;
+    border: 1px solid var(--line); border-radius: 13px;
+    background: var(--surface); box-shadow: var(--shadow-xs);
+  }
+  .memory p { margin: 0; font-size: 13px; line-height: 1.72; color: var(--ink); }
+  .tags {
+    display: flex; flex-wrap: wrap; gap: 5px; align-items: center;
+    margin-top: 10px; font-size: 10px; color: var(--muted);
+  }
+  .tag {
+    padding: 2px 8px; border: 1px solid var(--line);
+    border-radius: 999px; color: var(--muted); line-height: 1.5;
+  }
+  .tag.unconfirmed { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn-ink); }
+  .tags button {
+    margin-left: auto; padding: 2px 7px; border-radius: 6px;
+    font-size: 10px; color: var(--faint);
+    transition: color .14s ease, background .14s ease;
+  }
+  .tags button:hover { color: var(--danger); background: var(--danger-soft); }
+
+  .empty-note {
+    padding: 26px 8px; text-align: center;
+    color: var(--muted); font-size: 12.5px; line-height: 1.7;
+  }
+
+  .danger-zone {
+    margin-top: 26px; padding: 15px;
+    border: 1px solid var(--danger-border); border-radius: 14px;
+    background: var(--danger-soft);
+  }
+  .danger-copy strong { display: block; font-size: 12.5px; font-weight: 550; color: var(--danger); }
+  .danger-copy p { margin-top: 4px; font-size: 11.5px; line-height: 1.6; color: var(--muted); }
+  .danger-zone button {
+    width: 100%; margin-top: 12px; padding: 8px 10px;
+    border: 1px solid var(--danger); border-radius: 9px;
+    background: transparent; color: var(--danger);
+    font-size: 11.5px; font-weight: 500;
+    transition: background .16s ease, color .16s ease;
+  }
+  .danger-zone button:hover { background: color-mix(in srgb, var(--danger) 9%, transparent); }
+  .danger-zone button[data-armed="true"] { background: var(--danger); border-color: var(--danger); color: var(--on-danger); }
+  .danger-zone button:disabled { opacity: .62; }
+
+  .primary {
+    border: 1px solid var(--accent); border-radius: 8px;
+    background: var(--accent); color: var(--on-accent); padding: 6px 11px; font-size: 12px;
+  }
+  .primary:hover { background: var(--accent-strong); }
+
+  /* ------------------------------------------------------------ animation -- */
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes hero-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @keyframes panel-in { from { transform: translateX(28px); opacity: .4; } to { transform: none; opacity: 1; } }
+  @keyframes caret { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+  @keyframes dot { 0%, 100% { opacity: .3; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+  @keyframes think { 0%, 100% { opacity: .3; transform: scale(.75); } 50% { opacity: 1; transform: scale(1.1); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .001ms !important;
+    }
+  }
+
+  /* ----------------------------------------------------------- responsive -- */
+  @media (max-width: 980px) {
+    .sidebar {
+      position: fixed; inset: 0 auto 0 0; z-index: 35;
+      width: min(320px, 87vw); flex-basis: auto;
+      transform: translateX(-102%);
+      transition: transform .28s cubic-bezier(.2, .8, .2, 1);
+      box-shadow: var(--shadow-lg);
+    }
+    .sidebar[data-open="true"] { transform: none; }
+    .sidebar[data-open="true"] ~ .sidebar-scrim { opacity: 1; pointer-events: auto; }
+    .sidebar-close { display: grid; }
+    .mobile-only { display: grid; }
+    .topbar {
+      height: calc(60px + env(safe-area-inset-top));
+      padding: env(safe-area-inset-top) 16px 0; gap: 8px;
+    }
+    .transcript { padding: 26px 16px 18px; }
+    .composer-dock { padding: 8px 14px calc(12px + env(safe-area-inset-bottom)); }
+    .empty-hero { padding: 26px 20px 48px; }
+  }
+
+  @media (max-width: 620px) {
+    .status { display: none; }
+    .topbar-actions { gap: 2px; }
+    .empty-inner h2 { font-size: clamp(29px, 8.5vw, 36px); }
+    .empty-inner > p { font-size: 13px; margin-bottom: 24px; }
+    .starter-grid { grid-template-columns: 1fr; gap: 8px; }
+    .starter { padding: 12px 13px; font-size: 12px; }
+    .hero-mark { width: 50px; height: 50px; border-radius: 16px; margin-bottom: 19px; }
+    .hero-mark .icon { width: 26px; height: 26px; }
+    .user .bubble { max-width: 90%; }
+    .assistant .bubble { padding-left: 0; }
+    .assistant .bubble::before { display: none; }
+    .assistant .meta { padding-left: 0; }
+    .text { font-size: 14.5px; }
+    .composer-hint .hint-sep,
+    .composer-hint .hint-keys { display: none; }
+    .composer-foot { display: none; }
+    .drawer-panel { width: 100vw; }
+    .drawer-body { padding: 16px 16px calc(28px + env(safe-area-inset-bottom)); }
+    .panel-head { padding: calc(18px + env(safe-area-inset-top)) 16px 15px; }
+    /* iOS zooms the viewport when a focused field is under 16px. */
+    textarea,
+    .thread-rename input { font-size: 16px; }
+    .thread-actions {
+      position: static; transform: none; flex-direction: row;
+      opacity: 1; pointer-events: auto;
+      background: none; box-shadow: none; padding: 0 4px 0 0;
+    }
+    .thread { padding-right: 10px; }
+    .thread-actions button { padding: 5px 6px; }
+    .meta button { padding: 5px 9px; }
+    .tags button { padding: 5px 9px; }
+  }
+
+  @media (hover: none) and (min-width: 621px) {
+    .thread-actions {
+      position: static; transform: none; flex-direction: row;
+      opacity: 1; pointer-events: auto;
+      background: none; box-shadow: none;
+    }
+    .thread { padding-right: 10px; }
+  }
 </style>
 </head>
 <body>
 <div class="app">
-  <header>
-    <h1>Eunoia</h1>
-    <button id="history-toggle" type="button">对话</button>
-    <button id="memory-toggle" type="button">记忆</button>
-    <button id="new-conversation" type="button">新对话</button>
-  </header>
-
-  <main id="transcript" class="empty" aria-live="polite"></main>
-
-  <footer>
-    <form class="composer" id="composer">
-      <label class="sr" for="input">说点什么</label>
-      <textarea id="input" rows="1" placeholder="说点什么…" autocomplete="off"></textarea>
-      <button class="primary" id="send" type="submit">发送</button>
-    </form>
-  </footer>
-</div>
-
-<div class="drawer" id="drawer" data-open="false">
-  <div class="drawer-panel" role="dialog" aria-label="记忆">
-    <header>
-      <h1>记忆</h1>
-      <button id="drawer-close" type="button">关闭</button>
-    </header>
-    <div class="drawer-body">
-      <div class="row">
-        <div>
-          <div>让 ta 参考记忆</div>
-          <div class="sub" style="color:var(--muted);font-size:12px">关掉之后，新的对话不会读取任何记忆。已经存下的不会删除。</div>
+  <aside class="sidebar" id="history" data-open="false" aria-label="对话列表">
+    <div class="sidebar-head">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M12 3.5c4.2 3.7 6.5 6.7 6.5 10a6.5 6.5 0 1 1-13 0c0-3.3 2.3-6.3 6.5-10Z"/>
+            <path d="M12 20v-6.5"/>
+            <path d="M12 15.5c1.4 0 2.6-.9 3.2-2.2"/>
+          </svg>
+        </span>
+        <div class="brand-copy">
+          <h1>Eunoia</h1>
+          <span>长期陪伴</span>
         </div>
-        <button id="memory-enable" type="button" aria-pressed="true">开</button>
       </div>
-      <div id="memory-list"></div>
+      <button id="history-close" class="icon-button sidebar-close" type="button" aria-label="关闭对话列表">
+        <svg class="icon" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
 
-      <!--
-        Separated from the list above on purpose. Every other control in this
-        panel is scoped to one memory and is undone by saying the thing again;
-        this one is not undoable by any means, so it sits on its own below a
-        rule and asks twice.
-      -->
-      <div class="danger-zone">
-        <button id="forget-all" type="button">删除全部数据</button>
-        <div class="sub">
-          删掉 ta 记住的一切、所有对话和设置。无法撤销。
+    <button id="new-conversation" class="new-chat" type="button">
+      <span class="new-chat-icon">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </span>
+      <span>新对话</span>
+    </button>
+
+    <div class="sidebar-section">
+      <div class="section-head">
+        <span class="section-label">最近对话</span>
+        <div class="history-tools">
+          <button id="history-archived" type="button" aria-pressed="false">显示已归档</button>
         </div>
+      </div>
+      <div class="sidebar-scroll">
+        <div id="history-note" class="history-note"></div>
+        <div id="history-list" class="thread-list"></div>
       </div>
     </div>
-  </div>
-</div>
 
-<div class="drawer" id="history" data-open="false">
-  <div class="drawer-panel" role="dialog" aria-label="对话">
-    <header>
-      <h1>对话</h1>
-      <button id="history-close" type="button">关闭</button>
-    </header>
-    <div class="drawer-body">
-      <div class="history-tools">
-        <button id="history-archived" type="button" aria-pressed="false">显示已归档</button>
+    <div class="sidebar-foot">
+      <button id="memory-toggle" class="memory-entry" type="button">
+        <span class="memory-entry-icon">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M12 3.2 13.7 8l4.8 1.7-4.8 1.7L12 16.2l-1.7-4.8L5.5 9.7 10.3 8 12 3.2Z"/>
+            <path d="m18.4 15.8.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8.8-2.1Z"/>
+          </svg>
+        </span>
+        <span class="memory-entry-copy">
+          <strong>记忆</strong>
+          <span>ta 记住的事</span>
+        </span>
+        <svg class="icon" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+      </button>
+
+      <div class="sidebar-tools">
+        <button id="theme-toggle" class="tool-button" type="button">
+          <svg class="icon theme-icon-moon" viewBox="0 0 24 24">
+            <path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"/>
+          </svg>
+          <svg class="icon theme-icon-sun" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+          </svg>
+          <span id="theme-label">深色模式</span>
+        </button>
       </div>
-      <div id="history-note" class="history-note"></div>
-      <div id="history-list"></div>
+
+      <p class="sidebar-note">
+        <svg class="icon" viewBox="0 0 24 24">
+          <rect x="5" y="10" width="14" height="10" rx="2"/>
+          <path d="M8 10V7a4 4 0 0 1 8 0v3"/>
+        </svg>
+        对话只属于你
+      </p>
+    </div>
+  </aside>
+
+  <div class="sidebar-scrim" id="sidebar-scrim"></div>
+
+  <section class="workspace">
+    <header class="topbar">
+      <button id="history-toggle" class="icon-button mobile-only" type="button" aria-label="打开对话列表">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+
+      <div class="topbar-title">
+        <span class="topbar-eyebrow">Eunoia · 对话</span>
+        <span id="thread-title">新的对话</span>
+      </div>
+
+      <div class="topbar-actions">
+        <span class="status" id="memory-status" title="长期记忆">
+          <i></i>
+          <span id="memory-status-label">长期记忆</span>
+        </span>
+        <button id="memory-toggle-top" class="soft-button" type="button">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M12 3.2 13.7 8l4.8 1.7-4.8 1.7L12 16.2l-1.7-4.8L5.5 9.7 10.3 8 12 3.2Z"/>
+          </svg>
+          记忆
+        </button>
+        <button id="new-conversation-top" class="icon-button mobile-only" type="button" aria-label="新对话">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M12 20h9"/>
+            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="chat-stage">
+      <main id="transcript" class="transcript empty" aria-live="polite"></main>
+
+      <section class="empty-hero" aria-label="开始一段对话">
+        <div class="empty-inner">
+          <div class="hero-mark" aria-hidden="true">
+            <svg class="icon" viewBox="0 0 24 24">
+              <path d="M12 3.5c4.2 3.7 6.5 6.7 6.5 10a6.5 6.5 0 1 1-13 0c0-3.3 2.3-6.3 6.5-10Z"/>
+              <path d="M12 20v-6.5"/>
+              <path d="M12 15.5c1.4 0 2.6-.9 3.2-2.2"/>
+            </svg>
+          </div>
+          <div class="hero-eyebrow">这里没有别人</div>
+          <h2 id="greeting">今天想聊点什么？</h2>
+          <p>不用整理好情绪再开口。说说今天发生的事，或者只是坐一会儿。</p>
+
+          <div class="starter-grid">
+            <button id="starter-1" class="starter" type="button">今天有点累，不想说话</button>
+            <button id="starter-2" class="starter" type="button">帮我理一理最近的想法</button>
+            <button id="starter-3" class="starter" type="button">记住：我喜欢下雨天</button>
+            <button id="starter-4" class="starter" type="button">随便聊聊就好</button>
+          </div>
+
+          <p class="hero-foot">不用赶时间，也不用把话说完。</p>
+        </div>
+      </section>
+    </div>
+
+    <footer class="composer-dock">
+      <div class="composer-wrap">
+        <form class="composer" id="composer">
+          <label class="sr" for="input">说点什么</label>
+          <textarea id="input" rows="1" placeholder="和 Eunoia 说点什么…" autocomplete="off" spellcheck="false"></textarea>
+          <div class="composer-bar">
+            <span class="composer-hint">
+              <svg class="icon" viewBox="0 0 24 24">
+                <rect x="5" y="10" width="14" height="10" rx="2"/>
+                <path d="M8 10V7a4 4 0 0 1 8 0v3"/>
+              </svg>
+              <span>对话只留在这里</span>
+              <span class="hint-sep">·</span>
+              <span class="hint-keys"><kbd>Enter</kbd> 发送</span>
+            </span>
+            <button class="send" id="send" type="submit" aria-label="发送">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+            </button>
+          </div>
+        </form>
+        <p class="composer-foot">Shift + Enter 换行 · Eunoia 会记住你说过的重要的事</p>
+      </div>
+    </footer>
+  </section>
+
+  <div class="drawer" id="drawer" data-open="false">
+    <div class="drawer-panel" role="dialog" aria-modal="true" aria-label="记忆">
+      <header class="panel-head">
+        <div class="panel-title">
+          <span class="panel-eyebrow">记忆</span>
+          <h2>ta 记住的</h2>
+        </div>
+        <button id="drawer-close" class="icon-button" type="button" aria-label="关闭记忆">
+          <svg class="icon" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+
+      <div class="drawer-body">
+        <div class="memory-switch">
+          <div class="memory-switch-copy">
+            <strong>让 ta 参考记忆</strong>
+            <p>关掉之后，新的对话不会读取任何记忆。已经存下的不会删除。</p>
+          </div>
+          <button id="memory-enable" type="button" aria-pressed="true">开</button>
+        </div>
+
+        <div class="panel-section-head">
+          <span class="section-label">记住的事</span>
+          <span id="memory-count" class="section-count"></span>
+        </div>
+        <div id="memory-list" class="memory-list"></div>
+
+        <div class="danger-zone">
+          <div class="danger-copy">
+            <strong>删除全部数据</strong>
+            <p>删掉 ta 记住的一切、所有对话和设置。无法撤销。</p>
+          </div>
+          <button id="forget-all" type="button">删除全部数据</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -330,6 +1083,10 @@ const $ = (id) => document.getElementById(id);
 const transcript = $('transcript');
 const input = $('input');
 const sendButton = $('send');
+const composer = $('composer');
+const historyDrawer = $('history');
+const titleEl = $('thread-title');
+const root = document.documentElement;
 
 const state = {
   conversationId: null,
@@ -339,6 +1096,13 @@ const state = {
   feedback: new Map(),
 };
 
+/** Titles from the conversation list, so the topbar and sidebar agree. */
+const conversationTitles = new Map();
+/** The row element per conversation, so the active state can move without a refetch. */
+const threadNodes = new Map();
+/** Only the newest list request may paint; older ones are discarded on arrival. */
+let historyRequest = 0;
+
 // ---------------------------------------------------------------- render ----
 
 /** Everything user- or model-authored goes in via textContent, never HTML. */
@@ -347,6 +1111,53 @@ function el(tag, className, text) {
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+/** The conversation title in the topbar. Empty means "nothing chosen yet". */
+function setThreadTitle(text) {
+  if (titleEl) titleEl.textContent = text;
+}
+
+/**
+ * Adopt the listed title for the open conversation.
+ *
+ * Deliberately a no-op when the id is not in the list: a new conversation has
+ * no row yet, and its optimistic title should survive until the server names it.
+ */
+function updateThreadTitle() {
+  if (!state.conversationId) {
+    setThreadTitle('新的对话');
+    return;
+  }
+  const title = conversationTitles.get(state.conversationId);
+  if (title) setThreadTitle(title);
+}
+
+/** Move the selected state between rows without re-fetching the list. */
+function markActiveThread() {
+  for (const [id, node] of threadNodes) {
+    const active = id === state.conversationId;
+    node.setAttribute('aria-current', String(active));
+    // `parent` exists in the test shim; `parentElement` is the browser's.
+    const row = node.parentElement ?? node.parent;
+    if (!row) continue;
+    if (active) row.classList.add('active');
+    else row.classList.remove('active');
+  }
+}
+
+/** Mirror the server's derived-title rule for the instant before the list lands. */
+function deriveTitle(text) {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length <= 24 ? flat : `${flat.slice(0, 24)}…`;
+}
+
+/** Keep the memory badge in the topbar honest after either panel is read. */
+function setMemoryStatus(enabled) {
+  const status = $('memory-status');
+  if (status) status.dataset.off = String(!enabled);
+  const label = $('memory-status-label');
+  if (label) label.textContent = enabled ? '长期记忆' : '记忆已关';
 }
 
 /** The three dots for the gap before any content at all has arrived. */
@@ -456,6 +1267,7 @@ function scrollToEnd() {
 
 function notice(text) {
   const box = el('div', 'notice', text);
+  transcript.classList.remove('empty');
   transcript.append(box);
   scrollToEnd();
 }
@@ -505,6 +1317,12 @@ async function send(text) {
   sendButton.disabled = true;
   input.value = '';
   resize();
+
+  // The server derives a title from the first message, but the sidebar and the
+  // topbar should not sit on "新的对话" while it does. This is the same rule.
+  if (!state.conversationId || !conversationTitles.get(state.conversationId)) {
+    setThreadTitle(deriveTitle(text));
+  }
 
   addTurn('user', text);
   const { bubble, text: body, note, actions } = addTurn('assistant');
@@ -563,7 +1381,13 @@ async function send(text) {
         // Only when the server names one: a turn that was not persisted reports
         // null, and taking that at face value would forget a conversation that
         // is still perfectly good.
-        if (event.conversationId) rememberConversation(event.conversationId);
+        if (event.conversationId) {
+          const untitled = !conversationTitles.get(event.conversationId);
+          rememberConversation(event.conversationId);
+          // The first persisted turn is also the moment the conversation earns
+          // its title and its row, so this is the one refresh that matters.
+          if (untitled) void refreshHistory();
+        }
         messageId = event.messageId ?? null;
       } else if (event.type === 'error') {
         throw new Error(event.message);
@@ -635,6 +1459,9 @@ function rememberConversation(id) {
   } catch {
     // The conversation still works for this page view; only the reload is lost.
   }
+  markActiveThread();
+  if (!id) setThreadTitle('新的对话');
+  else updateThreadTitle();
 }
 
 function recallConversation() {
@@ -680,6 +1507,7 @@ async function loadConversation(id) {
     if (message.role === 'assistant') addFeedback(actions, message.id);
   }
   rememberConversation(id);
+  setThreadTitle(conversationTitles.get(id) ?? '对话');
   scrollToEnd();
   return true;
 }
@@ -693,37 +1521,50 @@ function clearConversationView() {
   rememberConversation(null);
   transcript.textContent = '';
   transcript.classList.add('empty');
+  // On mobile the list covers the canvas; starting a new conversation is a
+  // decision to leave it.
+  if (historyDrawer) historyDrawer.dataset.open = 'false';
   input.focus();
 }
 
 async function refreshHistory() {
+  const request = ++historyRequest;
   const list = $('history-list');
   list.textContent = '';
   setHistoryNote('');
+  threadNodes.clear();
+  conversationTitles.clear();
 
   // Archived rows are a separate view, not a second list. The server keeps them
   // out of the ordinary response, so the toggle has to ask for them explicitly.
   const response = await fetch(
     state.showArchived ? '/api/conversations?includeArchived=1' : '/api/conversations',
   ).catch(() => null);
+  // A slower earlier request has nothing useful to say about the current view.
+  if (request !== historyRequest) return;
   if (!response || !response.ok) {
     list.append(el('div', 'empty-note', '读不到历史对话。'));
     return;
   }
 
   const { conversations = [] } = await response.json();
+  if (request !== historyRequest) return;
   if (conversations.length === 0) {
-    list.append(el('div', 'empty-note', '还没有别的对话。'));
+    list.append(el('div', 'empty-note', '还没有对话，从第一句开始吧。'));
     return;
   }
 
   for (const conversation of conversations) {
     const archived = Boolean(conversation.archivedAt);
     const row = el('div', 'thread-row');
+    if (conversation.id === state.conversationId) row.classList.add('active');
 
     const open = el('button', 'thread');
     open.type = 'button';
     const named = Boolean(conversation.title);
+    // The mark is the first grid cell, but `name` and `when` stay direct
+    // children so a row can still be read without unpacking a wrapper.
+    open.append(el('span', 'thread-mark'));
     open.append(
       el('span', `name${named ? '' : ' unnamed'}`, conversation.title ?? '（没有名字的对话）'),
     );
@@ -734,8 +1575,11 @@ async function refreshHistory() {
       // Already open: just close the drawer rather than re-fetching what is
       // already on screen.
       if (conversation.id !== state.conversationId) await loadConversation(conversation.id);
-      $('history').dataset.open = 'false';
+      if (historyDrawer) historyDrawer.dataset.open = 'false';
     };
+
+    threadNodes.set(conversation.id, open);
+    conversationTitles.set(conversation.id, conversation.title ?? '');
 
     // A conversation has a lifecycle, so the row does too: rename and archive
     // are reversible; delete asks twice because it is not.
@@ -756,6 +1600,10 @@ async function refreshHistory() {
     row.append(open, actions);
     list.append(row);
   }
+
+  // No title to adopt for a brand-new conversation; the composer keeps the
+  // optimistic one set at send time until the server names it.
+  if (state.conversationId) updateThreadTitle();
 }
 
 function beginRename(row, conversation) {
@@ -859,6 +1707,9 @@ async function deleteThread(conversation, button) {
 // -------------------------------------------------------------- memory ------
 
 async function openDrawer() {
+  // On mobile the drawer and the conversation list are two layers; opening the
+  // upper one should put the lower one away.
+  if (historyDrawer) historyDrawer.dataset.open = 'false';
   $('drawer').dataset.open = 'true';
   await refreshMemory();
 }
@@ -877,8 +1728,11 @@ async function refreshMemory() {
   state.memoryEnabled = enabled;
   $('memory-enable').textContent = enabled ? '开' : '关';
   $('memory-enable').setAttribute('aria-pressed', String(enabled));
+  setMemoryStatus(enabled);
 
   const active = memories.filter((m) => m.status !== 'deleted');
+  const count = $('memory-count');
+  if (count) count.textContent = active.length > 0 ? `${active.length} 条` : '';
   if (active.length === 0) {
     list.append(el('div', 'empty-note', '还没有记住什么。'));
     return;
@@ -985,7 +1839,57 @@ function disarmForget() {
 
 function resize() {
   input.style.height = 'auto';
-  input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+  input.style.height = `${Math.min(input.scrollHeight, 200)}px`;
+  if (input.value.trim()) composer.classList.add('has-text');
+  else composer.classList.remove('has-text');
+}
+
+// The theme is written onto <html> by the inline head script before first
+// paint; this only has to keep the label and the stored choice in sync.
+function currentTheme() {
+  return root && root.dataset.theme === 'dark' ? 'dark' : 'light';
+}
+
+function paintThemeLabel(theme) {
+  const label = $('theme-label');
+  if (label) label.textContent = theme === 'dark' ? '浅色模式' : '深色模式';
+}
+
+paintThemeLabel(currentTheme());
+$('theme-toggle').onclick = () => {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  if (root) root.dataset.theme = next;
+  try {
+    localStorage.setItem('df_theme', next);
+  } catch {
+    // The choice still applies for this page view.
+  }
+  paintThemeLabel(next);
+};
+
+// The empty state is a set of openers, not a form. Picking one puts the words
+// in the composer so they can be changed before they are sent.
+const starters = [
+  ['starter-1', '今天有点累，不想说话'],
+  ['starter-2', '帮我理一理最近的想法'],
+  ['starter-3', '记住：我喜欢下雨天'],
+  ['starter-4', '随便聊聊就好'],
+];
+for (const [id, prompt] of starters) {
+  const button = $(id);
+  if (!button) continue;
+  button.onclick = () => {
+    input.value = prompt;
+    resize();
+    input.focus();
+  };
+}
+
+const greeting = $('greeting');
+if (greeting) {
+  const hour = new Date().getHours();
+  greeting.textContent =
+    hour < 6 ? '还醒着吗？' : hour < 12 ? '早上好。' : hour < 18 ? '下午好。' : '晚上好。';
 }
 
 input.addEventListener('input', resize);
@@ -1002,14 +1906,18 @@ $('composer').addEventListener('submit', (event) => {
   if (text.length > 0) void send(text);
 });
 
-$('new-conversation').onclick = () => {
-  // Forget the id as well as clearing the screen: otherwise the next reload
-  // would pull the old conversation back and the "new" one would have been a
-  // view change rather than a new conversation.
+// Forget the id as well as clearing the screen: otherwise the next reload
+// would pull the old conversation back and the "new" one would have been a view
+// change rather than a new conversation.
+function startNewConversation() {
   clearConversationView();
-};
+}
+
+$('new-conversation').onclick = startNewConversation;
+$('new-conversation-top').onclick = startNewConversation;
 
 $('memory-toggle').onclick = () => void openDrawer();
+$('memory-toggle-top').onclick = () => void openDrawer();
 $('forget-all').onclick = () => void forgetEverything();
 // Closing the drawer disarms: an armed button that survives being put away is
 // an armed button someone finds later without the context that made it red.
@@ -1025,19 +1933,21 @@ $('drawer').addEventListener('click', (event) => {
 });
 
 $('history-toggle').onclick = () => {
-  $('history').dataset.open = 'true';
+  if (historyDrawer) historyDrawer.dataset.open = 'true';
   void refreshHistory();
 };
-$('history-close').onclick = () => { $('history').dataset.open = 'false'; };
+$('history-close').onclick = () => {
+  if (historyDrawer) historyDrawer.dataset.open = 'false';
+};
+$('sidebar-scrim').onclick = () => {
+  if (historyDrawer) historyDrawer.dataset.open = 'false';
+};
 $('history-archived').onclick = () => {
   state.showArchived = !state.showArchived;
   $('history-archived').setAttribute('aria-pressed', String(state.showArchived));
   $('history-archived').textContent = state.showArchived ? '隐藏已归档' : '显示已归档';
   void refreshHistory();
 };
-$('history').addEventListener('click', (event) => {
-  if (event.target === $('history')) $('history').dataset.open = 'false';
-});
 
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
@@ -1075,9 +1985,31 @@ async function restore() {
   await loadConversation(saved);
 }
 
+/** The badge describes the preference even before the memory drawer is opened. */
+async function refreshMemoryStatus() {
+  const response = await fetch('/api/preferences').catch(() => null);
+  if (!response || !response.ok) return;
+  const payload = await response.json().catch(() => ({}));
+  setMemoryStatus(payload.memoryEnabled !== false);
+}
+
+/**
+ * Read the page in one order rather than three parallel ones.
+ *
+ * Identity is minted by the first request that has no cookie, so a first-ever
+ * visit used to be able to open two of them at once and leave an orphaned user
+ * row behind. The transcript is the thing worth waiting for; the list and the
+ * badge can follow it.
+ */
+async function bootstrap() {
+  await restore().catch(() => undefined);
+  await refreshHistory();
+  await refreshMemoryStatus();
+}
+
 resize();
 input.focus();
-void restore();
+void bootstrap();
 </script>
 </body>
 </html>
