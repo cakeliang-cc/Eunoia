@@ -200,6 +200,29 @@
 
 ### Changed
 
+- **存储从 Postgres + Docker 换成了 SQLite 单文件。** 这不是一次“追新”，而是
+  删除一个与产品规模不匹配的依赖：单用户、单进程的本地应用，却要带着 Docker
+  Desktop、一个 Postgres 容器、一个密码、五份 migration 和一个 837 行的
+  `PostgresStore`；而 `pgvector` 从第一次 migration 起就有列、却从未被读取。
+  决策与替代方案见 [ADR 016](docs/adr/016-sqlite.md)，ADR 002 已标记为 superseded。
+  - **默认 `data/eunoia.sqlite`**，用 Node 内置 `node:sqlite`；WAL、`foreign_keys=ON`、
+    busy timeout。`SQLITE_PATH` 可以覆盖；`STORE=memory` 保留为测试/临时模式。
+  - **删除**：`pg`、`@types/pg`、`postgres-store.ts`、`pool.ts`、`migrations/`、
+    `docker-compose.yml`、`tests/db/postgres.test.ts`、`scripts/backup.sh`。
+  - **新增**：`sqlite-schema.ts`、`sqlite-store.ts`、`select.ts`、`scripts/backup.ts`；
+    `tests/db/sqlite.test.ts` 用真实 SQLite 覆盖外键、级联、JSON 列、seq、摘要、
+    反馈、偏好、评测 run 和保留期删除，`npm test` 不再需要任何外部服务。
+  - **类型映射固定在 store 边界**：id 是 TEXT、日期是 ISO 文本、JSON 是 TEXT、
+    boolean 是 0/1；上层仍然只看到领域类型。`PRAGMA user_version` 是 schema 版本；
+    比当前版本更新的数据库拒绝启动。
+  - **Node 下限提到 22.5**，脚本带 `--experimental-sqlite`；`node:sqlite` 仍是
+    experimental API。替换点只有 `sqlite-store.ts` 一个文件，`Store` 接口没变。
+  - **旧 Postgres 数据不自动迁移。** 数据库当时不可用，且它是开发数据；需要时
+    再写一次性导出/导入。当前服务从空 SQLite 开始，之后“重启后还在”是文件级的
+    真实承诺，不再取决于容器是否健康。
+  - **备份**改成 `node:sqlite` 的在线 backup API，并对副本做 `PRAGMA integrity_check`；
+    `pg_dump` 和 `pg_restore` 不再参与。
+
 - **Web 客户端改为工作区布局。** `web/index.html` 从单列聊天页改成「持久侧栏 + 宽内容画布 + 底部输入框」：对话列表从抽屉移到左侧栏，桌面端常驻、移动端从左侧滑出；选中会话用整行 tint 和圆点标记，顶部标题随会话更新。记忆仍是右侧抽屉，但重做成卡片式列表，保留记忆开关与两步删除。空状态改成时间问候和四个可填入输入框的开场白；消息、思考块、输入框与元信息的视觉层级一并重做。
   - **一套暖纸／鼠尾草 token，两种主题。** 新增 `--on-accent` / `--on-danger` 对比色，深色模式下主按钮和品牌标记改用深色前景；侧栏底部有主题切换，选择存进 `localStorage`，首次打开遵循系统主题。正文与元信息颜色按对比度调整。
   - **没有动服务端契约。** 原有 `id`、类名、SSE 事件处理和 `/api/*` 调用全部保留；新增的只是标题同步、历史请求竞态保护、记忆状态读取和开场白填入。`tests/web/client.test.ts` 的 29 项与 `npm test` 的 563 项通过。

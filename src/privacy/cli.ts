@@ -14,7 +14,7 @@
  * typing the command.
  */
 
-import { selectStore } from '../db/pool.ts';
+import { selectStore } from '../db/select.ts';
 import { log } from '../observability/logging.ts';
 import { RETENTION_WINDOW_HOURS, sweepEvaluationUsers } from './retention.ts';
 

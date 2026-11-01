@@ -1,5 +1,8 @@
 # 实施计划
 
+> **更新（2026-11-01）：** 存储已从 Postgres + pgvector 换成 SQLite 单文件，见 [ADR 016](adr/016-sqlite.md)。本文中阶段 2 的 Postgres 交付记录保留为历史，不再是运行依赖。
+
+
 源自 spec §18（Implementation Phases），并按已被验证的环境做了调整。每个阶段都以一道
 **验证门**收尾：只有代码可编译、lint 通过、测试通过、CHANGELOG 已更新（spec §19），
 该阶段才算完成。

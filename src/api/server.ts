@@ -36,7 +36,7 @@ import { MODEL_CATALOG } from '../models/catalog.ts';
 import { defaultModelProfile, isKnownModelId, summaryModelProfile } from '../models/registry.ts';
 import { providerFor } from '../provider/index.ts';
 import { runTurn, type TurnRunner } from '../service/chat.ts';
-import { selectStore } from '../db/pool.ts';
+import { selectStore } from '../db/select.ts';
 import { agentMaxSteps, skillsEnabled, workspaceConfig } from '../config.ts';
 import { DEFAULT_TOOL_POLICY } from '../tools/types.ts';
 import type { ToolPolicy } from '../tools/types.ts';
@@ -230,7 +230,7 @@ export interface AppDependencies {
    * leave this unset, which reports as `unknown` rather than claiming
    * persistence the test never asked for.
    */
-  readonly storeKind?: 'postgres' | 'memory';
+  readonly storeKind?: 'sqlite' | 'memory';
   /** Explicit provider for the companion run; supplied by the composition root. */
   readonly modelProvider?: AgentOptions['modelProvider'];
   /**
@@ -352,7 +352,7 @@ export function createApp(deps: AppDependencies) {
         status: ok ? 'ok' : 'degraded',
         prompt_version: PROMPT_VERSION,
         store: deps.storeKind ?? 'unknown',
-        persistent: deps.storeKind === 'postgres',
+        persistent: deps.storeKind === 'sqlite',
         single_user: singleUserId() !== null,
         workspace: deps.workspace?.root ?? null,
         workspace_writes: deps.toolPolicy?.allowWorkspaceWrites ?? false,

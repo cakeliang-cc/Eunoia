@@ -8,10 +8,10 @@
  * soft deletion and access accounting, so that a test that passes here is a
  * statement about the application's logic rather than about this file.
  *
- * It is also what the server falls back to when `DATABASE_URL` is unset, which
- * is convenient in development and unacceptable in production. `selectStore`
- * reports which one is in use so the difference is visible at startup instead of
- * discovered at the first restart.
+ * It is also what `STORE=memory` selects, which is convenient for a throwaway
+ * experiment and unacceptable as a default: a server that forgets everything on
+ * restart is exactly the failure the SQLite store exists to prevent. `selectStore`
+ * reports which one is in use so the difference is visible at startup.
  */
 
 import { randomUUID } from 'node:crypto';

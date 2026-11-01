@@ -13,7 +13,7 @@
  */
 
 import { installProvider } from '../agent/model-client.ts';
-import { selectStore } from '../db/pool.ts';
+import { selectStore } from '../db/select.ts';
 import { log } from '../observability/logging.ts';
 import { installTracing } from '../observability/tracing.ts';
 import { EVALUATION_CASES } from './cases.ts';

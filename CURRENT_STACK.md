@@ -28,6 +28,14 @@ Phase 0 侦察输出。以下所有结论，都在 2026-09-28 通过探测本地
 > `github.com/cakeliang-cc/Eunoia`。**数据库标识没有跟着改**——容器、库、用户和
 > 卷仍然叫 `designfree`，因为数据已经在里面；改它们是 dump/restore，不是重命名。
 
+> **更新 —— 2026-11-01：存储从 Postgres 切到 SQLite。** Docker + Postgres 17 +
+> pgvector + 五份 migration 对单用户本地应用太重，运行中又一次因为 Docker
+> 端口转发卡住而只能退回内存 store。现在是 `node:sqlite` 的单文件数据库，默认
+> `data/eunoia.sqlite`，没有外部服务；`pg`、`pgvector`、`migrations/` 和
+> `docker-compose.yml` 已移除。决策见 [ADR 016](docs/adr/016-sqlite.md)。
+> **本文件余下关于 Postgres、pgvector、5433 端口和 Docker 的内容是历史侦察记录，
+> 不再是运行依赖。**
+
 ---
 
 ## 1. 当前技术栈
@@ -72,7 +80,7 @@ ANTHROPIC_API_KEY   = unset
 OPENAI_API_KEY      = unset
 OPENAI_BASE_URL     = unset
 DEEPSEEK_API_KEY    = unset
-DATABASE_URL        = SET (postgres://designfree@127.0.0.1:5433/designfree; password in .env)
+SQLITE_PATH         = 未设（默认 data/eunoia.sqlite）
 SINGLE_USER_ID      = SET (单用户模式，cookie 不再决定身份)
 ```
 

@@ -10,25 +10,24 @@
 
 ```bash
 npm install
-cp .env.example .env       # 填 DEEPSEEK_API_KEY，并生成同一个 POSTGRES_PASSWORD / DATABASE_URL 密码
-docker compose up -d       # Postgres 17 + pgvector，127.0.0.1:5433
-npm run migrate
+cp .env.example .env       # 填 DEEPSEEK_API_KEY
 npm run dev                # http://127.0.0.1:8787
 ```
 
-`npm run dev` 会读 `.env`。默认使用 Postgres；没有 `DATABASE_URL` 时会退回内存 store，功能可用，但重启后什么都不剩。
+`npm run dev` 会读 `.env`。默认使用 `data/eunoia.sqlite`；数据库是一个文件，不需要 Docker，也不需要启动 Postgres。设 `STORE=memory` 可以临时不落盘（重启即丢）。需要 Node **>= 22.5**（`node:sqlite`）；脚本已经带 `--experimental-sqlite`。
 
-HTTP 和 Postgres 默认都只绑 `127.0.0.1`。当前没有登录，不要直接暴露到公网。
+HTTP 默认只绑 `127.0.0.1`。当前没有登录，不要直接暴露到公网。
 
 ```bash
 curl http://127.0.0.1:8787/health
-# {"status":"ok","prompt_version":"...","store":"postgres","persistent":true,"single_user":true}
+# {"status":"ok","prompt_version":"...","store":"sqlite","persistent":true,"single_user":true}
 ```
 
 ## 它有什么
 
 - **稳定的人格行为。** 一个 Agent，不是四个协作的 agent；Fi / Ne / Si / Te 是它内部的四种注意力方向。
 - **长期记忆。** 记住事实、偏好、关系和正在发生的事；记忆可见、可修正、可删除。
+- **单文件存储。** 默认 `data/eunoia.sqlite`，SQLite WAL；不需要 Docker、Postgres 或外部服务。
 - **会话连续性。** 历史持久化；接近上下文预算时压缩成结构化 checkpoint，原始消息不删除。
 - **安全边界。** 高风险轮次先缓冲、先检查，再渲染回复。
 - **可换模型/provider。** 模型能力、会话预算和 provider 连接分开；每个会话可以 pin 一个模型。
@@ -152,12 +151,12 @@ web/  ── HTTP + SSE ──▶  src/api/
 | `npm run smoke` | 真实对话 smoke test（需要 `RUN_SMOKE=1`） |
 | `npm run eval` | 人格评测，真实调用并记录 |
 | `npm run eval:replay` | 对最近一次记录重新打分，免费 |
-| `npm run migrate` | 应用 migration |
+| `npm run migrate` | 初始化/确认 SQLite schema |
 | `npm run cleanup` | 保留期清扫，支持 `--dry-run` |
-| `npm run backup` | `pg_dump` 到 `backups/`，并校验 dump |
+| `npm run backup` | SQLite 在线备份到 `backups/`，并做完整性校验 |
 | `npm run typecheck` / `npm run lint` | 类型和 lint 门禁 |
 
-Postgres 集成测试在没设 `DATABASE_URL` 时会自动跳过。
+SQLite 集成测试随 `npm test` 一起跑，不需要任何外部服务。
 
 ## 评测
 
@@ -177,7 +176,7 @@ npm run eval:replay
 ## 文档
 
 - [为什么做 Eunoia](docs/story.md)
-- [ADR](docs/adr/)：一个 Agent、记忆模型、事件边界、安全缓冲、提示词文档、保留与删除、工具与 Agent loop、技能
+- [ADR](docs/adr/)：一个 Agent、记忆模型、事件边界、安全缓冲、提示词文档、保留与删除、工具与 Agent loop、技能、SQLite 存储
 - [重构计划](docs/REFACTORING_PLAN.md)
 - [实现计划](docs/implementation-plan.md)
 - [当前环境](CURRENT_STACK.md)

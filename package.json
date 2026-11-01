@@ -5,34 +5,32 @@
   "type": "module",
   "description": "A long-term INFP companion agent: stable personality behaviour, layered personal memory, and narrative continuity.",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.5.0"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json && node --experimental-strip-types scripts/copy-assets.ts",
-    "start": "node --env-file-if-exists=.env dist/api/server.js",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "start": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning dist/api/server.js",
+    "test": "NODE_OPTIONS='--experimental-sqlite --disable-warning=ExperimentalWarning' vitest run",
+    "test:watch": "NODE_OPTIONS='--experimental-sqlite --disable-warning=ExperimentalWarning' vitest",
     "lint": "eslint .",
-    "dev": "node --env-file-if-exists=.env --experimental-strip-types src/api/server.ts",
-    "migrate": "node --env-file-if-exists=.env --experimental-strip-types src/db/migrate.ts",
-    "eval": "node --env-file-if-exists=.env --experimental-strip-types src/evaluation/cli.ts",
-    "eval:replay": "node --env-file-if-exists=.env --experimental-strip-types src/evaluation/cli.ts --replay",
-    "cleanup": "node --env-file-if-exists=.env --experimental-strip-types src/privacy/cli.ts",
-    "backup": "bash scripts/backup.sh",
-    "smoke": "vitest run tests/smoke"
+    "dev": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types src/api/server.ts",
+    "migrate": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types src/db/migrate.ts",
+    "eval": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types src/evaluation/cli.ts",
+    "eval:replay": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types src/evaluation/cli.ts --replay",
+    "cleanup": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types src/privacy/cli.ts",
+    "backup": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types scripts/backup.ts",
+    "smoke": "NODE_OPTIONS='--experimental-sqlite --disable-warning=ExperimentalWarning' vitest run tests/smoke"
   },
   "dependencies": {
     "@openai/agents": "^0.18.0",
     "openai": "^7.2.0",
-    "pg": "^8.23.0",
     "yaml": "^2.9.1",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "@types/node": "^24.0.0",
-    "@types/pg": "^8.23.1",
     "eslint": "^9.0.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.0.0",

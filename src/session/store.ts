@@ -5,7 +5,7 @@
  * a memory is a belief about a person. They meet only at `sourceMessageId`, a
  * plain uuid, so neither layer needs the other's types.
  *
- * Both implementations (`PostgresStore`, `InMemoryStore`) satisfy this
+ * Both implementations (`SqliteStore`, `InMemoryStore`) satisfy this
  * interface. The rest of the application talks to this port through
  * `SessionService`, which is where lifecycle intent lives.
  */

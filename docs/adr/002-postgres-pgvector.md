@@ -1,5 +1,9 @@
 # ADR 002 — Docker 中的 PostgreSQL + pgvector
 
+> **Superseded by [ADR 016](016-sqlite.md)（2026-11-01）。** 本文保留为历史决策
+> 记录；当前运行时使用 SQLite 单文件，`pg`、`pgvector`、`migrations/` 和
+> `docker-compose.yml` 都已移除。
+
 ## 背景
 
 spec §5 默认选用 PostgreSQL + pgvector，并禁止在第一版引入独立的向量数据库。

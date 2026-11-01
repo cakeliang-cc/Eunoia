@@ -198,6 +198,23 @@ script。** 它是已知问题，而不是阻塞项——开发中没有任何�
 **明确不做**：全局技能目录、显式 `/skill` 调用、向量检索选技能、每个技能一个
 子 Agent、技能自动执行脚本。它们不是被遗忘，而是需要先证明数量或体验上的必要性。
 
+## 阶段 15 — 存储：SQLite
+
+**状态：已完成。** [ADR 016](adr/016-sqlite.md) 取代了 ADR 002。
+
+Postgres + Docker + pgvector 对一个单用户本地应用太重，而且它真实地坏过一次：
+Docker 端口转发卡住，服务只能退回内存 store。现在默认是 `data/eunoia.sqlite`
+的 SQLite 单文件（Node 内置 `node:sqlite`），`Store` 接口没变，`InMemoryStore`
+仍是测试替身和 `STORE=memory`。
+
+删除：`pg`、`@types/pg`、`postgres-store.ts`、`pool.ts`、`migrations/`、
+`docker-compose.yml`、Postgres 集成测试、`pg_dump` 备份脚本。
+新增：`sqlite-schema.ts`、`sqlite-store.ts`、`select.ts`、`scripts/backup.ts`、
+`tests/db/sqlite.test.ts`。
+
+**明确不做**：自动迁移旧 Postgres 数据、pgvector、多进程写入。需要时单独处理，
+不把 Docker 重新带回默认路径。
+
 ## 尚未排期的输入 —— 记忆的巩固与遗忘
 
 **这不是一个阶段，也没有被排期。** §42 说这份文档是 roadmap 不是队列，而下面这条

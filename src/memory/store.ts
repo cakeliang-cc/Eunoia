@@ -1,11 +1,11 @@
 /**
  * The persistence port for memory (ADR 002/003).
  *
- * Two implementations satisfy it: `src/db/postgres-store.ts` for real use and
- * `src/db/in-memory-store.ts` for tests and for running without Docker. The
- * in-memory one is not a toy — it is what lets the entire memory, retrieval and
- * write-policy suite run in CI with no service dependency, which is the
- * difference between tests that get run and tests that get skipped.
+ * Two implementations satisfy it: `src/db/sqlite-store.ts` for real use and
+ * `src/db/in-memory-store.ts` for tests and `STORE=memory`. The in-memory one is
+ * not a toy — it is what lets the entire memory, retrieval and write-policy
+ * suite run with no filesystem state, which is the difference between tests that
+ * get run and tests that get skipped.
  *
  * The interface is deliberately expressed in domain types, never in rows or SQL.
  * A future store on a different engine should be able to satisfy it without
