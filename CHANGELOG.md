@@ -217,9 +217,11 @@
     比当前版本更新的数据库拒绝启动。
   - **Node 下限提到 22.5**，脚本带 `--experimental-sqlite`；`node:sqlite` 仍是
     experimental API。替换点只有 `sqlite-store.ts` 一个文件，`Store` 接口没变。
-  - **旧 Postgres 数据不自动迁移。** 数据库当时不可用，且它是开发数据；需要时
-    再写一次性导出/导入。当前服务从空 SQLite 开始，之后“重启后还在”是文件级的
-    真实承诺，不再取决于容器是否健康。
+  - **旧 Postgres 数据由一次性脚本迁移。** `npm run migrate:legacy` 通过
+    `docker exec psql` 只导入 `SINGLE_USER_ID` 对应的人，可重复执行；旧库里
+    595 个用户中只有这个有真实对话（5 个会话、58 条消息、33 条 agent_runs），
+    其余是评测遗留，未导入。旧容器/卷仍在，确认不要后可删。之后“重启后还在”
+    是文件级的真实承诺，不再取决于容器是否健康。
   - **备份**改成 `node:sqlite` 的在线 backup API，并对副本做 `PRAGMA integrity_check`；
     `pg_dump` 和 `pg_restore` 不再参与。
 

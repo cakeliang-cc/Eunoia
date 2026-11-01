@@ -212,8 +212,8 @@ Docker 端口转发卡住，服务只能退回内存 store。现在默认是 `da
 新增：`sqlite-schema.ts`、`sqlite-store.ts`、`select.ts`、`scripts/backup.ts`、
 `tests/db/sqlite.test.ts`。
 
-**明确不做**：自动迁移旧 Postgres 数据、pgvector、多进程写入。需要时单独处理，
-不把 Docker 重新带回默认路径。
+**明确不做**：自动迁移旧 Postgres 数据（提供的是一次性 `migrate:legacy`，只导入
+`SINGLE_USER_ID`）、pgvector、多进程写入。不把 Docker 重新带回默认路径。
 
 ## 尚未排期的输入 —— 记忆的巩固与遗忘
 

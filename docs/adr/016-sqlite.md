@@ -111,8 +111,11 @@ Postgres 测试里那条“先写会话、用户不存在”的回归用例被�
   或引入 `sqlite-vec`；那是一个新 ADR，不是恢复 pgvector 的理由。
 - **单文件既是优势也是边界。** 备份/迁移/检查都是一个文件；代价是不能把写压力
   分散到多个进程。
-- **旧的 Postgres 数据留在卷里，不迁移。** 需要时再处理；当前服务从空 SQLite
-  开始。会话/记忆的“重启后还在”现在是文件级的真实承诺，不再取决于容器是否健康。
+- **旧 Postgres 数据有一个一次性迁移，不是自动导入。** `npm run migrate:legacy`
+  通过 `docker exec psql` 只导入 `SINGLE_USER_ID` 对应的人，可重复执行；它跳过
+  评测遗留用户，因为旧库里 595 个用户中只有这个是真实对话（5 个会话、58 条消息、
+  33 条 agent_runs）。旧容器和卷仍然保留，确认不需要后可以删除。会话/记忆的
+  “重启后还在”现在是文件级的真实承诺，不再取决于容器是否健康。
 
 ## 相关文件
 
@@ -121,5 +124,6 @@ Postgres 测试里那条“先写会话、用户不存在”的回归用例被�
 - `src/db/select.ts` — 默认路径、`STORE=memory`、忽略 `DATABASE_URL`
 - `src/db/migrate.ts` — 初始化并打印路径
 - `scripts/backup.ts` — 在线备份 + 完整性检查
+- `scripts/migrate-legacy-postgres.ts` — 一次性导入旧 Postgres 中 `SINGLE_USER_ID` 的数据
 - `tests/db/sqlite.test.ts` — 真实数据库的翻译、外键与级联
 - ADR 002 — 被本文取代

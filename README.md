@@ -152,6 +152,7 @@ web/  ── HTTP + SSE ──▶  src/api/
 | `npm run eval` | 人格评测，真实调用并记录 |
 | `npm run eval:replay` | 对最近一次记录重新打分，免费 |
 | `npm run migrate` | 初始化/确认 SQLite schema |
+| `npm run migrate:legacy` | 一次性从旧 Postgres 导入 `SINGLE_USER_ID` 的数据（需要旧容器） |
 | `npm run cleanup` | 保留期清扫，支持 `--dry-run` |
 | `npm run backup` | SQLite 在线备份到 `backups/`，并做完整性校验 |
 | `npm run typecheck` / `npm run lint` | 类型和 lint 门禁 |

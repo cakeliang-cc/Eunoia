@@ -20,7 +20,8 @@
     "eval:replay": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types src/evaluation/cli.ts --replay",
     "cleanup": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types src/privacy/cli.ts",
     "backup": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types scripts/backup.ts",
-    "smoke": "NODE_OPTIONS='--experimental-sqlite --disable-warning=ExperimentalWarning' vitest run tests/smoke"
+    "smoke": "NODE_OPTIONS='--experimental-sqlite --disable-warning=ExperimentalWarning' vitest run tests/smoke",
+    "migrate:legacy": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types scripts/migrate-legacy-postgres.ts"
   },
   "dependencies": {
     "@openai/agents": "^0.18.0",
