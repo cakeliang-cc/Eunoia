@@ -135,7 +135,10 @@ export function buildCreateArgs(
   // not set: on Docker Desktop it is applied to the container init process and
   // makes `/sbin/docker-init` fail with EAGAIN before the command starts.
   args.push('--ulimit', 'nofile=1024:1024');
-  args.push('--tmpfs', `/tmp:rw,nosuid,nodev,size=${tmpfsSize(config.resources.memoryLimitMB)}`);
+  args.push(
+    '--tmpfs',
+    `/tmp:rw,nosuid,nodev,size=${tmpfsSize(config.resources.memoryLimitMB)},mode=1777`,
+  );
 
   // Network -----------------------------------------------------------------
   if (config.network.mode === 'none') {

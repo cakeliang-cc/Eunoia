@@ -161,6 +161,17 @@ describe.skipIf(!enabled)('real container integration', () => {
     expect(result.stdout).toContain('rootfs-read-only');
   });
 
+  it('has a writable /tmp for the sandbox user', async () => {
+    const h = harness as Harness;
+    const result = await run(h, [
+      '/bin/sh',
+      '-c',
+      'mkdir -p /tmp/.eunoia && echo marker > /tmp/.eunoia/probe && cat /tmp/.eunoia/probe',
+    ]);
+    expect(result.status).toBe('SUCCEEDED');
+    expect(result.stdout).toContain('marker');
+  });
+
   it('cannot read /etc/shadow', async () => {
     const h = harness as Harness;
     const result = await run(h, ['/bin/sh', '-c', 'cat /etc/shadow']);

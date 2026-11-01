@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSandboxPlatform, type SandboxPlatform } from '../../src/sandbox/index.ts';
 import { MemorySandboxStore } from '../../src/sandbox/store-memory.ts';
+import type { SandboxStore } from '../../src/sandbox/store.ts';
 import { FakeRuntime } from '../../src/sandbox/runtime/fake.ts';
 import {
   RESOURCE_PROFILES,
@@ -42,7 +43,7 @@ export interface TestPlatform {
   readonly base: string;
   readonly sourceRoot: string;
   readonly storageRoot: string;
-  readonly store: MemorySandboxStore;
+  readonly store: SandboxStore;
   readonly settings: SandboxSettings;
   readonly runtime: FakeRuntime;
   readonly platform: SandboxPlatform;
@@ -61,6 +62,8 @@ export interface TestPlatformOptions {
   readonly mode?: 'bind' | 'copy';
   readonly maxOutputBytes?: number;
   readonly limits?: Partial<SandboxLimits>;
+  /** Injected store; defaults to the in-memory one. */
+  readonly store?: SandboxStore;
   /** Files to seed in the source project. */
   readonly files?: Readonly<Record<string, string>>;
 }
@@ -81,7 +84,7 @@ export async function createTestPlatform(options: TestPlatformOptions = {}): Pro
   }
 
   const clock = options.now ?? testClock();
-  const store = new MemorySandboxStore();
+  const store = options.store ?? new MemorySandboxStore();
   const settings: SandboxSettings = {
     enabled: true,
     imageDigest: `sha256:${'a'.repeat(64)}`,

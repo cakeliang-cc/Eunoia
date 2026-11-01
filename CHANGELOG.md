@@ -10,6 +10,10 @@
 
 ### Added
 
+- **`npm run sandbox:smoke`：真实 SQLite + Docker 的端到端冒烟。** 走聊天工具适配器
+  （task → workspace → sandbox → list → command），用临时数据库，不碰生产
+  `data/eunoia.sqlite`；用于捕捉内存 store 看不到的外键/迁移问题。
+
 - **Sandbox 执行平台：命令不再在宿主机上跑。** 按
   [ADR 017](docs/adr/017.sandbox.md) 重建工具执行链路，实现选择记录在
   [ADR 018](docs/adr/018-sandbox-implementation.md)。新的执行路径是
@@ -415,6 +419,15 @@
 
 ### Fixed
 
+- **Sandbox 第一次工具调用的 `FOREIGN KEY constraint failed`。** `sandbox_workspaces.task_id`
+  指向 `sandbox_tasks`，但 `ensureTask()` 先写 workspace、后写 task；内存 store 不检查
+  外键，所以单元测试一直是绿的，真实 SQLite 在第一次 `read_file` / `run_command`
+  时就失败。现在先创建带占位 workspace id 的 task，再写 workspace 并回填。
+  回归测试用真实 `SqliteSandboxStore` 覆盖；`npm run sandbox:smoke` 用生产 store +
+  Docker 跑完整工具适配器路径。
+- **`/tmp` 对 sandbox 用户不可写。** Docker tmpfs 没有 `mode=1777`，uid 1000 无法在
+  `/tmp` 创建执行 marker、npm cache 或临时文件，`run_command` 的 `UNKNOWN` 核验也因此
+  失效。现在 tmpfs 以 `mode=1777` 挂载，真实集成测试验证可写。
 - **`npm run build` 现在存在了。** 它曾是 `package.json` 里一个谁来试都会失败的
   脚本——`tsc -p tsconfig.build.json`，指向一个从未进过仓库的文件——而它在这里
   被记为一条已知问题，而不是留给人去发现。

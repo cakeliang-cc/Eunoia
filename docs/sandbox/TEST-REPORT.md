@@ -14,10 +14,10 @@ npm test
 
 ```text
 Test Files  65 passed | 3 skipped (68)
-Tests       901 passed | 20 skipped (921)
+Tests       902 passed | 21 skipped (923)
 ```
 
-其中 sandbox 控制面单独运行：9 个文件、163 个测试通过；
+其中 sandbox 控制面单独运行：9 个文件、164 个测试通过；
 `tests/architecture/sandbox-boundaries.test.ts` 7 个测试通过。
 `tests/sandbox/integration.docker.test.ts` 默认跳过（需要真实 runtime）。
 
@@ -47,7 +47,7 @@ SANDBOX_TEST_IMAGE_DIGEST=$(docker image inspect --format '{{.Id}}' alpine/curl:
 npx vitest run tests/sandbox/integration.docker.test.ts
 ```
 
-结果：**15/15 通过**（约 18 秒）。
+结果：**16/16 通过**（约 18 秒）。
 
 | 测试 | 结果 |
 |---|---|
@@ -61,6 +61,7 @@ npx vitest run tests/sandbox/integration.docker.test.ts
 | 非零退出码 + stdout/stderr | PASS |
 | 不泄漏宿主环境变量 | PASS |
 | bind 模式下 `.env` / `*.pem` 对命令不可见（mask mount） | PASS |
+| `/tmp` 对 uid 1000 可写（marker/cache） | PASS |
 | seccomp filter 生效（`Seccomp: 2`） | PASS |
 | HostConfig：只读 rootfs、cap-drop ALL、no-new-privileges、cgroups、network none | PASS |
 | fork bomb 受 PID limit 约束 | PASS |

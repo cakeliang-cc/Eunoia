@@ -164,36 +164,45 @@ export class SandboxGateway {
   }): Promise<Task> {
     assertId('task id', input.taskId);
     const existing = await this.store.getTask(input.taskId);
-    const workspace = await this.workspaces.ensureForTask(input.taskId);
     if (existing) {
-      if (existing.workspaceId !== workspace.workspaceId) {
-        return (await this.store.updateTask(existing.taskId, { workspaceId: workspace.workspaceId })) as Task;
-      }
       if (existing.userId !== input.userId) {
         throw new SandboxPolicyError('task belongs to a different user');
       }
+      const workspace = await this.workspaces.ensureForTask(input.taskId);
+      if (existing.workspaceId !== workspace.workspaceId) {
+        return (await this.store.updateTask(existing.taskId, { workspaceId: workspace.workspaceId })) as Task;
+      }
       return existing;
     }
+
+    // `sandbox_workspaces.task_id` is a foreign key to `sandbox_tasks`, so the
+    // task must exist *before* the workspace row is written. The placeholder
+    // workspace id is immediately replaced; it is not observable to callers.
     const at = this.now().toISOString();
     const task: Task = {
       taskId: input.taskId,
       sessionId: input.sessionId,
       userId: input.userId,
       status: 'ACTIVE',
-      workspaceId: workspace.workspaceId,
+      workspaceId: '',
       sandboxId: null,
       createdAt: at,
       updatedAt: at,
     };
     const created = await this.store.ensureTask(task);
+    const workspace = await this.workspaces.ensureForTask(input.taskId);
+    const ready = await this.store.updateTask(created.taskId, {
+      workspaceId: workspace.workspaceId,
+    });
+    if (!ready) throw new SandboxError('not_found', `task ${input.taskId} disappeared during creation`);
     await this.audit.record({
-      taskId: task.taskId,
+      taskId: ready.taskId,
       sessionId: input.sessionId,
       action: 'task.create',
       outcome: 'succeeded',
       detail: { workspace: workspace.workspaceId, mode: workspace.mode },
     });
-    return created;
+    return ready;
   }
 
   /** Get (or create) the task's sandbox with the deployment's defaults. */

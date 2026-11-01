@@ -66,6 +66,9 @@ describe('create argv', () => {
     expect(args).toContain('--init');
     expect(pairs(args, '--pull')).toEqual(['never']);
     expect(pairs(args, '--pids-limit')).toEqual(['128']);
+    // A tmpfs without mode=1777 is root-owned; a uid-1000 command cannot write
+    // its marker or cache there.
+    expect(pairs(args, '--tmpfs')[0]).toContain('mode=1777');
     expect(pairs(args, '--memory')).toEqual(['2048m']);
     expect(pairs(args, '--cpus')).toEqual(['2']);
     expect(pairs(args, '--mount')).toHaveLength(1);

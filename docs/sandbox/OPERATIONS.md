@@ -57,6 +57,7 @@ npm run sandbox -- checkpoint --task <taskId>
 npm run sandbox -- gc --idle-minutes 60 --checkpoint-days 7
 npm run sandbox -- proxy --listen 0.0.0.0:8788
 npm run sandbox:check              # 真实 runtime 安全自检（不通过则非零退出）
+npm run sandbox:smoke              # 真实 SQLite + Docker 的端到端冒烟
 ```
 
 `approve` 写一条带 scope、过期时间、policy version 和批准人的 grant；它不能

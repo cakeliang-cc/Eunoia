@@ -16,6 +16,8 @@ import { SandboxConflictError, SandboxError, SandboxPolicyError } from '../../sr
 import { createSandboxPlatform } from '../../src/sandbox/index.ts';
 import { FakeRuntime } from '../../src/sandbox/runtime/fake.ts';
 import { SANDBOX_POLICY_VERSION } from '../../src/sandbox/types.ts';
+import { openSqliteStore } from '../../src/db/sqlite-store.ts';
+import { SqliteSandboxStore } from '../../src/sandbox/store-sqlite.ts';
 
 const platforms: TestPlatform[] = [];
 
@@ -51,6 +53,26 @@ function executeInput(sandboxId: string, overrides: Record<string, unknown> = {}
 }
 
 describe('task and sandbox creation', () => {
+  it('creates the task before its workspace under SQLite foreign keys', async () => {
+    // The in-memory store does not enforce foreign keys; SQLite does. Creating
+    // the workspace first is therefore invisible in every fake-backed test and
+    // fails on the first real tool call with FOREIGN KEY constraint failed.
+    const sqlite = openSqliteStore(':memory:');
+    const store = new SqliteSandboxStore(sqlite.database);
+    const platform = await createTestPlatform({ store });
+    try {
+      const task = await platform.gateway.ensureTask(TASK);
+      expect(task.workspaceId).toMatch(/^ws_/);
+      expect((await store.getTask(TASK.taskId))?.workspaceId).toBe(task.workspaceId);
+      expect(await store.getWorkspace(task.workspaceId)).not.toBeNull();
+      const sandbox = await platform.gateway.ensureSandbox(context());
+      expect(sandbox.taskId).toBe(task.taskId);
+    } finally {
+      await platform.cleanup();
+      sqlite.database.close();
+    }
+  });
+
   it('creates a task bound to a workspace and a sandbox bound to a task', async () => {
     const platform = await setup();
     const task = await platform.gateway.ensureTask(TASK);
