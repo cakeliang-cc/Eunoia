@@ -21,6 +21,9 @@
     "cleanup": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types src/privacy/cli.ts",
     "backup": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types scripts/backup.ts",
     "smoke": "NODE_OPTIONS='--experimental-sqlite --disable-warning=ExperimentalWarning' vitest run tests/smoke",
+    "sandbox": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types src/sandbox/cli.ts",
+    "sandbox:check": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types scripts/sandbox-security-check.ts",
+    "sandbox:it": "NODE_OPTIONS='--experimental-sqlite --disable-warning=ExperimentalWarning' SANDBOX_INTEGRATION=1 vitest run tests/sandbox/integration.docker.test.ts",
     "migrate:legacy": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types scripts/migrate-legacy-postgres.ts"
   },
   "dependencies": {

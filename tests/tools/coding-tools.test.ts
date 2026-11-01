@@ -23,7 +23,7 @@ import {
 import { summarizeToolCall, summarizeToolResult } from '../../src/tools/summary.ts';
 import { TurnReadLedger } from '../../src/tools/ledger.ts';
 import { DEFAULT_TOOL_POLICY } from '../../src/tools/types.ts';
-import type { ToolContext } from '../../src/tools/types.ts';
+import type { ToolContext, ToolExecutionResult } from '../../src/tools/types.ts';
 import { Workspace } from '../../src/tools/workspace.ts';
 
 let base: string;
@@ -33,8 +33,35 @@ let context: ToolContext;
 beforeEach(async () => {
   base = await mkdtemp(join(tmpdir(), 'eunoia-tools-'));
   workspace = new Workspace({ root: base });
+  const executor = {
+    run: async (input: { command: readonly string[] }): Promise<ToolExecutionResult> => {
+      const command = input.command[0] ?? '';
+      if (command.includes('exit 1')) {
+        return {
+          status: 'FAILED',
+          exitCode: 1,
+          stdout: 'the assertion failed',
+          stderr: '',
+          timedOut: false,
+          durationMs: 12,
+          executionId: 'exec_test',
+        };
+      }
+      return {
+        status: 'SUCCEEDED',
+        exitCode: 0,
+        stdout: 'hello',
+        stderr: '',
+        timedOut: false,
+        durationMs: 8,
+        executionId: 'exec_test',
+      };
+    },
+  };
   context = {
     workspace,
+    executor,
+    toolCallId: 'call_test',
     policy: { ...DEFAULT_TOOL_POLICY, allowWorkspaceWrites: true, allowCommands: true },
     ledger: new TurnReadLedger(),
     now: new Date('2026-10-25T12:00:00Z'),
@@ -144,8 +171,10 @@ describe('run_command', () => {
   it('formats exit code and output', async () => {
     const result = await runCommandTool.execute({ command: 'printf hello' }, context);
     expect(result.ok).toBe(true);
+    expect(result.output).toContain('status: SUCCEEDED');
     expect(result.output).toContain('exit code: 0');
     expect(result.output).toContain('hello');
+    expect(result.meta?.executionId).toBe('exec_test');
   });
 
   it('keeps output on a non-zero exit and marks the result failed', async () => {
@@ -156,6 +185,7 @@ describe('run_command', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain('code 1');
     expect(result.output).toContain('the assertion failed');
+    expect(result.output).toContain('status: FAILED');
   });
 });
 

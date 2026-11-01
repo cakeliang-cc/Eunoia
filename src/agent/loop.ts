@@ -318,7 +318,9 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       };
     }
 
-    const denial = policyDenial(plan.definition, options.toolContext.policy);
+    const sandboxed =
+      options.toolContext.executor != null || options.toolContext.sandboxed === true;
+    const denial = policyDenial(plan.definition, options.toolContext.policy, sandboxed);
     if (denial !== null) {
       return { result: toolError(denial), durationMs: Date.now() - startedAtMs };
     }
@@ -340,6 +342,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
     try {
       const execution = plan.definition.execute(parsed.data, {
         ...options.toolContext,
+        toolCallId: plan.call.callId,
         signal: controller.signal,
       });
       const result = await Promise.race([

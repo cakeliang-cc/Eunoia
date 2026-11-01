@@ -1,0 +1,1274 @@
+/**
+ * The Sandbox Gateway: the only entry point for tool execution.
+ *
+ * Responsibilities (ADR §7):
+ *
+ *   - validate the request and the sandbox/task ownership;
+ *   - decide with the Permission Manager *before* anything runs;
+ *   - create an Execution with an idempotency key and persist it;
+ *   - route the command to the Controller, never to a host process;
+ *   - record every state transition and every event;
+ *   - map the runtime result without ever turning `UNKNOWN` into `FAILED`.
+ *
+ * The Gateway also fronts the file tools. They are not commands, but they are
+ * still the agent touching a filesystem, and keeping them behind the same
+ * authorization and audit path means there is one place to answer "what did the
+ * agent do to this workspace?".
+ *
+ * There is no method here that accepts a host path, an image tag, a mount or a
+ * runtime argument. The only host path in the system is resolved by the
+ * Workspace Manager from operator configuration.
+ */
+
+import { createHash, randomUUID } from 'node:crypto';
+import { posix } from 'node:path';
+import type { SandboxStore } from './store.ts';
+import type {
+  ApprovalGrant,
+  CreateSandboxInput,
+  Execution,
+  ExecutionEvent,
+  ExecutionResult,
+  ExecutionState,
+  ExecuteInput,
+  Sandbox,
+  SandboxStatusSnapshot,
+  Task,
+  Workspace,
+  WorkspaceCheckpoint,
+} from './types.ts';
+import { WORKSPACE_MOUNT_PATH, resourceProfile } from './types.ts';
+import {
+  ACTIVE_SANDBOX_STATES,
+  canTransitionExecution,
+  executionOutcome,
+  isTerminalExecution,
+} from './state.ts';
+import type { SandboxController, RuntimeConfigResolver } from './controller.ts';
+import type { WorkspaceManager } from './workspace-manager.ts';
+import type { AuditLog, SandboxMetrics } from './audit.ts';
+import type { CredentialBroker } from './credentials.ts';
+import type { SandboxSettings } from './config.ts';
+import {
+  PermissionManager,
+  compileRuntimeConfig,
+  minResourceLimits,
+  normalizeContainerPath,
+  taskPolicy,
+  type PermissionSettings,
+} from './policy.ts';
+import { Redactor } from './redact.ts';
+import {
+  SandboxConflictError,
+  SandboxNotFoundError,
+  SandboxPolicyError,
+  SandboxQuotaError,
+  SandboxError,
+} from './errors.ts';
+import { sandboxContainerName } from './runtime/oci-args.ts';
+
+export interface SandboxGatewayDeps {
+  readonly store: SandboxStore;
+  readonly controller: SandboxController;
+  readonly workspaces: WorkspaceManager;
+  readonly audit: AuditLog;
+  readonly metrics: SandboxMetrics;
+  readonly credentials: CredentialBroker;
+  readonly settings: SandboxSettings;
+  readonly now?: () => Date;
+  /** Shared by the audit log, the credential broker and this gateway. */
+  readonly redactor?: Redactor;
+}
+
+export interface SandboxContext {
+  readonly taskId: string;
+  readonly sessionId?: string | null;
+  readonly userId?: string | null;
+  readonly toolCallId?: string | null;
+}
+
+/** Options for one execute call beyond the public `ExecuteInput`. */
+export interface ExecuteOptions {
+  readonly signal?: AbortSignal;
+}
+
+export interface FileOpContext extends SandboxContext {
+  readonly path: string;
+  readonly start?: number;
+  readonly end?: number;
+  readonly depth?: number;
+}
+
+const MAX_COMMAND_BYTES = 64 * 1024;
+const MAX_IDEMPOTENCY_KEY = 200;
+const MAX_TASK_ID = 200;
+
+export class SandboxGateway {
+  private readonly store: SandboxStore;
+  private readonly controller: SandboxController;
+  private readonly workspaces: WorkspaceManager;
+  private readonly audit: AuditLog;
+  private readonly metrics: SandboxMetrics;
+  private readonly credentials: CredentialBroker;
+  private readonly settings: SandboxSettings;
+  private readonly now: () => Date;
+  private readonly policy: ReturnType<typeof taskPolicy>;
+  private readonly permission: PermissionManager;
+  private readonly redactor: Redactor;
+  /** Executions currently inside the runtime, per sandbox. */
+  private readonly inFlight = new Map<string, number>();
+
+  constructor(deps: SandboxGatewayDeps) {
+    this.store = deps.store;
+    this.controller = deps.controller;
+    this.workspaces = deps.workspaces;
+    this.audit = deps.audit;
+    this.metrics = deps.metrics;
+    this.credentials = deps.credentials;
+    this.settings = deps.settings;
+    this.now = deps.now ?? (() => new Date());
+    this.policy = taskPolicy({
+      resourcesProfile: 'default',
+      networkMode: deps.settings.network.mode,
+      allowedDomains: deps.settings.network.allowedDomains,
+      allowedPorts: deps.settings.network.allowedPorts,
+      deniedTools: deps.settings.deniedTools,
+      runtimeClass: deps.settings.runtime.runtimeClass,
+      requireGvisor: deps.settings.runtime.requireGvisor,
+      resources: deps.settings.resources,
+    });
+    const permissionSettings: PermissionSettings = {
+      allowWorkspaceWrites: deps.settings.allowWrites,
+      allowCommands: deps.settings.allowCommands,
+    };
+    this.permission = new PermissionManager(this.policy, permissionSettings);
+    this.redactor = deps.redactor ?? new Redactor();
+    // Credential values are known only after issuance; the audit log has its own
+    // redactor, and new values are registered there by the broker's caller.
+    for (const secret of deps.credentials.secrets()) this.redactor.addSecret(secret);
+  }
+
+  // ------------------------------------------------------------------ tasks ---
+
+  /**
+   * Ensure the durable task, workspace and ownership for a conversation.
+   *
+   * The task id is the conversation id. It arrives from the server's own session
+   * object, never from a tool call, which is the ownership check: a model cannot
+   * name someone else's task because it never names a task at all.
+   */
+  async ensureTask(input: {
+    readonly taskId: string;
+    readonly sessionId: string;
+    readonly userId: string;
+  }): Promise<Task> {
+    assertId('task id', input.taskId);
+    const existing = await this.store.getTask(input.taskId);
+    const workspace = await this.workspaces.ensureForTask(input.taskId);
+    if (existing) {
+      if (existing.workspaceId !== workspace.workspaceId) {
+        return (await this.store.updateTask(existing.taskId, { workspaceId: workspace.workspaceId })) as Task;
+      }
+      if (existing.userId !== input.userId) {
+        throw new SandboxPolicyError('task belongs to a different user');
+      }
+      return existing;
+    }
+    const at = this.now().toISOString();
+    const task: Task = {
+      taskId: input.taskId,
+      sessionId: input.sessionId,
+      userId: input.userId,
+      status: 'ACTIVE',
+      workspaceId: workspace.workspaceId,
+      sandboxId: null,
+      createdAt: at,
+      updatedAt: at,
+    };
+    const created = await this.store.ensureTask(task);
+    await this.audit.record({
+      taskId: task.taskId,
+      sessionId: input.sessionId,
+      action: 'task.create',
+      outcome: 'succeeded',
+      detail: { workspace: workspace.workspaceId, mode: workspace.mode },
+    });
+    return created;
+  }
+
+  /** Get (or create) the task's sandbox with the deployment's defaults. */
+  async ensureSandbox(context: SandboxContext): Promise<Sandbox> {
+    const task = await this.loadTask(context);
+    const existing = await this.store.getSandboxForTask(task.taskId);
+    if (existing && existing.status !== 'DESTROYED') return existing;
+    return this.create(
+      {
+        taskId: task.taskId,
+        workspaceId: task.workspaceId,
+        imageDigest: this.settings.imageDigest,
+        policyVersion: this.settings.policyVersion,
+        resourceProfile: 'default',
+      },
+      context,
+    );
+  }
+
+  // --------------------------------------------------------------- lifecycle ---
+
+  async create(input: CreateSandboxInput, context?: SandboxContext): Promise<Sandbox> {
+    const task = await this.loadTask({ taskId: input.taskId, ...(context ?? {}) });
+    if (context?.userId && context.userId !== task.userId) {
+      throw new SandboxPolicyError('task belongs to a different user');
+    }
+    if (input.workspaceId !== task.workspaceId) {
+      throw new SandboxPolicyError('workspace is not bound to this task');
+    }
+    if (input.imageDigest !== this.settings.imageDigest) {
+      throw new SandboxPolicyError('the requested image is not the operator-configured sandbox image');
+    }
+    if (input.policyVersion !== this.settings.policyVersion) {
+      throw new SandboxPolicyError(`unknown policy version ${input.policyVersion}`);
+    }
+    if (input.resourceProfile !== 'default' && !['small', 'default', 'large'].includes(input.resourceProfile)) {
+      throw new SandboxPolicyError(`unknown resource profile ${input.resourceProfile}`);
+    }
+
+    const existing = await this.store.getSandboxForTask(task.taskId);
+    if (existing && existing.status !== 'DESTROYED' && existing.status !== 'FAILED') {
+      return existing;
+    }
+
+    await this.assertCapacity(task);
+
+    const workspace = await this.store.getWorkspace(task.workspaceId);
+    if (!workspace) throw new SandboxNotFoundError(`workspace ${task.workspaceId} does not exist`);
+    if (workspace.mode === 'copy' && workspace.taskId !== task.taskId) {
+      throw new SandboxPolicyError('workspace belongs to a different task');
+    }
+    // In bind mode one project directory is shared by every task on this
+    // single-tenant deployment; the sandbox identity is still task-scoped.
+
+    const at = this.now().toISOString();
+    const sandboxId = `sbx_${randomUUID()}`;
+    const sandbox: Sandbox = {
+      sandboxId,
+      taskId: task.taskId,
+      runtimeType: this.controller.runtimeType,
+      runtimeId: sandboxContainerName(sandboxId),
+      imageDigest: input.imageDigest,
+      workspaceId: workspace.workspaceId,
+      policyVersion: input.policyVersion,
+      resourceProfile: input.resourceProfile,
+      status: 'CREATING',
+      createdAt: at,
+      lastHeartbeatAt: null,
+      updatedAt: at,
+    };
+    await this.store.saveSandbox(sandbox);
+    await this.store.savePolicy(input.policyVersion, 'task', this.policy, at);
+
+    try {
+      const config = await this.runtimeConfig(sandbox, workspace, true);
+      const created = await this.controller.create(sandbox, config);
+      await this.store.updateTask(task.taskId, { sandboxId: created.sandboxId });
+      return created;
+    } catch (error) {
+      await this.audit.record({
+        taskId: task.taskId,
+        sandboxId,
+        policyVersion: sandbox.policyVersion,
+        action: 'sandbox.create',
+        outcome: 'failed',
+        detail: { error: error instanceof Error ? error.message : String(error) },
+      });
+      throw error;
+    }
+  }
+
+  async inspect(sandboxId: string): Promise<SandboxStatusSnapshot> {
+    const sandbox = await this.requireSandbox(sandboxId);
+    const runtime = await this.controller.inspect(sandbox);
+    return {
+      sandboxId: sandbox.sandboxId,
+      taskId: sandbox.taskId,
+      status: sandbox.status,
+      runtimeType: sandbox.runtimeType,
+      runtimeId: sandbox.runtimeId,
+      imageDigest: sandbox.imageDigest,
+      workspaceId: sandbox.workspaceId,
+      lastHeartbeatAt: sandbox.lastHeartbeatAt,
+      runtimeAlive: runtime.exists && runtime.running,
+      detail: runtime.detail,
+    };
+  }
+
+  async interrupt(context: SandboxContext, sandboxId: string, executionId: string): Promise<void> {
+    const task = await this.loadTask(context);
+    const sandbox = await this.requireSandbox(sandboxId);
+    if (sandbox.taskId !== task.taskId) throw new SandboxPolicyError('sandbox belongs to a different task');
+    const execution = await this.store.getExecution(executionId);
+    if (!execution || execution.sandboxId !== sandbox.sandboxId) {
+      throw new SandboxNotFoundError(`execution ${executionId} does not exist in this sandbox`);
+    }
+    if (!isTerminalExecution(execution.status)) {
+      const cancelled = await this.store.transitionExecution(
+        executionId,
+        ['CREATED', 'AUTHORIZED', 'SUBMITTED', 'RUNNING', 'INTERRUPTED', 'RECONCILING', 'RETRYABLE'],
+        'CANCELLED',
+        { finishedAt: this.now().toISOString() },
+      );
+      if (cancelled) {
+        await this.appendEvent(cancelled, 'execution/interrupted', { by: 'operator' });
+      }
+    }
+    await this.controller.interrupt(sandbox, executionId);
+  }
+
+  async recover(context: SandboxContext, sandboxId: string): Promise<SandboxStatusSnapshot> {
+    const task = await this.loadTask(context);
+    const sandbox = await this.requireSandbox(sandboxId);
+    if (sandbox.taskId !== task.taskId) throw new SandboxPolicyError('sandbox belongs to a different task');
+    const workspace = await this.store.getWorkspace(sandbox.workspaceId);
+    if (!workspace) throw new SandboxNotFoundError('workspace is missing');
+    const config = await this.runtimeConfig(sandbox, workspace, true);
+    await this.controller.recover(sandbox, config);
+    for (const execution of await this.store.listUnfinishedExecutions(sandbox.sandboxId)) {
+      await this.reconcileExecution(sandbox.sandboxId, execution.executionId);
+    }
+    return this.inspect(sandbox.sandboxId);
+  }
+
+  async destroy(context: SandboxContext, sandboxId: string): Promise<void> {
+    const task = await this.loadTask(context);
+    const sandbox = await this.requireSandbox(sandboxId);
+    if (sandbox.taskId !== task.taskId) throw new SandboxPolicyError('sandbox belongs to a different task');
+    // A destroyed runtime takes its marker with it. Any execution still open is
+    // therefore unknowable, not failed.
+    for (const execution of await this.store.listUnfinishedExecutions(sandbox.sandboxId)) {
+      const neverSubmitted = execution.status === 'CREATED' || execution.status === 'AUTHORIZED';
+      const closed = await this.store.transitionExecution(
+        execution.executionId,
+        ['CREATED', 'AUTHORIZED', 'SUBMITTED', 'RUNNING', 'INTERRUPTED', 'RECONCILING'],
+        neverSubmitted ? 'FAILED' : 'UNKNOWN',
+        { finishedAt: this.now().toISOString() },
+      );
+      if (closed) {
+        await this.appendEvent(closed, 'execution/reconciled', {
+          method: neverSubmitted ? 'never-submitted' : 'sandbox-destroyed',
+          detail: neverSubmitted
+            ? 'the command was never submitted'
+            : 'runtime was destroyed before the outcome was observed',
+        });
+      }
+    }
+    await this.controller.destroy(sandbox);
+    await this.store.updateTask(task.taskId, { sandboxId: null });
+  }
+
+  /**
+   * Record a scoped approval grant.
+   *
+   * This is the operator-facing half of `APPROVAL_REQUIRED`: a chat turn cannot
+   * ask mid-stream, so a person grants one action on one scope for a bounded
+   * time before the turn. The grant names the policy version in force here.
+   */
+  async approve(
+    context: SandboxContext,
+    input: {
+      readonly action: 'fs.read' | 'fs.write' | 'fs.list' | 'process.exec' | 'network.connect';
+      readonly resourceScope?: readonly string[];
+      readonly ttlMs?: number;
+      readonly approvedBy?: string;
+    },
+  ): Promise<ApprovalGrant> {
+    const task = await this.loadTask(context);
+    const ttl = Math.min(Math.max(input.ttlMs ?? 10 * 60_000, 1_000), 24 * 60 * 60_000);
+    const scope = (input.resourceScope ?? [WORKSPACE_MOUNT_PATH]).map((entry) =>
+      normalizeContainerPath(entry),
+    );
+    if (scope.length === 0) throw new SandboxPolicyError('approval scope must not be empty');
+    const at = this.now().toISOString();
+    const grant: ApprovalGrant = {
+      approvalId: `apr_${randomUUID()}`,
+      taskId: task.taskId,
+      action: input.action,
+      resourceScope: scope,
+      expiresAt: new Date(this.now().getTime() + ttl).toISOString(),
+      approvedBy: input.approvedBy?.trim() || 'operator',
+      policyVersion: this.settings.policyVersion,
+      createdAt: at,
+      revokedAt: null,
+    };
+    await this.store.saveApproval(grant);
+    await this.audit.record({
+      taskId: task.taskId,
+      sessionId: context.sessionId ?? null,
+      approvalId: grant.approvalId,
+      policyVersion: grant.policyVersion,
+      action: 'approval.grant',
+      outcome: 'allowed',
+      detail: { action: grant.action, scope, expires_at: grant.expiresAt },
+    });
+    return grant;
+  }
+
+  /** Revoke an approval grant; the next request it covered needs a new one. */
+  async revokeApproval(context: SandboxContext, approvalId: string): Promise<boolean> {
+    const task = await this.loadTask(context);
+    const grant = await this.store.getApproval(approvalId);
+    if (!grant || grant.taskId !== task.taskId) {
+      throw new SandboxNotFoundError(`approval ${approvalId} does not exist for this task`);
+    }
+    const revoked = await this.store.revokeApproval(approvalId, this.now().toISOString());
+    if (revoked) {
+      await this.audit.record({
+        taskId: task.taskId,
+        sessionId: context.sessionId ?? null,
+        approvalId,
+        policyVersion: grant.policyVersion,
+        action: 'approval.revoke',
+        outcome: 'allowed',
+        detail: { action: grant.action, scope: grant.resourceScope },
+      });
+    }
+    return revoked;
+  }
+
+  /** Create a workspace checkpoint independent of the sandbox lifecycle. */
+  async checkpoint(
+    context: SandboxContext,
+    sourceExecutionId: string | null = null,
+  ): Promise<WorkspaceCheckpoint> {
+    const task = await this.loadTask(context);
+    const workspace = await this.store.getWorkspace(task.workspaceId);
+    if (!workspace) throw new SandboxNotFoundError('workspace is missing');
+    const checkpoint = await this.workspaces.createCheckpoint(workspace, sourceExecutionId);
+    await this.audit.record({
+      taskId: task.taskId,
+      sessionId: context.sessionId ?? null,
+      action: 'workspace.checkpoint',
+      outcome: 'succeeded',
+      detail: {
+        checkpoint_id: checkpoint.checkpointId,
+        workspace_id: workspace.workspaceId,
+        content_digest: checkpoint.contentDigest,
+      },
+    });
+    return checkpoint;
+  }
+
+  /**
+   * Expire idle sandboxes and prune old checkpoints.
+   *
+   * Idle expiry destroys the runtime but never the workspace: the next tool call
+   * rebuilds a sandbox against the same files, which is exactly the recovery path
+   * the integration test exercises.
+   */
+  async gc(input: {
+    readonly idleMs?: number;
+    readonly checkpointRetentionMs?: number;
+  } = {}): Promise<{ expired: number; checkpointsRemoved: number }> {
+    const idleMs = input.idleMs ?? 60 * 60_000;
+    const cutoff = this.now().getTime() - idleMs;
+    let expired = 0;
+    for (const sandbox of await this.store.listSandboxes(['READY', 'INTERRUPTED', 'FAILED'])) {
+      const heartbeat = sandbox.lastHeartbeatAt ? Date.parse(sandbox.lastHeartbeatAt) : 0;
+      if (heartbeat > cutoff) continue;
+      await this.store.updateSandbox(sandbox.sandboxId, { status: 'EXPIRED' }).catch(() => undefined);
+      const refreshed = await this.store.getSandbox(sandbox.sandboxId);
+      if (refreshed) await this.controller.destroy(refreshed).catch(() => undefined);
+      await this.store.updateTask(sandbox.taskId, { sandboxId: null }).catch(() => undefined);
+      expired += 1;
+    }
+    const checkpointsRemoved = await this.workspaces.pruneCheckpoints(
+      input.checkpointRetentionMs ?? 7 * 24 * 60 * 60_000,
+    );
+    await this.audit.record({
+      action: 'sandbox.gc',
+      outcome: 'succeeded',
+      detail: { expired, checkpoints_removed: checkpointsRemoved, idle_ms: idleMs },
+    });
+    return { expired, checkpointsRemoved };
+  }
+
+  // --------------------------------------------------------------- execution ---
+
+  async execute(
+    context: SandboxContext,
+    input: ExecuteInput,
+    options: ExecuteOptions = {},
+  ): Promise<ExecutionResult> {
+    const task = await this.loadTask(context);
+    const sandbox = await this.requireSandbox(input.sandboxId);
+    if (sandbox.taskId !== task.taskId) {
+      throw new SandboxPolicyError('sandbox belongs to a different task');
+    }
+
+    validateExecuteInput(input);
+
+    const cwd = normalizeContainerPath(input.cwd || WORKSPACE_MOUNT_PATH);
+    if (cwd !== WORKSPACE_MOUNT_PATH && !cwd.startsWith(`${WORKSPACE_MOUNT_PATH}/`)) {
+      throw new SandboxPolicyError(`cwd must be inside ${WORKSPACE_MOUNT_PATH}`);
+    }
+    const timeoutMs = Math.min(
+      Math.max(input.timeoutMs, 1_000),
+      this.settings.limits.maxExecutionTimeoutMs,
+    );
+    const commandDigest = digestCommand(input.command, cwd, input.shell === true);
+
+    // An execution id is a client-supplied idempotency handle too. Without this
+    // check a second call with a fresh key and the same id would overwrite the
+    // stored row in the in-memory store (or violate the primary key in SQLite).
+    if (input.executionId) {
+      const sameId = await this.store.getExecution(input.executionId);
+      if (sameId) {
+        if (sameId.sandboxId !== sandbox.sandboxId || sameId.commandDigest !== commandDigest) {
+          throw new SandboxConflictError('executionId was already used for a different execution');
+        }
+        this.metrics.increment('execution_duplicate');
+        if (isTerminalExecution(sameId.status) || sameId.status === 'UNKNOWN') {
+          return toResult(sameId);
+        }
+        throw new SandboxConflictError(`execution ${sameId.executionId} is ${sameId.status}`);
+      }
+    }
+
+    const duplicate = await this.store.findExecutionByKey(sandbox.sandboxId, input.idempotencyKey);
+    if (duplicate) {
+      if (duplicate.commandDigest !== commandDigest) {
+        throw new SandboxConflictError(
+          'idempotency key was already used for a different command in this sandbox',
+        );
+      }
+      this.metrics.increment('execution_duplicate');
+      if (isTerminalExecution(duplicate.status) || duplicate.status === 'UNKNOWN') {
+        return toResult(duplicate);
+      }
+      throw new SandboxConflictError(
+        `execution ${duplicate.executionId} is ${duplicate.status}; refusing to submit it twice`,
+      );
+    }
+
+    const approvals = await this.store.listApprovals(task.taskId, this.now().toISOString());
+    const authorization = this.permission.evaluate(
+      {
+        action: 'process.exec',
+        resources: [cwd],
+        command: input.shell ? (input.command[0] ?? '') : input.command.join(' '),
+        cwd,
+        toolName: 'run_command',
+      },
+      approvals,
+      this.now(),
+    );
+    if (authorization.decision !== 'ALLOW') {
+      const outcome = authorization.decision === 'DENY' ? 'denied' : 'approval_required';
+      this.metrics.increment(outcome === 'denied' ? 'policy_denied' : 'approval_required');
+      await this.audit.record({
+        taskId: task.taskId,
+        sessionId: context.sessionId ?? null,
+        sandboxId: sandbox.sandboxId,
+        toolCallId: input.toolCallId ?? null,
+        policyVersion: sandbox.policyVersion,
+        action: 'execution.authorize',
+        outcome,
+        detail: { reason: authorization.reason, cwd, command_digest: commandDigest },
+      });
+      if (authorization.decision === 'DENY') {
+        throw new SandboxPolicyError(authorization.reason);
+      }
+      throw new SandboxError('approval_required', authorization.reason);
+    }
+
+    const at = this.now().toISOString();
+    const execution: Execution = {
+      executionId: input.executionId || `exec_${randomUUID()}`,
+      taskId: task.taskId,
+      sandboxId: sandbox.sandboxId,
+      idempotencyKey: input.idempotencyKey,
+      commandDigest,
+      // The digest above is of the real command; the readable copy is redacted
+      // so a one-off token in an argv does not land in the execution table.
+      command: input.command.map((part) => this.redactor.redact(part)),
+      cwd,
+      status: 'CREATED',
+      exitCode: null,
+      startedAt: null,
+      finishedAt: null,
+      stdout: '',
+      stderr: '',
+      policyVersion: sandbox.policyVersion,
+      toolCallId: input.toolCallId ?? null,
+      createdAt: at,
+      updatedAt: at,
+    };
+    const { execution: stored, created } = await this.store.createExecution(execution);
+    if (!created) {
+      // A concurrent writer won the idempotency race. Reuse its row and never
+      // start a second process.
+      this.metrics.increment('execution_duplicate');
+      if (isTerminalExecution(stored.status) || stored.status === 'UNKNOWN') return toResult(stored);
+      throw new SandboxConflictError(`execution ${stored.executionId} is already ${stored.status}`);
+    }
+
+    await this.appendEvent(stored, 'execution/created', { command_digest: commandDigest, cwd });
+    await this.transition(stored, ['CREATED'], 'AUTHORIZED');
+    await this.appendEvent(stored, 'execution/authorized', { layer: authorization.layer });
+    await this.transition(stored, ['AUTHORIZED'], 'SUBMITTED');
+    await this.appendEvent(stored, 'execution/submitted', { timeout_ms: timeoutMs });
+
+    let running: Execution | null = null;
+    try {
+      const workspace = await this.store.getWorkspace(sandbox.workspaceId);
+      if (!workspace) throw new SandboxNotFoundError('workspace is missing');
+      const needsRecovery = sandbox.status !== 'READY' && sandbox.status !== 'RUNNING';
+      const config = await this.runtimeConfig(sandbox, workspace, needsRecovery);
+      const handle = await this.controller.ensureRunning(sandbox, config);
+      await this.store.updateSandbox(sandbox.sandboxId, { status: 'RUNNING' });
+
+      const startedAt = this.now().toISOString();
+      running = await this.transition(stored, ['SUBMITTED'], 'RUNNING', { startedAt });
+      if (!running) {
+        throw new SandboxConflictError('execution could not be moved to RUNNING');
+      }
+      await this.appendEvent(running, 'execution/started', { started_at: startedAt });
+
+      const active = this.inFlight.get(sandbox.sandboxId) ?? 0;
+      if (active >= this.settings.limits.maxConcurrentPerTask) {
+        const cancelled = await this.store.transitionExecution(
+          running.executionId,
+          ['RUNNING'],
+          'CANCELLED',
+          { finishedAt: this.now().toISOString() },
+        );
+        if (cancelled) {
+          await this.appendEvent(cancelled, 'execution/interrupted', {
+            reason: 'another execution is already running in this sandbox',
+          });
+        }
+        // Not an interrupted execution: the command never ran.
+        running = null;
+        throw new SandboxConflictError('another execution is already running in this sandbox');
+      }
+      this.inFlight.set(sandbox.sandboxId, active + 1);
+      let result: Awaited<ReturnType<SandboxController['execute']>>;
+      try {
+        const env = await this.executionEnv(task.taskId);
+        result = await this.controller.execute(handle, {
+        executionId: running.executionId,
+        command: input.command,
+        shell: input.shell === true,
+        cwd,
+        timeoutMs,
+        maxOutputBytes: this.settings.limits.maxOutputBytes,
+          env,
+          ...(options.signal ? { signal: options.signal } : {}),
+        });
+      } finally {
+        const remaining = (this.inFlight.get(sandbox.sandboxId) ?? 1) - 1;
+        if (remaining <= 0) this.inFlight.delete(sandbox.sandboxId);
+        else this.inFlight.set(sandbox.sandboxId, remaining);
+      }
+
+      const finishedAt = result.finishedAt || this.now().toISOString();
+      const target = stateOfOutcome(result.status);
+      const stdout = this.bound(result.stdout);
+      const stderr = this.bound(result.stderr);
+      const terminal = await this.store.transitionExecution(
+        running.executionId,
+        ['RUNNING'],
+        target,
+        { exitCode: result.exitCode, finishedAt, stdout, stderr },
+      );
+      if (!terminal) {
+        const current = await this.store.getExecution(running.executionId);
+        if (current && (isTerminalExecution(current.status) || current.status === 'UNKNOWN')) {
+          return toResult(current);
+        }
+        throw new SandboxConflictError('execution was concurrently modified');
+      }
+
+      if (stdout.length > 0) {
+        await this.appendEvent(terminal, 'execution/stdout', {
+          bytes: Buffer.byteLength(result.stdout, 'utf8'),
+          retained_bytes: Buffer.byteLength(stdout, 'utf8'),
+        });
+      }
+      if (stderr.length > 0) {
+        await this.appendEvent(terminal, 'execution/stderr', {
+          bytes: Buffer.byteLength(result.stderr, 'utf8'),
+          retained_bytes: Buffer.byteLength(stderr, 'utf8'),
+        });
+      }
+      await this.appendEvent(
+        terminal,
+        target === 'SUCCEEDED' ? 'execution/finished' : 'execution/failed',
+        { exit_code: result.exitCode, status: result.status, detail: result.detail ?? null },
+      );
+
+      if (target === 'TIMEOUT') {
+        this.metrics.increment('execution_timeout');
+        this.metrics.increment('resource_limit_triggered');
+        await this.store.updateSandbox(sandbox.sandboxId, { status: 'INTERRUPTED' });
+      } else if (target === 'CANCELLED') {
+        this.metrics.increment('execution_cancelled');
+        await this.store.updateSandbox(sandbox.sandboxId, { status: 'INTERRUPTED' });
+      } else {
+        await this.store.updateSandbox(sandbox.sandboxId, { status: 'READY' });
+      }
+      this.metrics.increment('execution_total');
+      if (target === 'SUCCEEDED') this.metrics.increment('execution_succeeded');
+      else if (target === 'FAILED') this.metrics.increment('execution_failed');
+      else if (target === 'UNKNOWN') this.metrics.increment('execution_unknown');
+
+      await this.audit.record({
+        taskId: task.taskId,
+        sessionId: context.sessionId ?? null,
+        sandboxId: sandbox.sandboxId,
+        executionId: terminal.executionId,
+        toolCallId: input.toolCallId ?? null,
+        policyVersion: sandbox.policyVersion,
+        action: 'execution.complete',
+        outcome: target === 'SUCCEEDED' ? 'succeeded' : target === 'FAILED' ? 'failed' : 'succeeded',
+        detail: {
+          status: target,
+          exit_code: result.exitCode,
+          duration_ms: Date.parse(finishedAt) - Date.parse(startedAt),
+          command_digest: commandDigest,
+        },
+      });
+      return toResult(terminal);
+    } catch (error) {
+      // Where the failure happened decides what it means. Before RUNNING, nothing
+      // was submitted and FAILED is a fact. After RUNNING, the external process
+      // may have run; the honest state is UNKNOWN.
+      const current = running ?? (await this.store.getExecution(stored.executionId));
+      if (current && !isTerminalExecution(current.status) && current.status !== 'UNKNOWN') {
+        const from = current.status === 'RUNNING' || current.status === 'INTERRUPTED'
+          ? (['RUNNING', 'INTERRUPTED'] as const)
+          : ([current.status] as const);
+        await this.store.transitionExecution(
+          current.executionId,
+          from,
+          current.status === 'RUNNING' ? 'UNKNOWN' : 'FAILED',
+          { finishedAt: this.now().toISOString() },
+        );
+        await this.appendEvent(current, 'execution/failed', {
+          error: error instanceof Error ? error.message : String(error),
+          unknown: current.status === 'RUNNING',
+        });
+      }
+      this.metrics.increment('execution_total');
+      if (running) this.metrics.increment('execution_unknown');
+      else this.metrics.increment('execution_failed');
+      await this.audit.record({
+        taskId: task.taskId,
+        sessionId: context.sessionId ?? null,
+        sandboxId: sandbox.sandboxId,
+        executionId: stored.executionId,
+        toolCallId: input.toolCallId ?? null,
+        policyVersion: sandbox.policyVersion,
+        action: 'execution.complete',
+        outcome: 'failed',
+        detail: {
+          error: error instanceof Error ? error.message : String(error),
+          phase: running ? 'running' : 'submitted',
+        },
+      });
+      await this.store
+        .updateSandbox(sandbox.sandboxId, { status: running ? 'INTERRUPTED' : 'READY' })
+        .catch(() => undefined);
+      if (running) {
+        // The model must be told that the outcome is unknown, not handed a
+        // generic runtime error it might treat as a clean failure and retry.
+        throw new SandboxError(
+          'unknown_execution',
+          `the sandbox lost the result of this execution (${error instanceof Error ? error.message : String(error)}); do not retry it blindly`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Reconcile an execution whose outcome nobody observed.
+   *
+   * The marker written by the execution wrapper is the witness. If the runtime is
+   * gone and the marker is gone, the result stays UNKNOWN: it is never guessed,
+   * and the command is never replayed.
+   */
+  async reconcileExecution(sandboxId: string, executionId: string): Promise<Execution | null> {
+    const sandbox = await this.store.getSandbox(sandboxId);
+    const execution = await this.store.getExecution(executionId);
+    if (!sandbox || !execution) return null;
+    if (isTerminalExecution(execution.status) || execution.status === 'RETRYABLE') return execution;
+
+    // These states mean the request never reached the runtime, so FAILED is a
+    // fact rather than a guess. `SUBMITTED` and later are the ones that may have
+    // produced a side effect.
+    if (execution.status === 'CREATED' || execution.status === 'AUTHORIZED') {
+      const failed = await this.store.transitionExecution(
+        executionId,
+        ['CREATED', 'AUTHORIZED'],
+        'FAILED',
+        { finishedAt: this.now().toISOString() },
+      );
+      if (failed) {
+        await this.appendEvent(failed, 'execution/reconciled', {
+          method: 'never-submitted',
+          detail: 'the command was never submitted to the runtime',
+        });
+      }
+      return failed;
+    }
+
+    const marker = await this.controller.readExitMarker(sandbox, executionId).catch(() => null);
+    if (marker !== null && Number.isFinite(marker)) {
+      const target: ExecutionState = marker === 0 ? 'SUCCEEDED' : 'FAILED';
+      const from: ExecutionState[] = [
+        'SUBMITTED',
+        'RUNNING',
+        'INTERRUPTED',
+        'UNKNOWN',
+        'RECONCILING',
+      ];
+      const reconciled = await this.store.transitionExecution(executionId, from, target, {
+        exitCode: marker,
+        finishedAt: this.now().toISOString(),
+      });
+      if (reconciled) {
+        await this.appendEvent(reconciled, 'execution/reconciled', {
+          marker_exit_code: marker,
+          method: 'container-marker',
+        });
+        this.metrics.increment('reconciliation_succeeded');
+        return reconciled;
+      }
+    }
+
+    const runtime = await this.controller.inspect(sandbox).catch(() => ({
+      exists: false,
+      running: false,
+      detail: 'inspect failed',
+    }));
+    if (runtime.exists && runtime.running) {
+      // Alive but no marker: the command was cut off or the wrapper never ran.
+      const unknown = await this.store.transitionExecution(
+        executionId,
+        ['SUBMITTED', 'RUNNING', 'INTERRUPTED', 'RECONCILING'],
+        'UNKNOWN',
+        { finishedAt: this.now().toISOString() },
+      );
+      if (unknown) {
+        await this.appendEvent(unknown, 'execution/reconciled', {
+          method: 'runtime-alive-no-marker',
+          detail: 'outcome unknown; not retried',
+        });
+      }
+      this.metrics.increment('reconciliation_failed');
+      return unknown;
+    }
+
+    const unknown = await this.store.transitionExecution(
+      executionId,
+      ['SUBMITTED', 'RUNNING', 'INTERRUPTED', 'RECONCILING'],
+      'UNKNOWN',
+      { finishedAt: this.now().toISOString() },
+    );
+    if (unknown) {
+      await this.appendEvent(unknown, 'execution/reconciled', {
+        method: 'runtime-gone',
+        detail: 'runtime and marker are both gone; outcome cannot be established',
+      });
+    }
+    this.metrics.increment('reconciliation_failed');
+    return unknown;
+  }
+
+  // -------------------------------------------------------------- file tools ---
+
+  async readFile(context: SandboxContext, path: string, start = 1, end = 0): Promise<Awaited<ReturnType<WorkspaceFilesPort['readLines']>>> {
+    const { task, files } = await this.fileContext(context, path, 'fs.read');
+    const slice = await files.readLines(path, start, end);
+    await this.audit.record({
+      taskId: task.taskId,
+      sessionId: context.sessionId ?? null,
+      toolCallId: context.toolCallId ?? null,
+      action: 'fs.read',
+      outcome: 'succeeded',
+      detail: { path: slice.path, start: slice.start, end: slice.end, bytes: slice.size },
+    });
+    return slice;
+  }
+
+  async listDir(context: SandboxContext, path = '.', depth = 2): Promise<Awaited<ReturnType<WorkspaceFilesPort['listDir']>>> {
+    const { task, files } = await this.fileContext(context, path, 'fs.list');
+    const listing = await files.listDir(path, depth);
+    await this.audit.record({
+      taskId: task.taskId,
+      sessionId: context.sessionId ?? null,
+      toolCallId: context.toolCallId ?? null,
+      action: 'fs.list',
+      outcome: 'succeeded',
+      detail: { path: listing.path, entries: listing.entries, truncated: listing.truncated },
+    });
+    return listing;
+  }
+
+  async glob(context: SandboxContext, pattern: string, maxResults = 200): Promise<Awaited<ReturnType<WorkspaceFilesPort['glob']>>> {
+    const { task, files } = await this.fileContext(context, '.', 'fs.read');
+    const found = await files.glob(pattern, maxResults);
+    await this.audit.record({
+      taskId: task.taskId,
+      sessionId: context.sessionId ?? null,
+      toolCallId: context.toolCallId ?? null,
+      action: 'fs.glob',
+      outcome: 'succeeded',
+      detail: { pattern, matches: found.paths.length, truncated: found.truncated },
+    });
+    return found;
+  }
+
+  async grep(
+    context: SandboxContext,
+    options: Parameters<WorkspaceFilesPort['grep']>[0],
+  ): Promise<Awaited<ReturnType<WorkspaceFilesPort['grep']>>> {
+    const { task, files } = await this.fileContext(context, options.path ?? '.', 'fs.read');
+    const result = await files.grep(options);
+    await this.audit.record({
+      taskId: task.taskId,
+      sessionId: context.sessionId ?? null,
+      toolCallId: context.toolCallId ?? null,
+      action: 'fs.grep',
+      outcome: 'succeeded',
+      detail: { matches: result.matches, files_scanned: result.filesScanned, truncated: result.truncated },
+    });
+    return result;
+  }
+
+  async writeFile(context: SandboxContext, path: string, content: string): Promise<Awaited<ReturnType<WorkspaceFilesPort['writeText']>>> {
+    const { task, workspace, files } = await this.fileContext(context, path, 'fs.write');
+    const result = await files.writeText(path, content);
+    await this.workspaces.refreshVersion(workspace);
+    await this.audit.record({
+      taskId: task.taskId,
+      sessionId: context.sessionId ?? null,
+      toolCallId: context.toolCallId ?? null,
+      action: 'fs.write',
+      outcome: 'succeeded',
+      detail: { path: result.path, bytes: result.bytes, created: result.created },
+    });
+    return result;
+  }
+
+  async editFile(
+    context: SandboxContext,
+    options: Parameters<WorkspaceFilesPort['editText']>[0],
+  ): Promise<Awaited<ReturnType<WorkspaceFilesPort['editText']>>> {
+    const { task, workspace, files } = await this.fileContext(context, options.path, 'fs.write');
+    const result = await files.editText(options);
+    await this.workspaces.refreshVersion(workspace);
+    await this.audit.record({
+      taskId: task.taskId,
+      sessionId: context.sessionId ?? null,
+      toolCallId: context.toolCallId ?? null,
+      action: 'fs.write',
+      outcome: 'succeeded',
+      detail: { path: result.path, replacements: result.replacements, bytes: result.bytes },
+    });
+    return result;
+  }
+
+  /** Ask the policy layer whether a file action would be allowed, without doing it. */
+  async authorizeFile(context: SandboxContext, action: 'fs.read' | 'fs.write', path: string): Promise<void> {
+    await this.fileContext(context, path, action);
+  }
+
+  /** The canonical workspace directory, for tool adapters that need to map paths. */
+  async workspaceLocation(context: SandboxContext): Promise<string | null> {
+    const task = await this.store.getTask(context.taskId);
+    if (!task) return null;
+    const workspace = await this.store.getWorkspace(task.workspaceId);
+    return workspace?.storageLocation ?? null;
+  }
+
+  /** Used by the Recovery Manager; the same compilation path as normal execution. */
+  async recoveryConfig(
+    sandbox: Sandbox,
+    workspace: Workspace,
+  ): Promise<Awaited<ReturnType<RuntimeConfigResolver>>> {
+    return this.runtimeConfig(sandbox, workspace, true);
+  }
+
+  // ---------------------------------------------------------------- internal ---
+
+  private async fileContext(
+    context: SandboxContext,
+    path: string,
+    action: 'fs.read' | 'fs.write' | 'fs.list',
+  ): Promise<{ task: Task; workspace: Workspace; files: ReturnType<WorkspaceManager['files']> }> {
+    const task = await this.loadTask(context);
+    const workspace = await this.store.getWorkspace(task.workspaceId);
+    if (!workspace) throw new SandboxNotFoundError('workspace is missing');
+    const files = this.workspaces.files(workspace.storageLocation);
+    const resolved = files.resolve(path);
+    const approvals = await this.store.listApprovals(task.taskId, this.now().toISOString());
+    const decision = this.permission.evaluate(
+      { action, resources: [resolved.container] },
+      approvals,
+      this.now(),
+    );
+    if (decision.decision !== 'ALLOW') {
+      this.metrics.increment(decision.decision === 'DENY' ? 'policy_denied' : 'approval_required');
+      await this.audit.record({
+        taskId: task.taskId,
+        sessionId: context.sessionId ?? null,
+        toolCallId: context.toolCallId ?? null,
+        policyVersion: this.settings.policyVersion,
+        action: `execution.authorize:${action}`,
+        outcome: decision.decision === 'DENY' ? 'denied' : 'approval_required',
+        detail: { reason: decision.reason, path: resolved.relative },
+      });
+      if (decision.decision === 'DENY') throw new SandboxPolicyError(decision.reason);
+      throw new SandboxError('approval_required', decision.reason);
+    }
+    return { task, workspace, files };
+  }
+
+  private async loadTask(context: SandboxContext): Promise<Task> {
+    assertId('task id', context.taskId);
+    const task = await this.store.getTask(context.taskId);
+    if (!task) throw new SandboxNotFoundError(`task ${context.taskId} does not exist`);
+    if (context.userId && task.userId !== context.userId) {
+      throw new SandboxPolicyError('task belongs to a different user');
+    }
+    return task;
+  }
+
+  private async requireSandbox(sandboxId: string): Promise<Sandbox> {
+    assertId('sandbox id', sandboxId);
+    const sandbox = await this.store.getSandbox(sandboxId);
+    if (!sandbox) throw new SandboxNotFoundError(`sandbox ${sandboxId} does not exist`);
+    return sandbox;
+  }
+
+  private async runtimeConfig(
+    sandbox: Sandbox,
+    workspace: Workspace,
+    refreshMasks = false,
+  ): Promise<Awaited<ReturnType<RuntimeConfigResolver>>> {
+    const env: Record<string, string> = {};
+    if (this.settings.network.proxyUrl) {
+      env.HTTP_PROXY = this.settings.network.proxyUrl;
+      env.HTTPS_PROXY = this.settings.network.proxyUrl;
+    }
+    Object.assign(env, await this.credentials.resolveForTask(sandbox.taskId));
+    return compileRuntimeConfig(this.policy, {
+      sandboxId: sandbox.sandboxId,
+      taskId: sandbox.taskId,
+      imageDigest: sandbox.imageDigest,
+      workspaceHostPath: workspace.storageLocation,
+      env,
+      resources: minResourceLimits(
+        resourceProfile(sandbox.resourceProfile).limits,
+        this.settings.resources,
+      ),
+      labels: { 'eunoia.workspace': workspace.workspaceId },
+      // Bind mode exposes the real project; credential files are overlaid with
+      // empty read-only mounts so a shell command cannot read them either.
+      maskedPaths: await this.workspaces.maskedCredentials(workspace, refreshMasks),
+    });
+  }
+
+  private async executionEnv(taskId: string): Promise<Record<string, string>> {
+    const env: Record<string, string> = {};
+    if (this.settings.network.proxyUrl) {
+      env.HTTP_PROXY = this.settings.network.proxyUrl;
+      env.HTTPS_PROXY = this.settings.network.proxyUrl;
+      env.NO_PROXY = '127.0.0.1,localhost';
+    }
+    Object.assign(env, await this.credentials.resolveForTask(taskId));
+    return env;
+  }
+
+  private async transition(
+    execution: Execution,
+    from: readonly ExecutionState[],
+    to: ExecutionState,
+    patch: { readonly startedAt?: string | null } = {},
+  ): Promise<Execution> {
+    if (!canTransitionExecution(from[0] as ExecutionState, to)) {
+      throw new SandboxConflictError(`invalid execution transition ${from[0]} -> ${to}`);
+    }
+    const updated = await this.store.transitionExecution(
+      execution.executionId,
+      from,
+      to,
+      to === 'SUBMITTED' ? { startedAt: null, ...patch } : patch,
+    );
+    if (!updated) {
+      throw new SandboxConflictError(
+        `execution ${execution.executionId} is no longer in ${from.join('/')}`,
+      );
+    }
+    return updated;
+  }
+
+  private async appendEvent(execution: Execution, type: string, payload: unknown): Promise<void> {
+    const event: ExecutionEvent = {
+      eventId: `evt_${randomUUID()}`,
+      taskId: execution.taskId,
+      sandboxId: execution.sandboxId,
+      executionId: execution.executionId,
+      idempotencyKey: execution.idempotencyKey,
+      eventType: type,
+      timestamp: this.now().toISOString(),
+      policyVersion: execution.policyVersion,
+      payload: this.redactor.redactValue(payload),
+    };
+    await this.store.appendEvent(event);
+  }
+
+  private bound(text: string): string {
+    const limit = this.settings.limits.maxOutputBytes;
+    const redacted = this.redactor.redact(text);
+    const bytes = Buffer.from(redacted, 'utf8');
+    if (bytes.length <= limit) return redacted;
+    const tail = bytes.subarray(bytes.length - limit).toString('utf8');
+    return `… [output truncated to the last ${limit} bytes]\n${tail}`;
+  }
+
+  private async assertCapacity(task: Task): Promise<void> {
+    const active = await this.store.listSandboxes(ACTIVE_SANDBOX_STATES);
+    if (active.length >= this.settings.limits.maxConcurrentGlobal) {
+      throw new SandboxQuotaError(
+        `global sandbox limit reached (${this.settings.limits.maxConcurrentGlobal})`,
+      );
+    }
+    const forTask = active.filter((sandbox) => sandbox.taskId === task.taskId);
+    if (forTask.length >= this.settings.limits.maxConcurrentPerTask) {
+      throw new SandboxQuotaError(`task already has ${forTask.length} sandbox(es)`);
+    }
+    let forUser = 0;
+    for (const sandbox of active) {
+      const owner = await this.store.getTask(sandbox.taskId);
+      if (owner?.userId === task.userId) forUser += 1;
+    }
+    if (forUser >= this.settings.limits.maxConcurrentPerUser) {
+      throw new SandboxQuotaError(
+        `user sandbox limit reached (${this.settings.limits.maxConcurrentPerUser})`,
+      );
+    }
+  }
+}
+
+// ----------------------------------------------------------------- helpers ---
+
+type WorkspaceFilesPort = {
+  readLines: (path: string, start?: number, end?: number) => Promise<{
+    text: string;
+    path: string;
+    start: number;
+    end: number;
+    totalLines: number;
+    complete: boolean;
+    chars: number;
+    mtimeMs: number;
+    size: number;
+  }>;
+  listDir: (path?: string, depth?: number) => Promise<{
+    text: string;
+    path: string;
+    entries: number;
+    truncated: boolean;
+  }>;
+  glob: (pattern: string, maxResults?: number) => Promise<{ paths: string[]; truncated: boolean }>;
+  grep: (options: {
+    pattern: string;
+    path?: string;
+    include?: string;
+    caseSensitive?: boolean;
+    maxResults?: number;
+  }) => Promise<{ text: string; matches: number; filesScanned: number; truncated: boolean }>;
+  writeText: (path: string, content: string) => Promise<{
+    path: string;
+    bytes: number;
+    lines: number;
+    created: boolean;
+  }>;
+  editText: (options: {
+    path: string;
+    oldString: string;
+    newString: string;
+    replaceAll?: boolean;
+  }) => Promise<{ path: string; replacements: number; bytes: number }>;
+};
+
+function stateOfOutcome(outcome: ExecutionResult['status']): ExecutionState {
+  switch (outcome) {
+    case 'SUCCEEDED':
+      return 'SUCCEEDED';
+    case 'FAILED':
+      return 'FAILED';
+    case 'TIMEOUT':
+      return 'TIMEOUT';
+    case 'CANCELLED':
+      return 'CANCELLED';
+    case 'UNKNOWN':
+      return 'UNKNOWN';
+  }
+}
+
+function toResult(execution: Execution): ExecutionResult {
+  return {
+    executionId: execution.executionId,
+    status: executionOutcome(execution.status),
+    ...(execution.exitCode === null ? {} : { exitCode: execution.exitCode }),
+    stdout: execution.stdout,
+    stderr: execution.stderr,
+    startedAt: execution.startedAt ?? execution.createdAt,
+    ...(execution.finishedAt === null ? {} : { finishedAt: execution.finishedAt }),
+  };
+}
+
+function digestCommand(command: readonly string[], cwd: string, shell: boolean): string {
+  return `sha256:${createHash('sha256')
+    .update(JSON.stringify({ command, cwd, shell }))
+    .digest('hex')}`;
+}
+
+function assertId(label: string, value: string): void {
+  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_TASK_ID) {
+    throw new SandboxPolicyError(`${label} must be a non-empty string`);
+  }
+}
+
+function validateExecuteInput(input: ExecuteInput): void {
+  if (!input.idempotencyKey || input.idempotencyKey.length > MAX_IDEMPOTENCY_KEY) {
+    throw new SandboxPolicyError('idempotencyKey is required and must be at most 200 characters');
+  }
+  if (!Array.isArray(input.command) || input.command.length === 0) {
+    throw new SandboxPolicyError('command must be a non-empty argv array');
+  }
+  if (input.command.some((part) => typeof part !== 'string')) {
+    throw new SandboxPolicyError('every command element must be a string');
+  }
+  const bytes = Buffer.byteLength(input.command.join('\0'), 'utf8');
+  if (bytes > MAX_COMMAND_BYTES) {
+    throw new SandboxPolicyError(`command exceeds ${MAX_COMMAND_BYTES} bytes`);
+  }
+  if (input.shell && input.command.length !== 1) {
+    throw new SandboxPolicyError('shell mode takes exactly one command string');
+  }
+  if (!Number.isFinite(input.timeoutMs) || input.timeoutMs <= 0) {
+    throw new SandboxPolicyError('timeoutMs must be a positive number');
+  }
+  if (input.executionId && !/^[A-Za-z0-9_-]{1,80}$/.test(input.executionId)) {
+    throw new SandboxPolicyError('executionId contains an unsupported character');
+  }
+}
+
+/** Normalise a workspace path for policy checks; exposed for the adapter/tests. */
+export function containerPathOf(relativePath: string): string {
+  return relativePath === '.' ? WORKSPACE_MOUNT_PATH : posix.join(WORKSPACE_MOUNT_PATH, relativePath);
+}

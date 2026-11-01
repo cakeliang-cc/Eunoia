@@ -8,7 +8,14 @@
  */
 
 import { z } from 'zod';
-import { defineTool, toolError, toolOk, type ToolContext, type ToolResult } from '../types.ts';
+import {
+  defineTool,
+  toolError,
+  toolOk,
+  type ToolContext,
+  type ToolResult,
+  type ToolWorkspacePort,
+} from '../types.ts';
 import { truncateHead } from '../truncate.ts';
 import { WorkspaceError } from '../workspace.ts';
 
@@ -198,9 +205,11 @@ export const grepTool = defineTool({
 
 export const readOnlyCodingTools = [readFileTool, listDirTool, globTool, grepTool] as const;
 
-export function requireWorkspace(context: ToolContext) {
+export function requireWorkspace(context: ToolContext): ToolWorkspacePort {
   if (!context.workspace) {
-    throw new WorkspaceError('当前没有配置工作目录，无法访问文件。请告诉用户需要配置 WORKSPACE_ROOT。');
+    throw new WorkspaceError(
+      '当前没有配置沙箱工作目录，无法访问文件。请告诉用户需要配置 WORKSPACE_ROOT 并启用 Sandbox。',
+    );
   }
   return context.workspace;
 }

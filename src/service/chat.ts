@@ -43,7 +43,7 @@ import type { SkillRegistry } from '../skills/registry.ts';
 import { ToolRegistry } from '../tools/registry.ts';
 import { DEFAULT_TOOL_POLICY } from '../tools/types.ts';
 import type { ToolPolicy } from '../tools/types.ts';
-import type { Workspace } from '../tools/workspace.ts';
+import type { SandboxToolProvider } from '../sandbox/tool-adapter.ts';
 import { describePolicy } from '../tools/policy.ts';
 import { PROMPT_VERSION } from '../agent/instructions.ts';
 import { buildRuntimeContext } from '../agent/runtime-context.ts';
@@ -82,13 +82,13 @@ export interface TurnDependencies {
    */
   readonly modelProvider?: AgentOptions['modelProvider'];
   /**
-   * The sandboxed working tree, when one is configured.
+   * The sandbox tool provider, when the platform is configured.
    *
-   * Null means no file tools at all. The evaluation runner and tests leave it
-   * unset; production passes the process-level workspace, because a path that
-   * arrives on a chat request would let the model choose its own sandbox.
+   * Null means no file tools at all. The task is the conversation id, supplied
+   * by the server's own session object; a path or task id that arrives on a chat
+   * request would let the model choose its own sandbox.
    */
-  readonly workspace?: Workspace | null;
+  readonly sandbox?: SandboxToolProvider | null;
   /** Write/command permissions for this process. Fail-closed defaults. */
   readonly toolPolicy?: ToolPolicy;
   /**
@@ -225,6 +225,13 @@ export async function* runTurn(
     .map((entry) => ({ role: entry.role, content: entry.content }));
 
   const policy = deps.toolPolicy ?? DEFAULT_TOOL_POLICY;
+  const sandboxSession = deps.sandbox
+    ? await deps.sandbox.forTask({
+        taskId: conversationId,
+        sessionId: conversationId,
+        userId: request.userId,
+      })
+    : null;
   const toolRegistry = new ToolRegistry(
     createMemoryTools({
       store: deps.store,
@@ -233,7 +240,7 @@ export async function* runTurn(
       now,
     }),
   );
-  if (deps.workspace) toolRegistry.registerAll(codingTools);
+  if (sandboxSession) toolRegistry.registerAll(codingTools);
   const skills = deps.skills ?? null;
   if (skills && skills.count() > 0) {
     toolRegistry.registerAll(
@@ -244,7 +251,8 @@ export async function* runTurn(
   const agentOptions: AgentOptions = {
     tools: toolRegistry,
     policy,
-    workspace: deps.workspace ?? null,
+    workspace: sandboxSession?.workspace ?? null,
+    executor: sandboxSession?.executor ?? null,
     model: conversation.modelId ?? COMPANION_MODEL,
     ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
     ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
@@ -256,7 +264,7 @@ export async function* runTurn(
     narrativeBlock: context.narrativeBlock,
     archivedSummaryBlock: replay.summary ? renderArchivedSummary(replay.summary) : null,
     situationBlock: context.situationBlock,
-    ...(deps.workspace ? { workspaceBlock: workspaceBlock(deps.workspace, policy) } : {}),
+    ...(sandboxSession ? { workspaceBlock: workspaceBlock(sandboxSession.displayPath, policy) } : {}),
     skillsBlock: skills?.indexBlock() ?? '',
     toolGuidelines: toolRegistry.guidelines(),
     memoryBlock: context.memoryBlock,
@@ -442,12 +450,13 @@ export async function collectTurn(
  * context, so changing a permission does not invalidate the cached prompt and
  * history — and the model cannot infer a permission it was not given.
  */
-function workspaceBlock(workspace: Workspace, policy: ToolPolicy): string {
+function workspaceBlock(displayPath: string, policy: ToolPolicy): string {
   return [
     '# 工作目录',
-    `你现在可以在一个项目目录里工作：${workspace.root}`,
+    `你现在可以在一个隔离沙箱里工作：${displayPath}`,
     `当前权限：${describePolicy(policy)}。`,
     '所有路径都相对于这个目录；不要使用绝对路径，也不要尝试访问目录之外的文件。',
-    '看到"文件写入未开启"或"命令未开启"时，不要重试，直接告诉用户需要在服务端开启对应权限。',
+    '沙箱只挂载了当前任务的目录，网络默认关闭。命令在沙箱容器内执行，不会碰到宿主机。',
+    '看到"需要审批"或"沙箱未开启"时，不要换一条路径重试，直接告诉用户。',
   ].join('\n');
 }

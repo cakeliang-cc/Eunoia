@@ -15,3 +15,4 @@ backups/
 # for the same reason. Keeping it out of the index means `git status` and
 # `git add .` stay usable.
 reference/
+docs/myfree

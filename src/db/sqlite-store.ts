@@ -54,7 +54,7 @@ import type {
   Message,
 } from '../session/types.ts';
 import type { Store } from '../store.ts';
-import { SQLITE_SCHEMA, SQLITE_SCHEMA_VERSION } from './sqlite-schema.ts';
+import { SQLITE_MIGRATION_3, SQLITE_SCHEMA, SQLITE_SCHEMA_VERSION } from './sqlite-schema.ts';
 
 type SqlValue = string | number | null;
 
@@ -810,8 +810,18 @@ export function openSqliteStore(path: string): SqliteStore {
       `database schema version ${version} is newer than this build (${SQLITE_SCHEMA_VERSION})`,
     );
   }
-  if (version < SQLITE_SCHEMA_VERSION) {
+  if (version < 2) {
+    // Version 1 has no sandbox tables; the full schema creates them (including
+    // the version-3 column) without touching existing rows.
     db.exec(SQLITE_SCHEMA);
+  } else if (version === 2) {
+    // Idempotent: a partially-migrated file may already have the column.
+    const columns = db.prepare('PRAGMA table_info(sandboxes)').all() as { name: string }[];
+    if (!columns.some((column) => column.name === 'resource_profile')) {
+      db.exec(SQLITE_MIGRATION_3);
+    }
+  }
+  if (version < SQLITE_SCHEMA_VERSION) {
     db.exec(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
   }
   return new SqliteStore(db);
