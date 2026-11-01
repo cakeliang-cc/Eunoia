@@ -12,6 +12,9 @@
 
 import { join } from 'node:path';
 import type { Store } from '../store.ts';
+import type { SandboxStore } from '../sandbox/store.ts';
+import { MemorySandboxStore } from '../sandbox/store-memory.ts';
+import { SqliteSandboxStore } from '../sandbox/store-sqlite.ts';
 import { log } from '../observability/logging.ts';
 import { openSqliteStore } from './sqlite-store.ts';
 
@@ -19,6 +22,15 @@ export type StoreKind = 'sqlite' | 'memory';
 
 export interface StoreSelection {
   readonly store: Store;
+  /**
+   * The sandbox platform's persistence port.
+   *
+   * It shares the SQLite connection (one file, one writer) but not the `Store`
+   * interface: conversation history and execution bookkeeping have different
+   * lifetime and different recovery rules, and merging them would make the
+   * product store carry columns it never reads.
+   */
+  readonly sandboxStore: SandboxStore;
   readonly kind: StoreKind;
   readonly detail: string;
 }
@@ -42,14 +54,17 @@ export async function selectStore(env: NodeJS.ProcessEnv = process.env): Promise
     const { InMemoryStore } = await import('./in-memory-store.ts');
     return {
       store: new InMemoryStore(),
+      sandboxStore: new MemorySandboxStore(),
       kind: 'memory',
       detail: 'STORE=memory — everything is lost on restart',
     };
   }
 
   const path = sqlitePath(env);
+  const sqlite = openSqliteStore(path);
   return {
-    store: openSqliteStore(path),
+    store: sqlite,
+    sandboxStore: new SqliteSandboxStore(sqlite.database),
     kind: 'sqlite',
     detail: `sqlite ${path}`,
   };

@@ -197,17 +197,11 @@ describe('writing', () => {
   });
 });
 
-describe('commands', () => {
-  it('runs in the workspace and returns stdout and the exit code', async () => {
-    await writeFile(join(root, 'marker.txt'), 'here');
-    const result = await workspace.runCommand('pwd && cat marker.txt');
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain(root);
-    expect(result.stdout).toContain('here');
-  });
-
-  it('keeps a non-zero exit code', async () => {
-    const result = await workspace.runCommand('exit 3');
-    expect(result.exitCode).toBe(3);
+describe('command boundary', () => {
+  it('has no host command path left', () => {
+    // The old class spawned a real shell with the real environment. That path is
+    // now the Sandbox Gateway's, so its absence here is a security property, not
+    // an API tidy-up.
+    expect('runCommand' in workspace).toBe(false);
   });
 });

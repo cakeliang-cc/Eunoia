@@ -1,27 +1,28 @@
 /**
  * The shell tool.
  *
- * `command` side effect, so it is refused unless the process explicitly enabled
- * it. Unlike the path guard, this is not a sandbox at all: the command runs with
- * the real shell, the real environment and the real user. Enabling it is a
- * statement that this machine is the person's own and the agent is trusted with
- * it; the only thing this module bounds is time and output, not capability.
+ * The command runs inside the task's sandbox, never on the host. This module is
+ * only a formatter: it hands `ToolExecutor` an argv, bounds the output it shows
+ * the model, and maps the execution outcome. It does not know whether the
+ * runtime is gVisor or a container, and it cannot add a timeout, a mount or an
+ * environment variable that the platform did not configure.
  *
  * Output keeps the tail. A failing test's assertion, a compiler's first error and
  * a process's exit status are all at the end; a middle-out cut removes exactly
  * the part a fix depends on.
  */
 
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { defineTool } from '../types.ts';
+import { defineTool, toolError } from '../types.ts';
 import { truncateTail } from '../truncate.ts';
-import { guardToolResult, requireWorkspace } from './read-tools.ts';
+import { guardToolResult } from './read-tools.ts';
 
 const MAX_STREAM_CHARS = 30_000;
 
 export const runCommandTool = defineTool({
   name: 'run_command',
-  description: `在工作目录里运行一条 shell 命令，返回退出码、stdout 和 stderr。
+  description: `在沙箱里的工作目录运行一条 shell 命令，返回退出码、stdout 和 stderr。
 
 什么时候调用：
 - 跑测试、类型检查、lint、构建；
@@ -29,7 +30,7 @@ export const runCommandTool = defineTool({
 - 需要确认一个改动是否真的生效。
 
 规则：
-- 命令在当前工作目录执行，不是整个磁盘；
+- 命令在隔离的沙箱容器里执行，挂载的只有当前任务的工作目录；
 - 不要用它读文件（用 read_file）或搜索（用 grep）；
 - 不要运行会等待交互输入的命令（vim、less、需要确认的安装）；
 - 长输出会保留结尾，因为失败信息通常在最后；
@@ -44,42 +45,59 @@ export const runCommandTool = defineTool({
       .min(1_000)
       .max(600_000)
       .optional()
-      .describe('超时毫秒数，默认 120000'),
+      .describe('超时毫秒数，默认由沙箱配置决定（通常 120000）'),
   }),
   sideEffect: 'command',
   readOnly: false,
-  guidelines: 'run_command：跑测试/构建/脚本；长输出保留结尾；危险命令先问用户。',
+  guidelines: 'run_command：在沙箱里跑测试/构建/脚本；长输出保留结尾；危险命令先问用户。',
   execute: async ({ command, timeout_ms }, context) => {
     return guardToolResult(async () => {
-      const workspace = requireWorkspace(context);
-      const result = await workspace.runCommand(command, {
+      const executor = context.executor;
+      if (!executor) {
+        return toolError(
+          '当前没有可用的沙箱执行器，无法运行命令。请告诉用户需要配置 SANDBOX_* 后才能执行命令。',
+        );
+      }
+
+      const result = await executor.run({
+        command: [command],
+        shell: true,
         ...(timeout_ms ? { timeoutMs: timeout_ms } : {}),
         ...(context.signal ? { signal: context.signal } : {}),
+        toolCallId: context.toolCallId ?? randomUUID(),
       });
 
       const stdout = truncateTail(result.stdout.split('\n'), 800, MAX_STREAM_CHARS);
       const stderr = truncateTail(result.stderr.split('\n'), 800, MAX_STREAM_CHARS);
-      const parts = [`exit code: ${result.exitCode ?? 'signal'}`, `duration: ${(result.durationMs / 1000).toFixed(1)}s`];
+      const parts = [
+        `status: ${result.status}`,
+        `exit code: ${result.exitCode ?? 'signal'}`,
+        `duration: ${(result.durationMs / 1000).toFixed(1)}s`,
+      ];
       if (stdout.text.trim().length > 0) parts.push(`--- stdout ---\n${stdout.text}`);
       if (stderr.text.trim().length > 0) parts.push(`--- stderr ---\n${stderr.text}`);
-      if (result.timedOut) parts.push('… [command timed out and was killed]');
+      if (result.timedOut) parts.push('… [command timed out and the sandbox was terminated]');
 
-      const ok = result.exitCode === 0 && !result.timedOut;
+      const ok = result.status === 'SUCCEEDED';
+      const error =
+        result.status === 'TIMEOUT'
+          ? 'command timed out'
+          : result.status === 'CANCELLED'
+            ? 'command was cancelled'
+            : result.status === 'UNKNOWN'
+              ? 'the execution outcome is unknown; do not retry it blindly'
+              : `command exited with code ${result.exitCode ?? 'signal'}`;
       return {
         ok,
         output: parts.join('\n'),
-        ...(ok
-          ? {}
-          : {
-              error: result.timedOut
-                ? 'command timed out'
-                : `command exited with code ${result.exitCode ?? 'signal'}`,
-            }),
+        ...(ok ? {} : { error }),
         meta: {
-          summary: `退出码 ${result.exitCode ?? 'signal'} · ${(result.durationMs / 1000).toFixed(1)}s`,
+          summary: `${result.status} · 退出码 ${result.exitCode ?? 'signal'} · ${(result.durationMs / 1000).toFixed(1)}s`,
+          status: result.status,
           exitCode: result.exitCode,
           durationMs: result.durationMs,
           timedOut: result.timedOut,
+          ...(result.executionId ? { executionId: result.executionId } : {}),
           truncated: stdout.truncated || stderr.truncated,
         },
       };

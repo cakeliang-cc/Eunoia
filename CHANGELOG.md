@@ -10,6 +10,47 @@
 
 ### Added
 
+- **Sandbox 执行平台：命令不再在宿主机上跑。** 按
+  [ADR 017](docs/adr/017.sandbox.md) 重建工具执行链路，实现选择记录在
+  [ADR 018](docs/adr/018-sandbox-implementation.md)。新的执行路径是
+  `工具 → ToolExecutor → Sandbox Gateway → Permission Manager → Controller →
+  Runtime → 隔离容器`；旧的 `Workspace.runCommand()`（真实 shell + `process.env`）
+  已删除，`src/tools/` 不再 import `node:fs` / `node:child_process`。
+  - **运行时基线**：非 root、`--read-only`、`--cap-drop ALL`、
+    `no-new-privileges`、`--pids-limit/--memory/--cpus`、唯一 workspace bind
+    mount、`--network none`、固定最小环境、镜像只接受 `sha256` digest、
+    `--pull=never`。argv 生成后还会用 `assertBaseline()` 再检查一次。
+  - **gVisor 不降级**：默认 `runtime_class=gvisor` 且启动 probe 必须看到 runsc；
+    没有 runsc 时以 `runc` 运行必须显式 `SANDBOX_ALLOW_NON_GVISOR=1`，并出现在
+    `/health`、启动日志和 sandbox 记录里。
+  - **Permission Manager**：`ALLOW / APPROVAL_REQUIRED / DENY`；system deny
+    （`/etc/shadow`、`/proc/sys`、docker/containerd socket、metadata 等）不可被
+    task 或 approval 覆盖；`ApprovalGrant` 带 action、scope、过期、批准人和
+    policy version，用 `npm run sandbox -- approve` 授权。
+  - **执行持久化**：`executions` + append-only `execution_events`，按
+    `(sandbox_id, idempotency_key)` 幂等；运行状态 compare-and-set；
+    `UNKNOWN` 是正式状态，只能经 `RECONCILING` 用容器内 marker 核验，
+    恢复不重放命令。
+  - **Workspace 独立生命周期**：bind（默认，单用户本机）或 copy（每 task 一份，
+    跨 task 隔离）；checkpoint、content digest、`gc`；销毁 sandbox 不删 workspace。
+  - **Recovery**：启动时扫描 active sandboxes，inspect runtime，重连或重建；
+    Controller 重启后只依赖数据库 + runtime。
+  - **网络/凭证**：默认无网络；`proxy_only` 需要 egress 网络 + `SANDBOX_PROXY_URL`；
+    `EgressPolicy` 检查域名/端口/IP literal/RFC1918/link-local/CGNAT/metadata/
+    IPv6 映射/DNS rebinding；HTTP/CONNECT 代理；`CredentialBroker` 只发短期值，
+    不注入宿主 `process.env`，并在日志/事件中脱敏。
+  - **迁移**：SQLite `user_version` 1 → 3，新增九张 sandbox 表，并给 `sandboxes` 增加
+    `resource_profile`（`CREATE TABLE IF NOT EXISTS` + `ALTER TABLE`，不改写已有行）；旧会话在第一次使用工具时懒创建 task。
+  - **测试**：新增 8 个 `tests/sandbox/*.test.ts` + 架构边界测试；真实 Docker
+    runc 集成/安全测试 15 项（`npm run sandbox:it`，默认跳过）；
+    `npm run sandbox:check` 是目标机安全自检，不通过则非零退出。
+  - **文档**：`docs/sandbox/` 下的架构、API、运维、安全、迁移和测试报告；
+    `scripts/sandbox-install.sh` 安装 containerd + runsc + nerdctl + AppArmor
+    profile（未在本机执行）。
+  - **未验证**：本机是 macOS、没有 gVisor/containerd，因此 gVisor、AppArmor、
+    seccomp 和宿主 egress 防火墙仍需在目标 Linux 上跑 `npm run sandbox:it` /
+    `npm run sandbox:check`；测试报告里明确列为未验证项，没有用 mock 冒充。
+
 - **技能层：按需加载的流程，不是工具，也不是第二个 Agent。** 工具解决“能做什么
   动作”，技能解决“这类任务按什么顺序做”。采用 Agent Skills 的 `SKILL.md` 格式：
   YAML frontmatter（`name`、`description`、可选的 `allowed-tools`）+ Markdown 正文

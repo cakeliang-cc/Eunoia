@@ -40,7 +40,9 @@ import { selectStore } from '../db/select.ts';
 import { agentMaxSteps, skillsEnabled, workspaceConfig } from '../config.ts';
 import { DEFAULT_TOOL_POLICY } from '../tools/types.ts';
 import type { ToolPolicy } from '../tools/types.ts';
-import { Workspace } from '../tools/workspace.ts';
+import type { SandboxPlatform } from '../sandbox/index.ts';
+import { createSandboxPlatform } from '../sandbox/index.ts';
+import { sandboxSettings } from '../sandbox/config.ts';
 import { discoverSkillRegistry } from '../skills/registry.ts';
 import type { SkillRegistry } from '../skills/registry.ts';
 import { clearIdentity, readIdentity, resolveIdentity, singleUserId } from './identity.ts';
@@ -239,12 +241,12 @@ export interface AppDependencies {
   /** Explicit provider for the companion run; supplied by the composition root. */
   readonly modelProvider?: AgentOptions['modelProvider'];
   /**
-   * The sandboxed working tree, when one is configured.
+   * The sandbox platform, when one is configured.
    *
-   * Supplied by the composition root, never by a request. Null means no file
-   * tools at all; the memory tools still work.
+   * Supplied by the composition root, never by a request. Null means no file or
+   * command tools at all; the memory tools still work.
    */
-  readonly workspace?: Workspace | null;
+  readonly sandbox?: SandboxPlatform | null;
   /** Write/command permissions; fail-closed defaults when omitted. */
   readonly toolPolicy?: ToolPolicy;
   /** Per-turn model/tool step cap. */
@@ -331,7 +333,7 @@ export function createApp(deps: AppDependencies) {
           session: sessions,
           modelProvider: deps.modelProvider,
           runner: deps.runner,
-          ...(deps.workspace ? { workspace: deps.workspace } : {}),
+          ...(deps.sandbox ? { sandbox: deps.sandbox.provider } : {}),
           ...(deps.toolPolicy ? { toolPolicy: deps.toolPolicy } : {}),
           ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
           ...(deps.skills ? { skills: deps.skills } : {}),
@@ -370,9 +372,11 @@ export function createApp(deps: AppDependencies) {
         store: deps.storeKind ?? 'unknown',
         persistent: deps.storeKind === 'sqlite',
         single_user: singleUserId() !== null,
-        workspace: deps.workspace?.root ?? null,
+        workspace: deps.sandbox?.settings.workspace.sourceRoot ?? null,
+        workspace_mode: deps.sandbox?.settings.workspace.mode ?? null,
         workspace_writes: deps.toolPolicy?.allowWorkspaceWrites ?? false,
         workspace_commands: deps.toolPolicy?.allowCommands ?? false,
+        sandbox: deps.sandbox?.health() ?? null,
         max_steps: deps.maxSteps ?? agentMaxSteps(),
         skills: deps.skills?.count() ?? 0,
         skills_version: deps.skills?.version() || null,
@@ -702,7 +706,7 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
 
   installProvider();
 
-  const { store, kind, detail } = await selectStore();
+  const { store, sandboxStore, kind, detail } = await selectStore();
   log.info('server.store', { kind, detail });
 
   const config = sessionConfig();
@@ -735,27 +739,26 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
   });
 
   const workspaceSettings = workspaceConfig();
-  const workspace = workspaceSettings
-    ? new Workspace({
-        root: workspaceSettings.root,
-        ignore: workspaceSettings.ignore,
-        allowSensitive: workspaceSettings.allowSensitive,
-      })
+  const settings = sandboxSettings();
+  const sandboxPlatform = settings
+    ? await createSandboxPlatform({ store: sandboxStore, settings })
     : null;
-  const toolPolicy: ToolPolicy = workspace
+  const toolPolicy: ToolPolicy = settings
     ? {
         ...DEFAULT_TOOL_POLICY,
-        allowWorkspaceWrites: workspaceSettings?.writes ?? false,
-        allowCommands: workspaceSettings?.commands ?? false,
+        allowWorkspaceWrites: settings.allowWrites,
+        allowCommands: settings.allowCommands,
+        maxOutputChars: Math.min(DEFAULT_TOOL_POLICY.maxOutputChars, settings.limits.maxOutputBytes),
       }
     : DEFAULT_TOOL_POLICY;
   const maxSteps = agentMaxSteps();
-  if (workspace) {
+  if (workspaceSettings) {
     log.info('server.workspace', {
-      root: workspace.root,
+      root: workspaceSettings.root,
+      sandbox: Boolean(sandboxPlatform),
       writes: toolPolicy.allowWorkspaceWrites,
       commands: toolPolicy.allowCommands,
-      allow_sensitive: workspaceSettings?.allowSensitive ?? false,
+      allow_sensitive: workspaceSettings.allowSensitive,
     });
   }
 
@@ -771,10 +774,10 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     git: workspaceUiState.git,
   });
 
-  const skills = workspace && skillsEnabled()
+  const skills = workspaceSettings && skillsEnabled()
     ? await discoverSkillRegistry([
-        { dir: join(workspace.root, '.eunoia', 'skills'), source: 'project' },
-        { dir: join(workspace.root, '.agents', 'skills'), source: 'agents' },
+        { dir: join(workspaceSettings.root, '.eunoia', 'skills'), source: 'project' },
+        { dir: join(workspaceSettings.root, '.agents', 'skills'), source: 'agents' },
         {
           dir: fileURLToPath(new URL('../skills/builtin/', import.meta.url)),
           source: 'builtin',
@@ -801,7 +804,7 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     sessions,
     storeKind: kind,
     modelProvider,
-    workspace,
+    sandbox: sandboxPlatform,
     toolPolicy,
     maxSteps,
     workspaceUi,
@@ -809,6 +812,7 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
   });
 
   server.on('close', () => {
+    sandboxPlatform?.stop();
     void store.close();
   });
 
@@ -840,7 +844,19 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
       note: 'no authentication is enabled; anyone who can reach this port is the user',
     });
   }
-  server.listen(port, host, () => log.info('server.listening', { host, port }));
+  server.listen(port, host, () => {
+    log.info('server.listening', { host, port });
+    // Recovery runs after the listener exists so a slow container rescan cannot
+    // delay the health endpoint; the Gateway already fails closed until it
+    // finishes.
+    if (sandboxPlatform) {
+      void sandboxPlatform.start().catch((error: unknown) => {
+        log.error('sandbox.start_failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+  });
   return server;
 }
 

@@ -13,8 +13,8 @@
  * around.
  */
 
-import { z } from 'zod';
 import { join } from 'node:path';
+import { z } from 'zod';
 import type { SkillRegistry } from '../skills/registry.ts';
 import type { Skill } from '../skills/types.ts';
 import { log } from '../observability/logging.ts';

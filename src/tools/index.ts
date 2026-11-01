@@ -33,7 +33,18 @@ export {
   truncateTail,
 } from './truncate.ts';
 export { Workspace, WorkspaceError } from './workspace.ts';
-export type { CommandResult, DirectoryListing, EditResult, FileSlice, WorkspaceOptions, WriteResult } from './workspace.ts';
+export type { DirectoryListing, EditResult, FileSlice, GlobResult, GrepResult, WorkspaceOptions, WriteResult } from './workspace.ts';
+export type {
+  ToolDirectoryListing,
+  ToolEditResult,
+  ToolExecutionResult,
+  ToolExecutor,
+  ToolFileSlice,
+  ToolGrepResult,
+  ToolSandboxSession,
+  ToolWorkspacePort,
+  ToolWriteResult,
+} from './types.ts';
 export { createMemoryTools } from './memory.ts';
 export { createSkillTools } from './skill.ts';
 export type { SkillToolOptions } from './skill.ts';

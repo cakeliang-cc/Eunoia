@@ -28,9 +28,14 @@ import type { LoopInputItem, ModelTurn } from './model-port.ts';
 import type { AgentEvent } from './events.ts';
 import { ToolRegistry } from '../tools/registry.ts';
 import { DEFAULT_TOOL_POLICY } from '../tools/types.ts';
-import type { ReadLedger, ToolDefinition, ToolPolicy } from '../tools/types.ts';
+import type {
+  ReadLedger,
+  ToolDefinition,
+  ToolExecutor,
+  ToolPolicy,
+  ToolWorkspacePort,
+} from '../tools/types.ts';
 import { TurnReadLedger } from '../tools/ledger.ts';
-import type { Workspace } from '../tools/workspace.ts';
 
 export const AGENT_NAME = 'INFPCompanion';
 
@@ -53,7 +58,8 @@ export interface CompanionOptions {
   readonly modelProvider?: ModelProvider;
   readonly policy?: ToolPolicy;
   readonly maxSteps?: number;
-  readonly workspace?: Workspace | null;
+  readonly workspace?: ToolWorkspacePort | null;
+  readonly executor?: ToolExecutor | null;
   readonly ledger?: ReadLedger;
   readonly now?: Date;
 }
@@ -73,7 +79,8 @@ export interface CompanionRun {
   readonly tools: ToolRegistry;
   readonly policy: ToolPolicy;
   readonly maxSteps: number;
-  readonly workspace: Workspace | null;
+  readonly workspace: ToolWorkspacePort | null;
+  readonly executor: ToolExecutor | null;
   readonly ledger: ReadLedger;
   readonly model: string;
   readonly modelTurn?: ModelTurn;
@@ -102,6 +109,7 @@ export function createCompanionAgent(options: CompanionOptions = {}): CompanionR
     policy: options.policy ?? DEFAULT_TOOL_POLICY,
     maxSteps: options.maxSteps ?? DEFAULT_MAX_STEPS,
     workspace: options.workspace ?? null,
+    executor: options.executor ?? null,
     ledger: options.ledger ?? new TurnReadLedger(),
     model: options.model ?? COMPANION_MODEL,
     ...(options.modelTurn ? { modelTurn: options.modelTurn } : {}),
@@ -207,6 +215,7 @@ export async function* streamReply(
     tools: agent.tools,
     toolContext: {
       workspace: agent.workspace,
+      executor: agent.executor,
       policy: agent.policy,
       ledger: agent.ledger,
       now: agent.now,

@@ -16,7 +16,15 @@
 import type { ToolDefinition, ToolPolicy } from './types.ts';
 
 /** Why a call is refused, or null when it may run. */
-export function policyDenial(tool: ToolDefinition, policy: ToolPolicy): string | null {
+export function policyDenial(
+  tool: ToolDefinition,
+  policy: ToolPolicy,
+  sandboxed = false,
+): string | null {
+  // When the tool is backed by the Sandbox Gateway, authorization belongs to
+  // the Permission Manager: it can see approval grants, and the process flags
+  // are its defaults. Pre-denying here would make approvals unreachable.
+  if (sandboxed) return null;
   switch (tool.sideEffect) {
     case 'none':
     case 'memory_write':

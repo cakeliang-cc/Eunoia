@@ -17,7 +17,15 @@
  * CREATE TABLE cannot fix.
  */
 
-export const SQLITE_SCHEMA_VERSION = 1;
+import { SANDBOX_SCHEMA } from '../sandbox/schema.ts';
+
+/**
+ * Version 2 adds the sandbox platform's tables (ADR 017); version 3 records the
+ * resource profile on each sandbox so recovery rebuilds with the same limits.
+ * The base schema is idempotent, so a version-1 file gets the tables by executing
+ * the full schema; a version-2 file gets the new column by `ALTER TABLE`.
+ */
+export const SQLITE_SCHEMA_VERSION = 3;
 
 export const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -185,4 +193,11 @@ CREATE TABLE IF NOT EXISTS evaluation_results (
 );
 
 CREATE INDEX IF NOT EXISTS evaluation_results_run_idx ON evaluation_results (run_id);
+
+${SANDBOX_SCHEMA}
+`;
+
+/** Applied to a version-2 database that already has the sandbox tables. */
+export const SQLITE_MIGRATION_3 = `
+ALTER TABLE sandboxes ADD COLUMN resource_profile TEXT NOT NULL DEFAULT 'default';
 `;

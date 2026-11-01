@@ -15,7 +15,6 @@
  */
 
 import type { z } from 'zod';
-import type { Workspace } from './workspace.ts';
 
 /**
  * What calling a tool can change.
@@ -123,12 +122,128 @@ export const DEFAULT_TOOL_POLICY: ToolPolicy = {
 
 /** Everything a tool may use while it runs. */
 export interface ToolContext {
-  /** Null when no workspace is configured; coding tools then refuse. */
-  readonly workspace: Workspace | null;
+  /**
+   * The file-operation port for this turn. Null when no workspace is configured;
+   * coding tools then refuse. The implementation is the Sandbox Gateway, not a
+   * host directory: tools never choose where a path lands.
+   */
+  readonly workspace: ToolWorkspacePort | null;
+  /** The command port. Null means "no sandbox configured"; commands refuse. */
+  readonly executor?: ToolExecutor | null;
+  /** The model's call id, used as the execution idempotency key. */
+  readonly toolCallId?: string;
+  /** True when the ports come from the Sandbox Gateway and enforce policy. */
+  readonly sandboxed?: boolean;
   readonly policy: ToolPolicy;
   readonly ledger: ReadLedger;
   readonly signal?: AbortSignal;
   readonly now: Date;
+}
+
+// ------------------------------------------------------------------- ports ---
+
+/**
+ * What a coding tool needs from a workspace.
+ *
+ * Structurally satisfied by `WorkspaceFiles` (the host-side file engine the
+ * Gateway owns) and by the Gateway-backed adapter. Defining it here rather than
+ * importing the sandbox module keeps the dependency pointing one way: tools do
+ * not know that a sandbox exists, only that something can answer these calls.
+ */
+export interface ToolWorkspacePort {
+  /** Host path → workspace-relative path, for skill resource paths. */
+  relative(hostPath: string): string;
+  readLines(input: string, start?: number, end?: number): Promise<ToolFileSlice>;
+  listDir(input?: string, depth?: number): Promise<ToolDirectoryListing>;
+  glob(pattern: string, maxResults?: number): Promise<{ paths: string[]; truncated: boolean }>;
+  grep(options: {
+    pattern: string;
+    path?: string;
+    include?: string;
+    caseSensitive?: boolean;
+    maxResults?: number;
+  }): Promise<ToolGrepResult>;
+  writeText(input: string, content: string): Promise<ToolWriteResult>;
+  editText(options: {
+    path: string;
+    oldString: string;
+    newString: string;
+    replaceAll?: boolean;
+  }): Promise<ToolEditResult>;
+}
+
+export interface ToolFileSlice {
+  readonly text: string;
+  readonly path: string;
+  readonly start: number;
+  readonly end: number;
+  readonly totalLines: number;
+  readonly complete: boolean;
+  readonly chars: number;
+  readonly mtimeMs: number;
+  readonly size: number;
+}
+
+export interface ToolDirectoryListing {
+  readonly text: string;
+  readonly path: string;
+  readonly entries: number;
+  readonly truncated: boolean;
+}
+
+export interface ToolGrepResult {
+  readonly text: string;
+  readonly matches: number;
+  readonly filesScanned: number;
+  readonly truncated: boolean;
+}
+
+export interface ToolWriteResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly lines: number;
+  readonly created: boolean;
+}
+
+export interface ToolEditResult {
+  readonly path: string;
+  readonly replacements: number;
+  readonly bytes: number;
+}
+
+/**
+ * The command boundary.
+ *
+ * A tool asks for a command; the implementation decides whether it runs, where,
+ * and with what timeout. The sandbox is the only implementation wired in
+ * production. There is no `cwd` or environment field here on purpose: the model
+ * does not choose a host directory or a process environment.
+ */
+export interface ToolExecutor {
+  run(input: {
+    readonly command: readonly string[];
+    readonly shell?: boolean;
+    readonly timeoutMs?: number;
+    readonly signal?: AbortSignal;
+    readonly toolCallId: string;
+  }): Promise<ToolExecutionResult>;
+}
+
+export interface ToolSandboxSession {
+  readonly workspace: ToolWorkspacePort;
+  readonly executor: ToolExecutor;
+  /** The path shown to the model; always the container mount, never a host path. */
+  readonly displayPath: string;
+}
+
+export interface ToolExecutionResult {
+  readonly status: 'SUCCEEDED' | 'FAILED' | 'TIMEOUT' | 'CANCELLED' | 'UNKNOWN';
+  readonly exitCode: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly timedOut: boolean;
+  readonly durationMs: number;
+  readonly executionId?: string;
 }
 
 /**
