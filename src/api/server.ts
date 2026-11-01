@@ -45,6 +45,11 @@ import { discoverSkillRegistry } from '../skills/registry.ts';
 import type { SkillRegistry } from '../skills/registry.ts';
 import { clearIdentity, readIdentity, resolveIdentity, singleUserId } from './identity.ts';
 import { pipeEventsAsSse } from './sse.ts';
+import {
+  WorkspaceUiService,
+  handleWorkspaceRoute,
+  workspaceUiConfig,
+} from '../workspace-ui/index.ts';
 
 /** Reject absurd bodies rather than buffering them. */
 const MAX_BODY_BYTES = 32 * 1024;
@@ -245,6 +250,13 @@ export interface AppDependencies {
   /** Per-turn model/tool step cap. */
   readonly maxSteps?: number;
   /**
+   * The person-facing workbench, when it is enabled.
+   *
+   * This is a view over a directory: file tree, preview, git status, terminal.
+   * It is separate from `sandbox`, which is the agent's execution boundary.
+   */
+  readonly workspaceUi?: WorkspaceUiService | null;
+  /**
    * Discovered skills. Null when no workspace is configured or discovery is
    * disabled; the `/api/skills` response then reports an empty list rather than
    * pretending skills exist.
@@ -345,6 +357,10 @@ export function createApp(deps: AppDependencies) {
     url: URL,
   ): Promise<boolean> {
     const { pathname } = url;
+
+    if (deps.workspaceUi && (await handleWorkspaceRoute(req, res, url, deps.workspaceUi))) {
+      return true;
+    }
 
     if (req.method === 'GET' && pathname === '/health') {
       const ok = await store.ping();
@@ -743,6 +759,18 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     });
   }
 
+  const workspaceUi = await WorkspaceUiService.create({
+    configuredRoot: workspaceSettings?.root ?? null,
+    config: workspaceUiConfig({ loopback: isLoopback(bindHost()) }),
+  });
+  const workspaceUiState = workspaceUi.state();
+  log.info('server.workspace_ui', {
+    root: workspaceUiState.root,
+    source: workspaceUiState.source,
+    terminal: workspaceUiState.terminal,
+    git: workspaceUiState.git,
+  });
+
   const skills = workspace && skillsEnabled()
     ? await discoverSkillRegistry([
         { dir: join(workspace.root, '.eunoia', 'skills'), source: 'project' },
@@ -776,6 +804,7 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     workspace,
     toolPolicy,
     maxSteps,
+    workspaceUi,
     skills,
   });
 
