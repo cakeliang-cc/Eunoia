@@ -2638,6 +2638,7 @@ function paintFoot() {
   }
   if (!info.terminal) foot.append(el('span', null, ' · 终端已关闭'));
   if (!info.git) foot.append(el('span', null, ' · 未检测到 git'));
+  if (!info.agentRoot) foot.append(el('span', null, ' · agent 文件工具未启用'));
 }
 
 function paintTerminalChrome() {

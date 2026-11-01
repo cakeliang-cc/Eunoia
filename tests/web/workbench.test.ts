@@ -168,6 +168,7 @@ describe('opening the panel', () => {
     expect(harness.element('wb-root-name').textContent).toBe('repo');
     expect(harness.element('wb-body').dataset.empty).toBe('false');
     expect(treeNames(harness)).toEqual(['src', 'README.md']);
+    expect(allText(harness.element('wb-foot'))).toContain('agent 文件工具未启用');
   });
 
   it('shows the empty state when no root is selected', async () => {
