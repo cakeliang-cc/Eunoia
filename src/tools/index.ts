@@ -35,5 +35,7 @@ export {
 export { Workspace, WorkspaceError } from './workspace.ts';
 export type { CommandResult, DirectoryListing, EditResult, FileSlice, WorkspaceOptions, WriteResult } from './workspace.ts';
 export { createMemoryTools } from './memory.ts';
+export { createSkillTools } from './skill.ts';
+export type { SkillToolOptions } from './skill.ts';
 export { codingTools, editFileTool, globTool, grepTool, listDirTool, readFileTool, runCommandTool, writeFileTool } from './coding/index.ts';
 export { summarizeToolCall, summarizeToolResult } from './summary.ts';

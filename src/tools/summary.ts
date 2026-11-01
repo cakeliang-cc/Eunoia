@@ -44,6 +44,8 @@ export function summarizeToolCall(name: string, args: Record<string, unknown>): 
       return `保存记忆 ${clip(stringArg(args, 'content'), 40)}`;
     case 'update_memory':
       return `更新记忆 ${clip(stringArg(args, 'id'), 20)}`;
+    case 'load_skill':
+      return `加载技能 ${clip(stringArg(args, 'name'), 60)}`;
     default:
       return name;
   }

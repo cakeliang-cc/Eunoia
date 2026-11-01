@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { agentMaxSteps, envFlag, workspaceConfig } from '../src/config.ts';
+import { agentMaxSteps, envFlag, skillsEnabled, workspaceConfig } from '../src/config.ts';
 
 describe('workspaceConfig', () => {
   it('returns null when no root is configured', () => {
@@ -49,6 +49,17 @@ describe('workspaceConfig', () => {
   it('only accepts affirmative boolean spellings', () => {
     for (const value of ['1', 'true', 'yes', 'on', 'TRUE']) expect(envFlag(value)).toBe(true);
     for (const value of ['0', 'false', 'no', 'off', '', undefined]) expect(envFlag(value)).toBe(false);
+  });
+});
+
+describe('skillsEnabled', () => {
+  it('is on unless explicitly turned off', () => {
+    expect(skillsEnabled({})).toBe(true);
+    expect(skillsEnabled({ SKILLS_ENABLED: 'true' })).toBe(true);
+    expect(skillsEnabled({ SKILLS_ENABLED: '1' })).toBe(true);
+    expect(skillsEnabled({ SKILLS_ENABLED: 'false' })).toBe(false);
+    expect(skillsEnabled({ SKILLS_ENABLED: '0' })).toBe(false);
+    expect(skillsEnabled({ SKILLS_ENABLED: 'no' })).toBe(false);
   });
 });
 

@@ -101,3 +101,16 @@ export function agentMaxSteps(env: NodeJS.ProcessEnv = process.env): number {
   if (!Number.isFinite(parsed)) return 12;
   return Math.min(Math.max(parsed, 1), 50);
 }
+
+/**
+ * Whether project and built-in skills are discovered.
+ *
+ * Default on: skills are instructions, and `load_skill` is a read-only tool
+ * that never grants a permission. A process that wants a smaller prompt index
+ * can turn it off without touching the workspace or the tool policy.
+ */
+export function skillsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env.SKILLS_ENABLED?.trim().toLowerCase();
+  if (value === undefined || value.length === 0) return true;
+  return !(value === '0' || value === 'false' || value === 'no' || value === 'off');
+}

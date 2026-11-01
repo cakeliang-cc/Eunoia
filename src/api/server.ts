@@ -17,6 +17,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { installProvider } from '../agent/model-client.ts';
 import { createSummaryGenerator } from '../agent/summarizer.ts';
@@ -36,10 +37,12 @@ import { defaultModelProfile, isKnownModelId, summaryModelProfile } from '../mod
 import { providerFor } from '../provider/index.ts';
 import { runTurn, type TurnRunner } from '../service/chat.ts';
 import { selectStore } from '../db/pool.ts';
-import { agentMaxSteps, workspaceConfig } from '../config.ts';
+import { agentMaxSteps, skillsEnabled, workspaceConfig } from '../config.ts';
 import { DEFAULT_TOOL_POLICY } from '../tools/types.ts';
 import type { ToolPolicy } from '../tools/types.ts';
 import { Workspace } from '../tools/workspace.ts';
+import { discoverSkillRegistry } from '../skills/registry.ts';
+import type { SkillRegistry } from '../skills/registry.ts';
 import { clearIdentity, readIdentity, resolveIdentity, singleUserId } from './identity.ts';
 import { pipeEventsAsSse } from './sse.ts';
 
@@ -242,6 +245,12 @@ export interface AppDependencies {
   /** Per-turn model/tool step cap. */
   readonly maxSteps?: number;
   /**
+   * Discovered skills. Null when no workspace is configured or discovery is
+   * disabled; the `/api/skills` response then reports an empty list rather than
+   * pretending skills exist.
+   */
+  readonly skills?: SkillRegistry | null;
+  /**
    * Injected so the routes can be tested over real HTTP without a model call.
    * Production leaves it unset and `runTurn` uses the real runner.
    */
@@ -313,6 +322,7 @@ export function createApp(deps: AppDependencies) {
           ...(deps.workspace ? { workspace: deps.workspace } : {}),
           ...(deps.toolPolicy ? { toolPolicy: deps.toolPolicy } : {}),
           ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
+          ...(deps.skills ? { skills: deps.skills } : {}),
         },
         {
           userId,
@@ -348,6 +358,8 @@ export function createApp(deps: AppDependencies) {
         workspace_writes: deps.toolPolicy?.allowWorkspaceWrites ?? false,
         workspace_commands: deps.toolPolicy?.allowCommands ?? false,
         max_steps: deps.maxSteps ?? agentMaxSteps(),
+        skills: deps.skills?.count() ?? 0,
+        skills_version: deps.skills?.version() || null,
       });
       return true;
     }
@@ -359,6 +371,27 @@ export function createApp(deps: AppDependencies) {
 
     if (req.method === 'POST' && pathname === '/api/chat') {
       await handleChat(req, res);
+      return true;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/skills') {
+      const skills = deps.skills;
+      sendJson(res, 200, {
+        version: skills?.version() || null,
+        skills:
+          skills?.list().map((skill) => ({
+            name: skill.manifest.name,
+            description: skill.manifest.description,
+            source: skill.source,
+            version: skill.manifest.version ?? null,
+            allowedTools: skill.manifest.allowedTools,
+            references: skill.references,
+            scripts: skill.scripts,
+            assets: skill.assets,
+            hash: skill.hash,
+          })) ?? [],
+        diagnostics: skills?.diagnostics() ?? [],
+      });
       return true;
     }
 
@@ -710,6 +743,31 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     });
   }
 
+  const skills = workspace && skillsEnabled()
+    ? await discoverSkillRegistry([
+        { dir: join(workspace.root, '.eunoia', 'skills'), source: 'project' },
+        { dir: join(workspace.root, '.agents', 'skills'), source: 'agents' },
+        {
+          dir: fileURLToPath(new URL('../skills/builtin/', import.meta.url)),
+          source: 'builtin',
+        },
+      ])
+    : null;
+  if (skills) {
+    log.info('server.skills', {
+      count: skills.count(),
+      version: skills.version(),
+      names: skills.list().map((skill) => skill.manifest.name),
+    });
+    for (const diagnostic of skills.diagnostics()) {
+      log.warn('server.skill_diagnostic', {
+        source: diagnostic.source,
+        path: diagnostic.path,
+        reason: diagnostic.reason,
+      });
+    }
+  }
+
   const server = createApp({
     store,
     sessions,
@@ -718,6 +776,7 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     workspace,
     toolPolicy,
     maxSteps,
+    skills,
   });
 
   server.on('close', () => {

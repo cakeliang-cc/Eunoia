@@ -82,6 +82,8 @@ const ALLOWED: Readonly<Record<string, string>> = {
   write_file: 'tool name',
   edit_file: 'tool name',
   run_command: 'tool name',
+  load_skill: 'tool name',
+  description: 'SKILL.md frontmatter field',
   old_string: 'schema field',
   new_string: 'schema field',
   replace_all: 'schema field',

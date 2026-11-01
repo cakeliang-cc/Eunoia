@@ -183,6 +183,21 @@ script。** 它是已知问题，而不是阻塞项——开发中没有任何�
 **不在本阶段内**：repo map / 符号索引、编辑快照与 rollback、每次写入的交互式确认、
 会话级工作目录。它们都是 ADR 014 里明确推迟的东西，而不是被遗忘的东西。
 
+## 阶段 14 — 技能
+
+**状态：已建成第一层。** 决策与替代方案在 [ADR 015](adr/015-skills.md)。
+
+工具解决“能做什么动作”，技能解决“这类任务按什么顺序做”。第一层只做：
+
+- `SKILL.md`（Agent Skills 格式）+ `references/` / `scripts/` / `assets/`；
+- `<WORKSPACE_ROOT>/.eunoia/skills`、`.agents/skills` 和三个内置技能；
+- 每轮只放 `name` + `description` 索引，正文用 `load_skill` 按需加载；
+- `allowed-tools` 只声明、不授权；脚本继续走 `run_command`；
+- `GET /api/skills`、`/health` 的 `skills` / `skills_version`。
+
+**明确不做**：全局技能目录、显式 `/skill` 调用、向量检索选技能、每个技能一个
+子 Agent、技能自动执行脚本。它们不是被遗忘，而是需要先证明数量或体验上的必要性。
+
 ## 尚未排期的输入 —— 记忆的巩固与遗忘
 
 **这不是一个阶段，也没有被排期。** §42 说这份文档是 roadmap 不是队列，而下面这条

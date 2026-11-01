@@ -10,6 +10,43 @@
 
 ### Added
 
+- **技能层：按需加载的流程，不是工具，也不是第二个 Agent。** 工具解决“能做什么
+  动作”，技能解决“这类任务按什么顺序做”。采用 Agent Skills 的 `SKILL.md` 格式：
+  YAML frontmatter（`name`、`description`、可选的 `allowed-tools`）+ Markdown 正文
+  + 可选的 `references/`、`scripts/`、`assets/`。决策与替代方案见
+  [ADR 015](docs/adr/015-skills.md)。
+  - **三层渐进披露。** 每轮上下文只有 `name` + `description` 的技能索引；正文在
+    模型调用 `load_skill` 时作为工具结果进入下一轮；参考资料和脚本只在正文要求时
+    用 `read_file` / `run_command` 取用。这样二十个技能不会每轮为二十份正文付费。
+  - **发现位置**：`<WORKSPACE_ROOT>/.eunoia/skills/`（项目，优先）、
+    `.agents/skills/`（兼容 Codex / Claude）、`src/skills/builtin/`（内置）。
+    同名、非法、缺失 `SKILL.md`、symlink 技能目录都会写进 `skill_diagnostic`，不是
+    静默跳过。技能在启动时发现；新加技能需要重启，和 `WORKSPACE_ROOT` 一样。
+  - **一个 `load_skill` 工具，不是每个技能一个工具。** 工具列表保持稳定：记忆 +
+    编码 + `load_skill`。技能数量增长只改变索引文本，不改变模型要在多少 schema 里
+    做选择。
+  - **`allowed-tools` 是声明，不是授权。** 进程的 `WORKSPACE_WRITES` /
+    `WORKSPACE_COMMANDS` 仍然是唯一授权来源；`load_skill` 只报告“需要什么、当前
+    哪些不可用”，模型必须停下来告诉用户，不能绕过。Claude 的 `Read` / `Bash` /
+    `Grep` 等拼写会映射到本项目的工具名，这只是兼容层。
+  - **脚本不自动执行。** `load_skill` 只列出路径；脚本要用 `run_command` 跑，
+    继续受命令开关控制。正文和参考资料也是按需读，不一次塞满上下文。
+  - **三个内置技能**：`code-change-verification`（改完代码按顺序验证）、
+    `release-review`（比较上一个 tag 与当前候选版本）、`docs-sync`（检查文档是否
+    过时）。它们自包含，不依赖 `references/`，因为内置目录不保证在
+    `WORKSPACE_ROOT` 内。
+  - **契约**：`GET /api/skills` 返回名字、描述、来源、资源路径和诊断，不含正文；
+    `/health` 增加 `skills` 与 `skills_version`；`SKILLS_ENABLED=false` 关闭整个
+    技能层。`yaml` 成为直接依赖，frontmatter 不手写解析。
+  - **测试**：`tests/skills/parse.test.ts`（frontmatter、别名、长度与 XML 校验）、
+    `registry.test.ts`（优先级、重复、symlink、资源列表、索引不含正文）、
+    `loop.test.ts`（`load_skill` 的正文确实进入下一步模型输入）、
+    `tests/tools/skill.test.ts`（权限缺口与资源路径）、
+    `tests/api/skills.test.ts`（接口不含正文）。
+  - **本版不做**：`~/.eunoia/skills` 全局目录（`read_file` 读不到工作目录外的
+    references）、显式 `/skill` 调用、向量检索选技能、按技能统计成功率。它们都
+    记录在 ADR 015 里，作为后续而不是遗漏。
+
 - **它可以碰代码了，而这件事逼出了两个原来不存在的东西：工具系统，和 Agent loop。**
   在这之前，唯一的工具是三个记忆工具，模型看不到文件、不能搜索、不能跑测试；任何
   关于代码的回答都只能建立在用户粘贴的片段上。现在配置 `WORKSPACE_ROOT` 之后，它

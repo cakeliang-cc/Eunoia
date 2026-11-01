@@ -33,6 +33,7 @@ curl http://127.0.0.1:8787/health
 - **安全边界。** 高风险轮次先缓冲、先检查，再渲染回复。
 - **可换模型/provider。** 模型能力、会话预算和 provider 连接分开；每个会话可以 pin 一个模型。
 - **可选的工作目录。** 配置 `WORKSPACE_ROOT` 后，它会读文件、搜索、改文件、跑测试；不配置时这一层完全不存在。
+- **按需加载的技能。** 技能是流程（怎么验证、怎么审查），不是工具，也不是另一个 Agent；索引每轮都在，正文只在匹配时加载。
 - **前缀缓存友好。** 稳定提示词和历史在前，每轮变化的背景放在请求尾部。
 
 ## 让它碰代码
@@ -67,6 +68,48 @@ npm run dev
 上下文；同一段再读会收到指针。工具调用和结果会作为可折叠的 trace 出现在回复上方，
 但完整工具输出不会上屏——回复才是结果该在的地方。
 
+## 技能
+
+工具解决“能做什么动作”，技能解决“这类任务按什么顺序做”。技能不是工具，也不是
+另一个 Agent；它是一段可重复的流程，里面的每一步仍然由现有工具完成。
+
+技能放在这三个地方，按优先级从高到低：
+
+```text
+<WORKSPACE_ROOT>/.eunoia/skills/<name>/SKILL.md   # 项目自己的
+<WORKSPACE_ROOT>/.agents/skills/<name>/SKILL.md   # 兼容 Codex / Claude
+src/skills/builtin/                               # 随服务发布
+```
+
+内置了三个：`code-change-verification`（改完代码按顺序验证）、`release-review`
+（比较上一个 tag 和当前候选版本）、`docs-sync`（检查文档有没有过时）。
+
+最小技能：
+
+```markdown
+---
+name: code-change-verification
+description: 在改动运行时代码或测试之后，按仓库顺序跑类型检查、lint 和测试；在全部通过前不要声称完成。
+allowed-tools: [read_file, grep, run_command]
+---
+
+# 验证
+
+1. 读 package.json，确认实际命令。
+2. 按顺序运行，不要跳步。
+3. 失败只修和本次改动相关的问题。
+```
+
+每轮上下文里只有 `name` + `description` 的索引。模型匹配到某个技能后调用
+`load_skill`，完整正文作为工具结果进入上下文；`references/` 用 `read_file` 按需读，
+`scripts/` 用 `run_command` 按需跑，脚本不会自动执行。
+
+`allowed-tools` 只是声明，不是授权：技能需要 `run_command` 但命令没开时，
+`load_skill` 会把这句话原样告诉模型，模型应当停下来让你开启，而不是绕过。
+
+`GET /api/skills` 列出已发现的技能（不含正文）。新加技能需要重启服务；设置
+`SKILLS_ENABLED=false` 可以关掉整个技能层。
+
 ## 快速看架构
 
 ```text
@@ -84,7 +127,7 @@ web/  ── HTTP + SSE ──▶  src/api/
                        src/db/
 ```
 
-`session` 和 `memory` 是平级的两层，彼此不 import；`src/store.ts` 是唯一把它们组合起来的地方。HTTP 只出现在 `src/api/`，厂商 SDK 只出现在 `src/agent/` 和 `src/provider/`。这些边界由测试强制，不靠约定。
+`session` 和 `memory` 是平级的两层，彼此不 import；`src/store.ts` 是唯一把它们组合起来的地方。工具在 `src/tools/`，技能在 `src/skills/`，两者都不 import 厂商 SDK。HTTP 只出现在 `src/api/`，厂商 SDK 只出现在 `src/agent/` 和 `src/provider/`。这些边界由测试强制，不靠约定。
 
 ## 会话与上下文
 
@@ -134,7 +177,7 @@ npm run eval:replay
 ## 文档
 
 - [为什么做 Eunoia](docs/story.md)
-- [ADR](docs/adr/)：一个 Agent、记忆模型、事件边界、安全缓冲、提示词文档、保留与删除、工具与 Agent loop
+- [ADR](docs/adr/)：一个 Agent、记忆模型、事件边界、安全缓冲、提示词文档、保留与删除、工具与 Agent loop、技能
 - [重构计划](docs/REFACTORING_PLAN.md)
 - [实现计划](docs/implementation-plan.md)
 - [当前环境](CURRENT_STACK.md)

@@ -40,9 +40,21 @@ describe('buildRuntimeContext', () => {
     expect(context.indexOf('记忆块')).toBeLessThan(context.indexOf('安全指令'));
   });
 
-  it('does not put the safety directive inside the background wrapper', () => {
-    const context = buildRuntimeContext({ safetyDirective: '安全指令' });
-    expect(context).toBe('安全指令');
+  it('keeps the skill index outside the background wrapper it did not come from', () => {
+    const context = buildRuntimeContext({
+      memoryBlock: '记忆块',
+      skillsBlock: '# 可用技能\n\n- demo — 演示。',
+      toolGuidelines: 'load_skill：先加载。',
+      safetyDirective: '安全指令',
+    });
+
+    expect(context).toContain('# 本轮背景');
+    expect(context).toContain('# 可用技能');
+    // The index is instructions, not a background fact, so it must not be
+    // swallowed by the "this is background" wrapper.
+    expect(context.indexOf('# 可用技能')).toBeGreaterThan(context.indexOf('记忆块'));
+    expect(context.indexOf('# 可用技能')).toBeLessThan(context.indexOf('# 工具使用'));
+    expect(context.indexOf('# 工具使用')).toBeLessThan(context.indexOf('安全指令'));
   });
 });
 

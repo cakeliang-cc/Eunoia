@@ -38,6 +38,8 @@ import {
 } from '../agent/infp-agent.ts';
 import { createMemoryTools } from '../tools/memory.ts';
 import { codingTools } from '../tools/coding/index.ts';
+import { createSkillTools } from '../tools/skill.ts';
+import type { SkillRegistry } from '../skills/registry.ts';
 import { ToolRegistry } from '../tools/registry.ts';
 import { DEFAULT_TOOL_POLICY } from '../tools/types.ts';
 import type { ToolPolicy } from '../tools/types.ts';
@@ -89,6 +91,13 @@ export interface TurnDependencies {
   readonly workspace?: Workspace | null;
   /** Write/command permissions for this process. Fail-closed defaults. */
   readonly toolPolicy?: ToolPolicy;
+  /**
+   * Discovered skills, when the process configured a workspace.
+   *
+   * The registry is read-only after discovery. It contributes an index block
+   * and one `load_skill` tool; it never adds a tool per skill.
+   */
+  readonly skills?: SkillRegistry | null;
   /** Model/tool step cap for one turn. */
   readonly maxSteps?: number;
   /**
@@ -225,6 +234,12 @@ export async function* runTurn(
     }),
   );
   if (deps.workspace) toolRegistry.registerAll(codingTools);
+  const skills = deps.skills ?? null;
+  if (skills && skills.count() > 0) {
+    toolRegistry.registerAll(
+      createSkillTools(skills, { availableTools: new Set(toolRegistry.names()) }),
+    );
+  }
 
   const agentOptions: AgentOptions = {
     tools: toolRegistry,
@@ -242,6 +257,7 @@ export async function* runTurn(
     archivedSummaryBlock: replay.summary ? renderArchivedSummary(replay.summary) : null,
     situationBlock: context.situationBlock,
     ...(deps.workspace ? { workspaceBlock: workspaceBlock(deps.workspace, policy) } : {}),
+    skillsBlock: skills?.indexBlock() ?? '',
     toolGuidelines: toolRegistry.guidelines(),
     memoryBlock: context.memoryBlock,
     safetyDirective: safetyDirectiveFor(riskLevel),
