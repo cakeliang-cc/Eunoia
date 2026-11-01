@@ -816,6 +816,7 @@
     font-variant-numeric: tabular-nums;
   }
   .wb-tab[data-hot="true"] .wb-tab-count { background: var(--accent-soft); color: var(--accent-strong); }
+  .wb-tab-count:empty { display: none; }
 
   .wb-body {
     position: relative; flex: 1; min-height: 0;
@@ -2655,8 +2656,9 @@ function paintTerminalChrome() {
 
 function updateChangesCount() {
   const session = wbState.sessionChanges.size;
-  const git = wbState.gitStatus?.changes?.length ?? 0;
-  const total = session + git;
+  const paths = new Set(wbState.sessionChanges.keys());
+  for (const change of wbState.gitStatus?.changes ?? []) paths.add(change.path);
+  const total = paths.size;
   const count = $('wb-changes-count');
   if (count) count.textContent = total > 0 ? String(total) : '';
   const tab = $('wb-tab-changes');

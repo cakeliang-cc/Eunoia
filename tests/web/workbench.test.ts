@@ -280,8 +280,10 @@ describe('changes', () => {
         allText(harness.element('wb-changes')).includes('src/a.ts'),
       'the session change section never appeared',
     );
+    // The same path is in the session's list and git's list; the badge counts
+    // distinct files, not the two sections.
     await waitFor(
-      () => harness.element('wb-changes-count').textContent === '2',
+      () => harness.element('wb-changes-count').textContent === '1',
       'the git change never joined the count',
     );
   });
