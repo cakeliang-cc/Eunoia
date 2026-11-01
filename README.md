@@ -2,9 +2,9 @@
 
 ![Eunoia](docs/cover.png)
 
-一个为 INFP 设计的个人 AI。
+你好，我是 Eunoia。
 
-它不试图对所有人及格。它记住你，理解你正在经历什么，在你需要的时候给出具体、可用的回答。
+期待与你相遇。
 
 ## 快速开始
 
@@ -14,175 +14,11 @@ cp .env.example .env       # 填 DEEPSEEK_API_KEY
 npm run dev                # http://127.0.0.1:8787
 ```
 
-`npm run dev` 会读 `.env`。默认使用 `data/eunoia.sqlite`；数据库是一个文件，不需要 Docker，也不需要启动 Postgres。设 `STORE=memory` 可以临时不落盘（重启即丢）。需要 Node **>= 22.5**（`node:sqlite`）；脚本已经带 `--experimental-sqlite`。
-
-HTTP 默认只绑 `127.0.0.1`。当前没有登录，不要直接暴露到公网。
-
-```bash
-curl http://127.0.0.1:8787/health
-# {"status":"ok","prompt_version":"...","store":"sqlite","persistent":true,"single_user":true}
-```
-
-## 它有什么
-
-- **稳定的人格行为。** 一个 Agent，不是四个协作的 agent；Fi / Ne / Si / Te 是它内部的四种注意力方向。
-- **长期记忆。** 记住事实、偏好、关系和正在发生的事；记忆可见、可修正、可删除。
-- **单文件存储。** 默认 `data/eunoia.sqlite`，SQLite WAL；不需要 Docker、Postgres 或外部服务。
-- **会话连续性。** 历史持久化；接近上下文预算时压缩成结构化 checkpoint，原始消息不删除。
-- **安全边界。** 高风险轮次先缓冲、先检查，再渲染回复。
-- **可换模型/provider。** 模型能力、会话预算和 provider 连接分开；每个会话可以 pin 一个模型。
-- **可选的工作目录。** 配置 `WORKSPACE_ROOT` 后，它会读文件、搜索、改文件、跑测试；不配置时这一层完全不存在。
-- **按需加载的技能。** 技能是流程（怎么验证、怎么审查），不是工具，也不是另一个 Agent；索引每轮都在，正文只在匹配时加载。
-- **前缀缓存友好。** 稳定提示词和历史在前，每轮变化的背景放在请求尾部。
-
-## 让它碰代码
-
-默认状态下它没有文件能力。要给它一个工作目录：
-
-```bash
-WORKSPACE_ROOT=/Users/you/Projects/your-repo npm run dev
-```
-
-这时它多了七个工具：`read_file` / `list_dir` / `glob` / `grep` 是只读的，
-`write_file` / `edit_file` / `run_command` 需要显式开启：
-
-```bash
-WORKSPACE_ROOT=/Users/you/Projects/your-repo \
-WORKSPACE_WRITES=1 \
-WORKSPACE_COMMANDS=1 \
-npm run dev
-```
-
-三件事值得知道：
-
-- **路径被限制在 `WORKSPACE_ROOT` 里。** 绝对路径、`..`、以及指向目录外的
-  symlink 都会被拒绝。凭据文件（`.env`、`*.pem`、`id_rsa` 等）默认既不读也不写。
-- **写入和命令是两个独立开关，默认都关。** 想让 agent 看代码，不等于允许它改
-  文件，更不等于允许它跑 `npm install`。拒绝会作为工具结果告诉模型，它应当停下来
-  而不是换条路重试。
-- **命令不是进程沙箱。** `run_command` 用真实 shell 和真实环境跑，只能靠
-  `WORKSPACE_COMMANDS` 决定开不开。它适合自己的机器，不适合一个不受信任的仓库。
-
-模型/工具一轮最多走 `AGENT_MAX_STEPS` 步（默认 12）。每读一次文件，内容只会进一次
-上下文；同一段再读会收到指针。工具调用和结果会作为可折叠的 trace 出现在回复上方，
-但完整工具输出不会上屏——回复才是结果该在的地方。
-
-## 技能
-
-工具解决“能做什么动作”，技能解决“这类任务按什么顺序做”。技能不是工具，也不是
-另一个 Agent；它是一段可重复的流程，里面的每一步仍然由现有工具完成。
-
-技能放在这三个地方，按优先级从高到低：
-
-```text
-<WORKSPACE_ROOT>/.eunoia/skills/<name>/SKILL.md   # 项目自己的
-<WORKSPACE_ROOT>/.agents/skills/<name>/SKILL.md   # 兼容 Codex / Claude
-src/skills/builtin/                               # 随服务发布
-```
-
-内置了三个：`code-change-verification`（改完代码按顺序验证）、`release-review`
-（比较上一个 tag 和当前候选版本）、`docs-sync`（检查文档有没有过时）。
-
-最小技能：
-
-```markdown
----
-name: code-change-verification
-description: 在改动运行时代码或测试之后，按仓库顺序跑类型检查、lint 和测试；在全部通过前不要声称完成。
-allowed-tools: [read_file, grep, run_command]
----
-
-# 验证
-
-1. 读 package.json，确认实际命令。
-2. 按顺序运行，不要跳步。
-3. 失败只修和本次改动相关的问题。
-```
-
-每轮上下文里只有 `name` + `description` 的索引。模型匹配到某个技能后调用
-`load_skill`，完整正文作为工具结果进入上下文；`references/` 用 `read_file` 按需读，
-`scripts/` 用 `run_command` 按需跑，脚本不会自动执行。
-
-`allowed-tools` 只是声明，不是授权：技能需要 `run_command` 但命令没开时，
-`load_skill` 会把这句话原样告诉模型，模型应当停下来让你开启，而不是绕过。
-
-`GET /api/skills` 列出已发现的技能（不含正文）。新加技能需要重启服务；设置
-`SKILLS_ENABLED=false` 可以关掉整个技能层。
-
-## 快速看架构
-
-```text
-web/  ── HTTP + SSE ──▶  src/api/
-                          │
-                          ▼
-                     src/service/       一轮对话的编排
-                          │
-        ┌─────────────────┼─────────────────┐
-        ▼                 ▼                 ▼
-   src/session/      src/memory/       src/agent/
-        │                 │                 │
-        └─────────────────┴─────────────────┘
-                          ▼
-                       src/db/
-```
-
-`session` 和 `memory` 是平级的两层，彼此不 import；`src/store.ts` 是唯一把它们组合起来的地方。工具在 `src/tools/`，技能在 `src/skills/`，两者都不 import 厂商 SDK。HTTP 只出现在 `src/api/`，厂商 SDK 只出现在 `src/agent/` 和 `src/provider/`。这些边界由测试强制，不靠约定。
-
-## 会话与上下文
-
-会话可以创建、改名、归档和删除；归档可逆，删除不可逆。接口都在 `/api/conversations` 下。
-
-模型不会永远收到全部消息。接近输入预算时，较早历史会被压成滚动摘要，写进 `conversation_summaries`，边界记成 `messages.seq`。模型收到“摘要 + 边界之后的原文”；数据库里的原始消息一条都不删。
-
-请求按固定顺序组装：
-
-```text
-稳定 instructions + tools + 追加的历史 + 当前用户消息 + 本轮背景
-```
-
-关系、时间、摘要、记忆和安全指令都在最后一段，不会因为一条新记忆就让整段历史失去缓存。
-
-## 命令
-
-| 命令 | 作用 |
-|---|---|
-| `npm run dev` | 启动服务，web 客户端在 `/` |
-| `npm test` | 离线测试，不需要网络或容器 |
-| `npm run smoke` | 真实对话 smoke test（需要 `RUN_SMOKE=1`） |
-| `npm run eval` | 人格评测，真实调用并记录 |
-| `npm run eval:replay` | 对最近一次记录重新打分，免费 |
-| `npm run migrate` | 初始化/确认 SQLite schema |
-| `npm run migrate:legacy` | 一次性从旧 Postgres 导入 `SINGLE_USER_ID` 的数据（需要旧容器） |
-| `npm run cleanup` | 保留期清扫，支持 `--dry-run` |
-| `npm run backup` | SQLite 在线备份到 `backups/`，并做完整性校验 |
-| `npm run typecheck` / `npm run lint` | 类型和 lint 门禁 |
-
-SQLite 集成测试随 `npm test` 一起跑，不需要任何外部服务。
-
-## 评测
-
-30 条用例，覆盖艰难时刻、普通回合和长期连续性。能机械化的检查就机械化；禁止行为会报告出来，而不是悄悄警告。
-
-```bash
-npm run eval
-npm run eval:replay
-```
-
-真实调用是贵的那一步，记录会提交进仓库；之后的检查项迭代可以免费重放。基线在 [`CHANGELOG.md`](CHANGELOG.md) 的 `Evaluation` 一节。
-
-## 隐私
-
-日志不写原始用户内容，只写类别和指纹。记忆可查看、修正、删除；`DELETE /api/me` 会抹掉调用者和由他派生的一切。身份目前只是一个 handle，不是认证——不要把真实数据放在一个没有登录保护的公开实例后面。
+需要 Node **>= 22.5**。数据库是一个文件，默认 `data/eunoia.sqlite`，不需要 Docker 或 Postgres。
 
 ## 文档
 
 - [为什么做 Eunoia](docs/story.md)
-- [ADR](docs/adr/)：一个 Agent、记忆模型、事件边界、安全缓冲、提示词文档、保留与删除、工具与 Agent loop、技能、SQLite 存储
-- [重构计划](docs/REFACTORING_PLAN.md)
-- [实现计划](docs/implementation-plan.md)
+- [ADR](docs/adr/)
 - [当前环境](CURRENT_STACK.md)
 - [变更记录](CHANGELOG.md)
-
-## 状态
-
-Phase 0–5 已完成。剩余的主要是生产化问题，而不是功能：身份还不是认证，也没有限流。完整路线图和“不做什么”的理由在 [`docs/REFACTORING_PLAN.md`](docs/REFACTORING_PLAN.md)。
