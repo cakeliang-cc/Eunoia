@@ -33,15 +33,9 @@ export function createSkillTools(
   return [
     defineTool({
       name: 'load_skill',
-      description: `加载一个技能的完整说明。
-
-技能索引里只有名字和描述；当用户的请求匹配某个技能的描述时，用这个工具把它的步骤读进来，再按步骤做。
-
-不要凭技能名猜流程，也不要把技能当成工具：技能是一段可重复的工作流程，里面的每一步仍然要用你真正拥有的工具完成。
-
-技能声明的工具如果当前被关闭，会在这里明确写出来。遇到这种情况停下来告诉用户，不要绕过。`,
+      description: '加载一个技能的完整说明。在任务点名或明显匹配技能索引里的某个技能时，先调用它再动手；技能声明的工具被关闭时会明确写出来，不要绕过。',
       parameters: z.object({
-        name: z.string().min(1).describe('技能名，必须来自技能索引，例如 code-change-verification'),
+        name: z.string().min(1).describe('技能名，必须来自技能索引，例如 code-change-verification。'),
       }),
       sideEffect: 'none',
       readOnly: true,

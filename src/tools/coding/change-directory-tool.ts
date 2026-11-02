@@ -17,30 +17,16 @@ import { defineTool, toolError, toolOk } from '../types.ts';
 
 export const changeDirectoryTool = defineTool({
   name: 'change_directory',
-  description: `改变当前任务的工作目录，之后每次 run_command 都从新目录开始。
-
-什么时候调用：
-- 需要在某个子目录里连续跑几条命令，每条都 cd 很啰嗦；
-- 上一条命令里的 cd 没有生效，下一次又在原地。
-
-规则：
-- 相对路径基于当前任务目录解析，不是基于工作区根目录；例如当前已在 /workspace/src 时，进入 models 用 "models" 或 "/workspace/src/models"，不要用 "src/models"；
-- 绝对路径必须落在任务工作区内；
-- 成功之后后续 run_command 自动使用新目录，不需要每次再 cd；
-- 只改变任务的工作目录，不改变宿主机目录，也不扩大文件权限；
-- 目标必须是已经存在的目录，不能是文件；指向工作区外面的符号链接会被拒绝。
-
-失败时会返回结构化错误码和说明：换个路径重试即可，不要反复重试同一个路径。`,
+  description: '改变当前任务的目录，后续 run_command 从新目录开始。相对路径从当前任务目录算；绝对路径必须落在工作区内；目标必须是已经存在的目录。',
   parameters: z.object({
     path: z
       .string()
       .min(1)
-      .describe('目录路径：相对当前工作目录，或以 /workspace 开头的绝对路径'),
+      .describe('目录路径：相对当前任务目录，或以 /workspace 开头的绝对路径。'),
   }),
   sideEffect: 'workspace_state',
   readOnly: false,
-  guidelines:
-    'change_directory：改变任务工作目录，后续 run_command 从新目录开始；run_command 里的 cd 不会改变任务目录。',
+  guidelines: 'change_directory：改变后续命令的目录；一次性 cd 不会改变任务目录。',
   execute: async ({ path }, context) => {
     const cwd = context.cwd;
     if (!cwd) {

@@ -32,6 +32,10 @@
 一次，开头的 HTML 注释（写给编辑它的人的说明）被剥掉，剩下的*就是*
 `STABLE_INSTRUCTIONS`。`PROMPT_VERSION` 哈希的是加载到的字节，而不是一个常量。
 
+> **2026-11-02 更新：** 这份文档的*内容*换成了 coding-first（ADR 023），原来的
+> 人格提示词归档到 `companion.personality.md`。上面这条结构没有变：活动提示词
+> 仍是 `companion.md`，仍在启动时读取、去注释、按字节哈希。
+
 `src/agent/instructions.ts` 只保留组装：prompt 周围放什么（检索到的记忆、每轮
 的安全指令），以及以什么顺序。
 

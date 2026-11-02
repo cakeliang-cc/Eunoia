@@ -231,8 +231,8 @@ describe('the scanned string is the one the model gets', () => {
     // Otherwise this file could be scanning a string that is assembled
     // somewhere else and never sent, and report a clean prompt that no user
     // ever sees. `prompt-version.test.ts` separately pins the hash itself.
-    expect(STABLE_INSTRUCTIONS).toContain('行为原则');
-    expect(STABLE_INSTRUCTIONS).toContain('工具规则');
+    expect(STABLE_INSTRUCTIONS).toContain('工具纪律');
+    expect(STABLE_INSTRUCTIONS).toContain('安全');
     expect(PROMPT_VERSION).toMatch(/^[0-9a-f]{12}$/);
   });
 });

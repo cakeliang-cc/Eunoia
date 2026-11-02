@@ -56,7 +56,7 @@ describe('the prompt document', () => {
   it('exists, and is the whole standing prompt', async () => {
     const document = await readFile(PROMPT_DOCUMENT, 'utf8');
     expect(document.length).toBeGreaterThan(2000);
-    for (const heading of ['# 身份', '# 行为原则', '# 四种视角', '# 工具规则']) {
+    for (const heading of ['# 身份', '# 工作方式', '# 工具纪律', '# 安全']) {
       expect(document).toContain(heading);
     }
   });

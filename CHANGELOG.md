@@ -337,6 +337,19 @@
 
 ### Changed
 
+- **工具描述改为契约式短文（ADR 023）。** `read_file` / `write_file` / `edit_file` /
+  `glob` / `grep` / `run_command` / `change_directory` / `load_skill` 的描述从
+  “什么时候调用 + 规则 + 不要”清单收缩成一句到几句的契约：做什么、返回什么、哪条约束
+  schema 表达不了；“什么时候调用”交给提示词的「工具纪律」。参数描述统一成一行，路径参数
+  写明基准。记忆工具没有 DSH 对应物，但同步缩短，使用时机由提示词统一说明。新增
+  `tests/tools/descriptions.test.ts` 守住这个形状。
+- **系统提示词改为 coding-first（ADR 023）。** 活动文档 `src/agent/prompts/companion.md`
+  从“陪伴者人格”换成“会写代码的 agent”：保留 Eunoia 身份和中文回复，删除四种视角、
+  五条原则和陪伴示例，新增工具纪律（用 `glob`/`grep`/`read_file`、先读再改、检查退出码、
+  两个路径基准、不可逆操作用绝对路径并确认目标）与输出规则；记忆与安全压缩成小节保留。
+  原人格文档完整归档为 `companion.personality.md`，Fi/Ne/Si/Te 与五原则的测试改为守住
+  这份备份，新增 `prompt-coding.test.ts` 约束新文档。回滚：把备份复制回 `companion.md`
+  并重启。
 - **scope 策略不再能加宽 auto-review / approval / restricted。** 解析器对这三层改为
   与父层取交集（风险等级、工具、路径、域名、端口），`requireHumanForRiskLevels`
   取并集。此前是整层替换：一条旧的 scope 策略会在部署收紧之后继续生效，等于旧策略

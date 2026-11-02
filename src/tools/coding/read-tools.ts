@@ -19,30 +19,21 @@ import {
 import { truncateHead } from '../truncate.ts';
 import { WorkspaceError } from '../workspace.ts';
 
-const PATH = z.string().min(1).describe('工作目录内的相对路径，例如 src/agent/loop.ts');
+const PATH = z.string().min(1).describe('要读的路径；相对路径从工作区根目录算。');
 const MAX_READ_LINES = 2_000;
 const MAX_READ_CHARS = 50_000;
 
 export const readFileTool = defineTool({
   name: 'read_file',
-  description: `读取工作目录里的一个文本文件，返回带行号的内容。
-
-什么时候调用：
-- 修改文件之前（必须先读到原文，不要凭记忆改）；
-- 需要确认某个定义、导入或错误信息的具体写法；
-- 用户点名要你看某个文件。
-
-大文件用 start/end 读一段，不要一次读完整份。同一个文件、同一段已经在本轮读过时，会收到一条指针而不是重复内容——那说明内容就在上文，往上翻即可。
-
-不要用它列目录（用 list_dir）或找内容（用 grep）。`,
+  description: '读取一个文本文件并返回带行号的内容。大文件用 start/end 分段读；同一段在本轮重复读取时返回指针，而不是再发一遍全文。',
   parameters: z.object({
     path: PATH,
-    start: z.number().int().min(1).optional().describe('起始行，1-based，默认 1'),
-    end: z.number().int().min(1).optional().describe('结束行，1-based，含这一行'),
+    start: z.number().int().min(1).optional().describe('起始行，从 1 开始，默认 1。'),
+    end: z.number().int().min(1).optional().describe('结束行，含这一行；省略则读到文件结尾。'),
   }),
   sideEffect: 'none',
   readOnly: true,
-  guidelines: 'read_file：改之前先读；大文件用 start/end。',
+  guidelines: 'read_file：读文本用 read_file，不要用 run_command 读文件。',
   execute: async ({ path, start, end }, context) => {
     return guardToolResult(async () => {
       const workspace = requireWorkspace(context);
@@ -99,21 +90,14 @@ export const readFileTool = defineTool({
 
 export const listDirTool = defineTool({
   name: 'list_dir',
-  description: `列出一个目录的结构，默认两层，最多四层。
-
-什么时候调用：
-- 刚开始一个任务，需要知道项目怎么组织；
-- 猜不到文件在哪一层；
-- 需要确认某个目录是否存在。
-
-不要用它读文件内容（用 read_file），也不要用它找某个符号（用 grep）。结果超过 500 项会截断，路径窄一点再列。`,
+  description: '列出一个目录的结构，默认两层、最多四层；超过 500 项会截断。',
   parameters: z.object({
-    path: z.string().optional().describe('目录路径，默认工作目录根'),
-    depth: z.number().int().min(1).max(4).optional().describe('递归层数，默认 2'),
+    path: z.string().optional().describe('目录路径，默认工作区根目录。'),
+    depth: z.number().int().min(1).max(4).optional().describe('递归层数，默认 2，最多 4。'),
   }),
   sideEffect: 'none',
   readOnly: true,
-  guidelines: 'list_dir：先看结构，再决定读哪个文件。',
+  guidelines: 'list_dir：先看目录结构，再决定读哪个文件。',
   execute: async ({ path, depth }, context) => {
     return guardToolResult(async () => {
       const workspace = requireWorkspace(context);
@@ -129,16 +113,16 @@ export const listDirTool = defineTool({
 
 export const globTool = defineTool({
   name: 'glob',
-  description: `按路径模式查找文件，例如 **/*.test.ts 或 src/**/loop.ts。
-
-什么时候调用：
-- 知道文件名的一部分，但不知道它在哪；
-- 需要列出某一类文件（测试、迁移、路由）。
-
-它会跳过 node_modules、dist、.git 等目录，以及 .env 这类凭据文件。最多返回 200 个结果。`,
+  description: '按 glob 模式查找文件（只返回文件，不返回目录）。跳过被忽略的目录和凭据文件；结果按路径排序，最多 200 条。',
   parameters: z.object({
-    pattern: z.string().min(1).describe('glob 模式，例如 **/*.ts'),
-    max_results: z.number().int().min(1).max(1000).optional().describe('最多返回几个，默认 200'),
+    pattern: z.string().min(1).describe('glob 模式，例如 **/*.ts 或 src/**/loop.ts。'),
+    max_results: z
+      .number()
+      .int()
+      .min(1)
+      .max(1000)
+      .optional()
+      .describe('最多返回几个，默认 200，上限 1000。'),
   }),
   sideEffect: 'none',
   readOnly: true,
@@ -163,20 +147,19 @@ export const globTool = defineTool({
 
 export const grepTool = defineTool({
   name: 'grep',
-  description: `在工作目录里按正则搜索文本，返回 路径:行号: 内容。
-
-什么时候调用：
-- 找某个函数、常量、错误信息在哪；
-- 确认一个改动会影响哪些地方；
-- 找用户提到的那段文字。
-
-用 include 缩小范围（例如 include: "*.ts"）。它会跳过二进制文件、被忽略的目录和凭据文件。正则语法错误会直接报错，不会静默返回空结果。`,
+  description: '用 JavaScript 正则搜索文件内容，返回按文件分组的 路径:行号: 内容，最多 100 处。跳过二进制、被忽略的目录和凭据文件。',
   parameters: z.object({
-    pattern: z.string().min(1).describe('JavaScript 正则，例如 saveMemory\\('),
-    path: z.string().optional().describe('从哪个文件或目录开始，默认工作目录根'),
-    include: z.string().optional().describe('文件名过滤，例如 *.ts'),
-    case_sensitive: z.boolean().optional().describe('是否区分大小写，默认 true'),
-    max_results: z.number().int().min(1).max(500).optional().describe('最多返回几处，默认 100'),
+    pattern: z.string().min(1).describe('JavaScript 正则。'),
+    path: z.string().optional().describe('从哪个文件或目录开始，默认工作区根目录。'),
+    include: z.string().optional().describe('只搜匹配这个 glob 的文件，例如 *.ts。'),
+    case_sensitive: z.boolean().optional().describe('是否区分大小写，默认 true。'),
+    max_results: z
+      .number()
+      .int()
+      .min(1)
+      .max(500)
+      .optional()
+      .describe('最多返回几处，默认 100，上限 500。'),
   }),
   sideEffect: 'none',
   readOnly: true,

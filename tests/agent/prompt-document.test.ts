@@ -1,10 +1,10 @@
 /**
- * The prompt document against the spec's requirements on it.
+ * The archived personality prompt against the spec's requirements on it.
  *
- * The prompt is prose, and prose is checked by reading it — but a few things the
- * spec insists on are checkable, and those are what this file covers: the five
- * principles (§3) are all present, the four lenses (§2) each keep the boundary
- * that stops them being harmful, and safety outranks personality (§10).
+ * This document is no longer the system prompt (ADR 023): the active prompt is
+ * `companion.md`, a coding-first document with no lenses or five principles. The
+ * companion text is kept for rollback, and this file keeps it honest while it
+ * sits in the archive — a backup nobody checks is a backup that quietly rots.
  *
  * **Section-scoped, not global.** `expect(prompt).toContain('焦虑')` passes on a
  * prompt that mentions anxiety anywhere — including in an example that says to
@@ -16,12 +16,13 @@
  * heading here fails, the fix is usually the document, not this file.
  */
 
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   REQUIRED_HEURISTICS,
   REQUIRED_PRINCIPLES,
 } from '../../src/agent/prompt-contract.ts';
-import { STABLE_INSTRUCTIONS } from '../../src/agent/instructions.ts';
+import { PERSONALITY_PROMPT_FILE, stripComments } from '../../src/agent/instructions.ts';
 
 /**
  * The document, split into sections keyed by heading text.
@@ -54,7 +55,8 @@ function sections(markdown: string): Map<string, string> {
   return found;
 }
 
-const document = sections(STABLE_INSTRUCTIONS);
+const personalityPrompt = stripComments(readFileSync(PERSONALITY_PROMPT_FILE, 'utf8')).trim();
+const document = sections(personalityPrompt);
 
 /** The section for a heading, or a failure that names what was missing. */
 function section(heading: string): string {
@@ -100,8 +102,8 @@ describe('the prompt document', () => {
   it('holds no HTML comment, so the editor’s note is never sent', () => {
     // The document opens with a note to whoever edits it. It is stripped on load;
     // this is the assertion that the stripping still happens.
-    expect(STABLE_INSTRUCTIONS).not.toContain('<!--');
-    expect(STABLE_INSTRUCTIONS).not.toContain('-->');
+    expect(personalityPrompt).not.toContain('<!--');
+    expect(personalityPrompt).not.toContain('-->');
   });
 });
 
@@ -159,7 +161,7 @@ describe('the four lenses (spec §2)', () => {
 
   it('names each lens in the script the spec uses, not a translation', () => {
     for (const heuristic of REQUIRED_HEURISTICS) {
-      expect(STABLE_INSTRUCTIONS).toContain(`## ${heuristic.heading}`);
+      expect(personalityPrompt).toContain(`## ${heuristic.heading}`);
     }
   });
 });

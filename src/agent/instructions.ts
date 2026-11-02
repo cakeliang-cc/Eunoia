@@ -29,6 +29,19 @@ import { readFileSync } from 'node:fs';
 export const PROMPT_FILE = new URL('./prompts/companion.md', import.meta.url);
 
 /**
+ * The archived personality prompt (ADR 023).
+ *
+ * It is no longer loaded as the system prompt: the product is a coding agent
+ * now, and the companion document is kept for rollback and for the spec tests
+ * that still describe it. Exporting the location rather than a second string
+ * keeps "the file on disk is the prompt" true for both documents.
+ */
+export const PERSONALITY_PROMPT_FILE = new URL(
+  './prompts/companion.personality.md',
+  import.meta.url,
+);
+
+/**
  * Remove HTML comments.
  *
  * The document opens with a note to whoever edits it — what the file is, what

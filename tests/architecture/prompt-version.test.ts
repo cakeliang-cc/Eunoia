@@ -25,6 +25,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import {
+  PERSONALITY_PROMPT_FILE,
   PROMPT_FILE,
   PROMPT_VERSION,
   STABLE_INSTRUCTIONS,
@@ -116,13 +117,13 @@ describe('the runtime context', () => {
     );
   });
 
-  it('records the principles the spec requires, by the labels the document uses', () => {
-    // The full check is in tests/agent/prompt-document.test.ts. This one exists
-    // because the version's meaning depends on it: if the prompt can lose a
-    // principle without anything failing, the version is a version of something
-    // that is not the product.
+  it('still records the principles in the archived personality prompt', () => {
+    // The active prompt is coding-first (ADR 023) and no longer carries the five
+    // principles; the archived document does. Checking it here keeps the backup
+    // from rotting, without forcing the lenses back into the active prompt.
+    const personality = stripComments(readFileSync(PERSONALITY_PROMPT_FILE, 'utf8')).trim();
     for (const principle of REQUIRED_PRINCIPLES) {
-      expect(STABLE_INSTRUCTIONS, `${principle.id} is missing from the prompt`).toContain(
+      expect(personality, `${principle.id} is missing from the archived prompt`).toContain(
         principle.label,
       );
     }
