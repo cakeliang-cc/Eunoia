@@ -1,0 +1,822 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eunoia 人偶概念 · 设计提案</title>
+<style>
+  :root {
+    --canvas: #f4f0e6;
+    --paper: #fbf7ee;
+    --paper-2: #f6efe2;
+    --ink: #26231d;
+    --ink-2: #4f4a40;
+    --muted: #756e60;
+    --faint: #9a9182;
+    --line: #e3dac9;
+    --line-2: #d6cbb7;
+    --accent: #4e6a56;
+    --accent-2: #6f8f76;
+    --accent-soft: #e7efe7;
+    --blush: #e39a8e;
+    --scarf: #ce8b7d;
+    --gold: #e5c07b;
+    --night: #4f615c;
+    --display: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC",
+               "Noto Serif SC", "STSong", Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+            "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    --shadow-sm: 0 1px 2px rgba(48, 41, 28, .04), 0 8px 22px -18px rgba(48, 41, 28, .25);
+    --shadow-md: 0 2px 4px rgba(48, 41, 28, .04), 0 26px 60px -40px rgba(48, 41, 28, .38);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(circle at 15% -5%, rgba(206, 139, 125, .10), transparent 38%),
+      radial-gradient(circle at 88% 4%, rgba(111, 143, 118, .11), transparent 34%),
+      var(--canvas);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image: radial-gradient(rgba(72, 62, 44, .055) .5px, transparent .5px);
+    background-size: 4px 4px;
+    opacity: .55;
+  }
+  .page { position: relative; z-index: 1; width: min(1180px, calc(100% - 48px)); margin: 0 auto; }
+  .kicker {
+    display: inline-flex; align-items: center; gap: 9px;
+    margin-bottom: 20px;
+    font-size: 10.5px; font-weight: 600; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  .kicker::before { content: ""; width: 22px; height: 1px; background: var(--accent); opacity: .6; }
+  .page-head { padding: 72px 0 40px; max-width: 820px; }
+  .page-head h1 {
+    margin: 0 0 20px;
+    font-family: var(--display);
+    font-size: clamp(40px, 6vw, 68px);
+    font-weight: 600;
+    line-height: 1.08;
+    letter-spacing: -.035em;
+  }
+  .page-head h1 em {
+    font-style: normal;
+    color: var(--accent);
+    position: relative;
+    white-space: nowrap;
+  }
+  .page-head h1 em::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: .08em; height: .18em;
+    background: linear-gradient(90deg, rgba(206,139,125,.32), rgba(111,143,118,.18));
+    border-radius: 99px; z-index: -1;
+  }
+  .page-head p { margin: 0; max-width: 640px; font-size: 15.5px; line-height: 1.9; color: var(--muted); }
+  .page-head p strong { color: var(--ink-2); font-weight: 600; }
+  .decision {
+    display: inline-block; margin-top: 14px; padding: 6px 12px;
+    border: 1px solid #cfdccc; border-radius: 99px;
+    background: #edf4ea; color: var(--accent); font-size: 11.5px;
+  }
+  .decision b { font-weight: 600; }
+
+  .compare {
+    display: flex; align-items: stretch; gap: 14px;
+    margin: 34px 0 56px;
+  }
+  .compare-card {
+    flex: 1; min-width: 0;
+    padding: 18px 20px 20px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: rgba(251, 247, 238, .72);
+    box-shadow: var(--shadow-sm);
+  }
+  .compare-card .label {
+    font-size: 10px; font-weight: 600; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--faint);
+    margin-bottom: 14px;
+  }
+  .compare-card.after { border-color: #d5e0d4; background: linear-gradient(180deg, #fdfbf5, #f3f8f1); }
+  .compare-card.after .label { color: var(--accent); }
+  .mini-turn { display: flex; align-items: flex-start; gap: 12px; }
+  .letter-avatar {
+    width: 30px; height: 30px; flex: 0 0 auto;
+    display: grid; place-items: center;
+    border: 1px solid #dbe4d9; border-radius: 10px;
+    background: var(--accent-soft); color: #34503d;
+    font-family: var(--display); font-size: 15px; font-weight: 600;
+  }
+  .msg-avatar {
+    width: 30px; height: 30px; flex: 0 0 auto;
+    display: grid; place-items: center;
+    border: 1px solid #5f7d67; border-radius: 10px;
+    background: linear-gradient(160deg, #7a987f, #55705c);
+    box-shadow: 0 3px 9px -4px rgba(61, 86, 68, .55);
+  }
+  .msg-avatar svg { width: 25px; height: 25px; display: block; }
+  .mini-bubble {
+    padding: 7px 13px 8px;
+    border: 1px solid #e5e0d5; border-radius: 4px 14px 14px 14px;
+    background: #fffefb; font-size: 14px; color: var(--ink-2);
+  }
+  .compare-arrow { align-self: center; color: var(--faint); font-size: 18px; }
+
+  .section-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 20px;
+    margin: 0 0 22px;
+  }
+  .section-head h2 {
+    margin: 0; font-family: var(--display);
+    font-size: clamp(25px, 3vw, 33px); font-weight: 600; letter-spacing: -.02em;
+  }
+  .section-head p { margin: 0; font-size: 12.5px; color: var(--faint); }
+
+  .concepts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .card {
+    position: relative;
+    display: flex; flex-direction: column;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 28px;
+    background: var(--paper);
+    box-shadow: var(--shadow-sm);
+    transition: transform .25s ease, box-shadow .25s ease;
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
+  .card.recommended { border-color: #cfdccc; box-shadow: 0 0 0 1px rgba(111, 143, 118, .14), var(--shadow-md); }
+  .stage {
+    position: relative; height: 286px;
+    display: grid; place-items: center;
+    border-radius: 20px;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 50% 42%, #fffdf7 0%, #f7efdf 58%, #efe3ce 100%);
+  }
+  .stage::before {
+    content: ""; position: absolute; inset: 0;
+    background-image: radial-gradient(rgba(90, 74, 48, .07) .5px, transparent .5px);
+    background-size: 4px 4px; opacity: .5;
+  }
+  .stage.b { background: radial-gradient(circle at 50% 42%, #fffdf8 0%, #f8eee8 58%, #f0dfd7 100%); }
+  .stage.c { background: radial-gradient(circle at 50% 40%, #fffdf7 0%, #eef1e9 58%, #dfe7dc 100%); }
+  .stage svg { position: relative; z-index: 1; width: 166px; height: 196px; display: block; }
+  .stage .halo {
+    position: absolute; z-index: 0; width: 190px; height: 190px; border-radius: 50%;
+    border: 1px dashed rgba(111, 143, 118, .26);
+  }
+  .stage .halo.inner { width: 136px; height: 136px; border-style: solid; opacity: .5; }
+  .stage .floor {
+    position: absolute; z-index: 0; bottom: 30px; width: 150px; height: 10px;
+    border-radius: 50%; background: rgba(78, 106, 86, .08); filter: blur(6px);
+  }
+  .card-body { padding: 18px 6px 6px; display: flex; flex-direction: column; flex: 1; }
+  .name-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .name-row h3 { margin: 0; font-family: var(--display); font-size: 27px; font-weight: 600; letter-spacing: -.02em; }
+  .badge {
+    padding: 3px 9px; border-radius: 99px;
+    background: #e4efe2; color: #3d5644;
+    font-size: 10px; font-weight: 600; letter-spacing: .08em;
+  }
+  .badge.quiet { background: #f1e9dc; color: #7d6c55; }
+  .tagline { margin: 0 0 15px; font-size: 13px; line-height: 1.75; color: var(--muted); }
+  .traits { list-style: none; margin: 0 0 18px; padding: 0; display: grid; gap: 7px; }
+  .traits li { display: flex; gap: 9px; font-size: 12.5px; line-height: 1.65; color: var(--ink-2); }
+  .traits li::before {
+    content: ""; flex: 0 0 auto; width: 5px; height: 5px; margin-top: .55em;
+    border-radius: 50%; background: var(--accent-2); opacity: .55;
+  }
+  .palette { display: flex; gap: 7px; margin-top: auto; }
+  .swatch { width: 17px; height: 17px; border-radius: 50%; border: 1px solid rgba(38,35,29,.10); }
+
+  .sheet {
+    margin-top: 54px; padding: 30px;
+    border: 1px solid var(--line); border-radius: 30px;
+    background: linear-gradient(180deg, #fdfaf3, #f8f1e5);
+    box-shadow: var(--shadow-sm);
+  }
+  .sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 26px; }
+  .sheet-head h2 { margin: 0 0 6px; font-family: var(--display); font-size: 31px; font-weight: 600; letter-spacing: -.02em; }
+  .sheet-head p { margin: 0; max-width: 560px; font-size: 13px; color: var(--muted); }
+  .sheet-note { flex: 0 0 auto; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); padding-top: 8px; }
+  .sizes {
+    display: flex; align-items: flex-end; gap: 30px; flex-wrap: wrap;
+    padding: 22px 24px 20px; margin-bottom: 18px;
+    border: 1px dashed var(--line-2); border-radius: 18px;
+    background: rgba(255, 253, 248, .55);
+  }
+  .size { display: flex; flex-direction: column; align-items: center; gap: 9px; }
+  .size .box { display: flex; align-items: flex-end; justify-content: center; }
+  .size .box svg { display: block; }
+  .size .cap { font-size: 9.5px; letter-spacing: .06em; color: var(--faint); text-align: center; line-height: 1.4; }
+  .size .cap b { display: block; font-weight: 600; color: var(--ink-2); font-size: 10.5px; }
+  .states { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .state {
+    padding: 12px 12px 14px; text-align: center;
+    border: 1px solid var(--line); border-radius: 16px;
+    background: #fffdf8;
+  }
+  .state svg { width: 88px; height: 99px; display: block; margin: 0 auto 4px; }
+  .state b { display: block; font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
+  .state span { display: block; margin-top: 2px; font-size: 10.5px; color: var(--faint); }
+
+  .placement { margin-top: 54px; }
+  .mock {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 26px;
+    background: #faf8f2;
+    box-shadow: var(--shadow-md);
+  }
+  .mock-bar {
+    display: flex; align-items: center; gap: 8px;
+    height: 44px; padding: 0 18px;
+    border-bottom: 1px solid #e9e3d7;
+    background: #fbf9f3;
+    font-size: 11px; color: var(--muted);
+  }
+  .mock-bar .traffic { display: flex; gap: 5px; margin-right: 6px; }
+  .mock-bar .traffic i { width: 7px; height: 7px; border-radius: 50%; background: #e2d9c8; }
+  .mock-bar .traffic i:first-child { background: #e3b4a8; }
+  .mock-bar .traffic i:nth-child(2) { background: #e7cf9e; }
+  .mock-bar .traffic i:last-child { background: #b9ceb7; }
+  .mock-bar b { color: var(--ink-2); font-weight: 600; }
+  .mock-pill {
+    margin-left: auto; padding: 3px 10px;
+    border: 1px solid #e2dccd; border-radius: 99px;
+    background: #fffdf8; font-size: 9.5px; color: var(--muted);
+  }
+  .mock-main { padding: 26px 26px 22px; background: #fbf9f3; }
+  .mock-scene {
+    position: relative; width: 300px; height: 158px; margin: 0 auto 6px;
+  }
+  .hero-doll { position: absolute; left: 50%; bottom: 17px; transform: translateX(-50%); width: 128px; height: 144px; }
+  .shelf {
+    position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%);
+    width: 240px; height: 7px; border-radius: 99px;
+    background: linear-gradient(180deg, #e8ddc9, #dccfb8);
+    box-shadow: 0 3px 0 rgba(120, 100, 70, .05);
+  }
+  .mug {
+    position: absolute; right: 30px; bottom: 13px;
+    width: 21px; height: 24px; border-radius: 5px 5px 8px 8px;
+    background: linear-gradient(160deg, #fffdf7, #eadcc6);
+    border: 1px solid #ddceb5;
+  }
+  .mug::before {
+    content: ""; position: absolute; right: -7px; top: 6px;
+    width: 8px; height: 9px; border: 2px solid #ddceb5; border-left: 0;
+    border-radius: 0 7px 7px 0;
+  }
+  .mug::after {
+    content: ""; position: absolute; left: 4px; top: 5px;
+    width: 11px; height: 5px; border-radius: 50%;
+    background: #c9a98a; opacity: .55;
+  }
+  .steam { position: absolute; left: 7px; bottom: 27px; width: 5px; height: 15px; }
+  .steam::before, .steam::after {
+    content: ""; position: absolute; bottom: 0;
+    width: 5px; height: 14px; border-left: 1.5px solid rgba(150, 126, 96, .4);
+    border-radius: 50%;
+    animation: steam 3.4s ease-in-out infinite;
+  }
+  .steam::after { left: 7px; height: 10px; animation-delay: 1.2s; }
+  @keyframes steam {
+    0% { opacity: 0; transform: translateY(2px) scaleY(.7); }
+    35% { opacity: .7; }
+    100% { opacity: 0; transform: translateY(-8px) scaleY(1.1); }
+  }
+  .plant { position: absolute; left: 30px; bottom: 13px; width: 26px; height: 34px; }
+  .plant .pot {
+    position: absolute; bottom: 0; left: 3px;
+    width: 20px; height: 13px; border-radius: 3px 3px 7px 7px;
+    background: linear-gradient(180deg, #d9b9a4, #c8a48e);
+  }
+  .plant .leaf {
+    position: absolute; bottom: 11px; left: 5px;
+    width: 13px; height: 18px; border-radius: 100% 0 100% 0;
+    background: linear-gradient(150deg, #a9c3a6, #6f8f76);
+    transform-origin: bottom left; transform: rotate(-13deg);
+  }
+  .plant .leaf.two {
+    left: 11px; width: 11px; height: 15px;
+    transform: rotate(18deg) scale(.9);
+    background: linear-gradient(150deg, #bdd2b9, #83a189);
+  }
+  .mock-eyebrow {
+    margin: 2px 0 4px; text-align: center;
+    font-size: 8.5px; font-weight: 600; letter-spacing: .24em;
+    color: var(--accent); text-transform: uppercase;
+  }
+  .mock h4 {
+    margin: 0 0 6px; text-align: center;
+    font-family: var(--display); font-size: 29px; font-weight: 600; letter-spacing: -.03em;
+  }
+  .mock-sub { margin: 0 auto 18px; max-width: 390px; text-align: center; font-size: 11.5px; color: var(--muted); }
+  .mock-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; width: min(470px, 100%); margin: 0 auto; }
+  .mock-chips span {
+    padding: 9px 12px;
+    border: 1px solid #e5dfd2; border-radius: 10px;
+    background: #fffefb; font-size: 10.5px; color: var(--ink-2);
+    box-shadow: 0 1px 2px rgba(48, 41, 28, .03);
+  }
+  .mock-composer {
+    display: flex; align-items: center;
+    width: min(470px, 100%); height: 38px; margin: 14px auto 0; padding: 0 7px 0 14px;
+    border: 1px solid #ded7c8; border-radius: 12px;
+    background: #fffefb; font-size: 11px; color: #9a9182;
+    box-shadow: 0 6px 18px -12px rgba(48, 41, 28, .3);
+  }
+  .mock-send {
+    margin-left: auto; display: grid; place-items: center;
+    width: 25px; height: 25px; border-radius: 8px;
+    background: var(--accent); color: #f7faf6; font-size: 13px;
+  }
+
+  .notes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 34px; }
+  .note {
+    padding: 18px 20px; border: 1px solid var(--line); border-radius: 18px;
+    background: rgba(251, 247, 238, .66);
+  }
+  .note b { display: block; margin-bottom: 5px; font-size: 12.5px; font-weight: 600; }
+  .note p { margin: 0; font-size: 11.5px; line-height: 1.75; color: var(--muted); }
+  .note .tag { display: inline-block; margin-bottom: 8px; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+
+  footer {
+    margin: 56px 0 0; padding: 26px 0 54px;
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+    font-size: 11px; color: var(--faint);
+  }
+  footer b { color: var(--ink-2); font-weight: 600; }
+
+  @media (max-width: 960px) {
+    .concepts { grid-template-columns: 1fr; }
+    .stage { height: 320px; }
+    .stage svg { width: 190px; height: 224px; }
+    .states { grid-template-columns: repeat(2, 1fr); }
+    .notes { grid-template-columns: 1fr; }
+    .compare { flex-direction: column; }
+    .compare-arrow { display: none; }
+  }
+  @media (max-width: 640px) {
+    .page { width: min(100% - 28px, 1180px); }
+    .page-head { padding-top: 44px; }
+    .sheet { padding: 18px; border-radius: 22px; }
+    .sizes { gap: 20px; padding: 18px; }
+    .mock-main { padding: 20px 14px 18px; }
+    .mock-chips { grid-template-columns: 1fr; }
+    .mock h4 { font-size: 24px; }
+    .mock-scene { transform: scale(.9); transform-origin: center bottom; margin-bottom: -6px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ defs === -->
+<svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="g-skin" x1="0" y1="0" x2=".25" y2="1">
+      <stop offset="0" stop-color="#fffdf8"/>
+      <stop offset=".55" stop-color="#f8ecd8"/>
+      <stop offset="1" stop-color="#ecd6b6"/>
+    </linearGradient>
+    <linearGradient id="g-skin-2" x1="0" y1="0" x2=".2" y2="1">
+      <stop offset="0" stop-color="#fffdf8"/>
+      <stop offset="1" stop-color="#f0ddc2"/>
+    </linearGradient>
+    <linearGradient id="g-leaf" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#5d7a63"/>
+      <stop offset="1" stop-color="#8fb095"/>
+    </linearGradient>
+    <linearGradient id="g-leaf2" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#8fb095"/>
+      <stop offset="1" stop-color="#bdd2b9"/>
+    </linearGradient>
+    <linearGradient id="g-overall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7e9c82"/>
+      <stop offset="1" stop-color="#5c7a64"/>
+    </linearGradient>
+    <linearGradient id="g-scarf" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d89a8d"/>
+      <stop offset="1" stop-color="#c07d70"/>
+    </linearGradient>
+    <linearGradient id="g-night" x1="0" y1="0" x2=".4" y2="1">
+      <stop offset="0" stop-color="#64766f"/>
+      <stop offset="1" stop-color="#41534e"/>
+    </linearGradient>
+    <linearGradient id="g-moon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f3dca6"/>
+      <stop offset="1" stop-color="#ddb873"/>
+    </linearGradient>
+    <clipPath id="clip-moon">
+      <circle cx="116" cy="126" r="10"/>
+    </clipPath>
+    <mask id="mask-moon">
+      <rect width="160" height="180" fill="#000"/>
+      <circle cx="116" cy="126" r="10" fill="#fff"/>
+      <circle cx="121" cy="122" r="8.6" fill="#000"/>
+    </mask>
+
+    <!-- ======================================================== A: base === -->
+    <symbol id="a-base" viewBox="0 0 160 180">
+      <ellipse cx="80" cy="169" rx="36" ry="5.4" fill="#3b372e" opacity=".13"/>
+      <path d="M67 112C59 117 54 125 54 133" fill="none" stroke="#f7e8d1" stroke-width="10" stroke-linecap="round"/>
+      <path d="M93 112C101 117 106 125 106 133" fill="none" stroke="#f7e8d1" stroke-width="10" stroke-linecap="round"/>
+      <circle cx="54" cy="134" r="5.2" fill="#f9ecd8"/>
+      <circle cx="106" cy="134" r="5.2" fill="#f9ecd8"/>
+      <rect x="69" y="138" width="10" height="21" rx="5" fill="#f1dfc4"/>
+      <rect x="81" y="138" width="10" height="21" rx="5" fill="#f1dfc4"/>
+      <ellipse cx="74" cy="160" rx="9.5" ry="5.4" fill="#6e8a72"/>
+      <ellipse cx="86" cy="160" rx="9.5" ry="5.4" fill="#6e8a72"/>
+      <path d="M60 112c0-8 7-12 14-12h12c7 0 14 4 14 12v22c0 12-8 17-20 17s-20-5-20-17Z" fill="url(#g-skin)"/>
+      <path d="M64 118h32v16c0 10-7 15-16 15s-16-5-16-15Z" fill="url(#g-overall)"/>
+      <path d="M72 135h16" stroke="#a9c3a6" stroke-width="1.1" stroke-dasharray="2 3" stroke-linecap="round" opacity=".6"/>
+      <path d="M80 124c-1.7-2.1-4.4-.5-3.3 1.9.9 1.8 3.3 3.2 3.3 3.2s2.4-1.4 3.3-3.2c1.1-2.4-1.6-4-3.3-1.9Z" fill="#e5a399"/>
+    </symbol>
+
+    <!-- ======================================================== A: head === -->
+    <symbol id="a-head" viewBox="0 0 160 180">
+      <ellipse cx="80" cy="114" rx="16" ry="4" fill="#e2cdaf" opacity=".5"/>
+      <circle cx="80" cy="76" r="41" fill="url(#g-skin)"/>
+      <path d="M46 88c4 20 17 30 34 30s30-10 34-30" fill="#e6cfae" opacity=".22"/>
+      <path d="M80 40c0-8-3-13-2-19" stroke="#5d7a63" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+      <path d="M78 31c-8 1-16-4-18-13 9-3 16 4 19 12Z" fill="url(#g-leaf)"/>
+      <path d="M81 27c7-2 12-8 12-16-8-1-14 6-15 14Z" fill="url(#g-leaf2)"/>
+      <path d="M56 109c12-5 36-5 48 0l-2 9c-12-5-32-5-44 0Z" fill="url(#g-scarf)"/>
+      <circle cx="101" cy="113" r="4.2" fill="#b97264"/>
+      <rect x="99" y="114" width="7" height="20" rx="3.5" fill="#ce8b7d" transform="rotate(-10 102 124)"/>
+      <rect x="105" y="116" width="6" height="16" rx="3" fill="#d89a8d" transform="rotate(8 108 124)"/>
+    </symbol>
+
+    <!-- ======================================================= A: faces === -->
+    <g id="a-face-idle">
+      <ellipse cx="66" cy="80" rx="3.5" ry="4.6" fill="#3b3a32"/>
+      <ellipse cx="94" cy="80" rx="3.5" ry="4.6" fill="#3b3a32"/>
+      <circle cx="67.2" cy="78.1" r="1.2" fill="#fffdf8"/>
+      <circle cx="95.2" cy="78.1" r="1.2" fill="#fffdf8"/>
+      <ellipse cx="53" cy="90" rx="7.6" ry="4" fill="#e39a8e" opacity=".5"/>
+      <ellipse cx="107" cy="90" rx="7.6" ry="4" fill="#e39a8e" opacity=".5"/>
+      <path d="M76 92q2 3 4 0 2 3 4 0" fill="none" stroke="#3b3a32" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="a-face-think">
+      <path d="M62 81q4 2 8 0M90 81q4 2 8 0" fill="none" stroke="#3b3a32" stroke-width="2.4" stroke-linecap="round"/>
+      <ellipse cx="53" cy="90" rx="7.6" ry="4" fill="#e39a8e" opacity=".4"/>
+      <ellipse cx="107" cy="90" rx="7.6" ry="4" fill="#e39a8e" opacity=".4"/>
+      <path d="M77 94h6" stroke="#3b3a32" stroke-width="2.1" stroke-linecap="round"/>
+      <g fill="#8fb095">
+        <circle cx="126" cy="48" r="2.6"/>
+        <circle cx="134" cy="37" r="3.4"/>
+        <circle cx="144" cy="24" r="4.2"/>
+      </g>
+    </g>
+    <g id="a-face-happy">
+      <path d="M61 81q5-5 10 0M89 81q5-5 10 0" fill="none" stroke="#3b3a32" stroke-width="2.6" stroke-linecap="round"/>
+      <ellipse cx="53" cy="90" rx="7.6" ry="4" fill="#e39a8e" opacity=".65"/>
+      <ellipse cx="107" cy="90" rx="7.6" ry="4" fill="#e39a8e" opacity=".65"/>
+      <path d="M75 92q5 6 10 0Z" fill="#b97264"/>
+      <ellipse cx="80" cy="95" rx="3" ry="1.8" fill="#e8a094"/>
+      <path d="M130 43c-2.4-3.4-7-1.2-7 2.2 0 4.4 7 8 7 8s7-3.6 7-8c0-3.4-4.6-5.6-7-2.2Z" fill="#e39a8e" opacity=".85"/>
+      <path d="M146 25c-1.7-2.4-5-.8-5 1.6 0 3.1 5 5.7 5 5.7s5-2.6 5-5.7c0-2.4-3.3-4-5-1.6Z" fill="#e39a8e" opacity=".55"/>
+    </g>
+    <g id="a-face-sleep">
+      <path d="M62 81q4 2 8 0M90 81q4 2 8 0" fill="none" stroke="#3b3a32" stroke-width="2.3" stroke-linecap="round"/>
+      <ellipse cx="53" cy="90" rx="7.6" ry="4" fill="#e39a8e" opacity=".4"/>
+      <ellipse cx="107" cy="90" rx="7.6" ry="4" fill="#e39a8e" opacity=".4"/>
+      <path d="M78 94q2 2 4 0" fill="none" stroke="#3b3a32" stroke-width="2" stroke-linecap="round"/>
+      <g fill="#8fb095" font-family="Georgia, serif" font-style="italic">
+        <text x="124" y="52" font-size="18">z</text>
+        <text x="136" y="35" font-size="14" opacity=".8">z</text>
+        <text x="146" y="21" font-size="10" opacity=".6">z</text>
+      </g>
+    </g>
+
+    <!-- ===================================================== A: symbols === -->
+    <symbol id="doll-a" viewBox="0 0 160 180">
+      <use href="#a-base"/><use href="#a-head"/><use href="#a-face-idle"/>
+    </symbol>
+    <symbol id="doll-a-think" viewBox="0 0 160 180">
+      <use href="#a-base"/><use href="#a-head"/><use href="#a-face-think"/>
+    </symbol>
+    <symbol id="doll-a-happy" viewBox="0 0 160 180">
+      <use href="#a-base"/><use href="#a-head"/><use href="#a-face-happy"/>
+    </symbol>
+    <symbol id="doll-a-sleep" viewBox="0 0 160 180">
+      <use href="#a-base"/><use href="#a-head"/><use href="#a-face-sleep"/>
+    </symbol>
+
+    <!-- ========================================================== face A === -->
+    <symbol id="face-a" viewBox="0 0 64 64">
+      <circle cx="32" cy="37" r="21.5" fill="url(#g-skin-2)"/>
+      <path d="M32 16.5c0-5.5-2-8.5-1-12.5" stroke="#5d7a63" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <path d="M31 14c-5 1-10-2-11-8 6-2 10 3 11.5 7Z" fill="url(#g-leaf)"/>
+      <path d="M32.5 11c4-1 6.5-5 6.5-9-5-.5-8 3.5-8 8Z" fill="url(#g-leaf2)"/>
+      <ellipse cx="25" cy="37" rx="2.3" ry="3" fill="#3b3a32"/>
+      <ellipse cx="39" cy="37" rx="2.3" ry="3" fill="#3b3a32"/>
+      <circle cx="25.8" cy="35.9" r=".75" fill="#fffdf8"/>
+      <circle cx="39.8" cy="35.9" r=".75" fill="#fffdf8"/>
+      <ellipse cx="18" cy="43" rx="4" ry="2.2" fill="#e39a8e" opacity=".5"/>
+      <ellipse cx="46" cy="43" rx="4" ry="2.2" fill="#e39a8e" opacity=".5"/>
+      <path d="M29 44q1.5 2.2 3 0 1.5 2.2 3 0" fill="none" stroke="#3b3a32" stroke-width="1.6" stroke-linecap="round"/>
+    </symbol>
+
+    <!-- ======================================================= B: letter === -->
+    <symbol id="doll-b" viewBox="0 0 160 180">
+      <ellipse cx="80" cy="169" rx="34" ry="5.2" fill="#3b372e" opacity=".12"/>
+      <path d="M58 118c-6 6-10 12-10 16" fill="none" stroke="#f7e8d1" stroke-width="9" stroke-linecap="round"/>
+      <path d="M102 118c6 6 10 12 10 16" fill="none" stroke="#f7e8d1" stroke-width="9" stroke-linecap="round"/>
+      <circle cx="48" cy="135" r="4.8" fill="#f9ecd8"/>
+      <circle cx="112" cy="135" r="4.8" fill="#f9ecd8"/>
+      <rect x="70" y="141" width="8" height="17" rx="4" fill="#f1dfc4"/>
+      <rect x="82" y="141" width="8" height="17" rx="4" fill="#f1dfc4"/>
+      <ellipse cx="74" cy="159" rx="8" ry="4.8" fill="#6e8a72"/>
+      <ellipse cx="86" cy="159" rx="8" ry="4.8" fill="#6e8a72"/>
+      <rect x="52" y="100" width="56" height="52" rx="8" fill="#fffbf0" stroke="#e4ceae" stroke-width="1.4"/>
+      <path d="M53 104l27 24 27-24" fill="none" stroke="#dcc3a0" stroke-width="1.8" stroke-linejoin="round"/>
+      <circle cx="80" cy="128" r="8.6" fill="#d98a80"/>
+      <path d="M80 125.5c-1.3-1.7-3.6-.4-2.7 1.6.7 1.5 2.7 2.6 2.7 2.6s2-1.1 2.7-2.6c.9-2-1.4-3.3-2.7-1.6Z" fill="#fff4e6"/>
+      <circle cx="80" cy="66" r="38" fill="url(#g-skin)"/>
+      <g transform="rotate(-7 95 141)">
+        <rect x="88" y="132" width="14" height="18" rx="1.5" fill="#edf3ea" stroke="#9db4a0" stroke-width="1.1" stroke-dasharray="2 1.8"/>
+        <path d="M95 139c-1.4-1.9-4.2-.7-4.2 1.3 0 2.6 4.2 4.8 4.2 4.8s4.2-2.2 4.2-4.8c0-2-2.8-3.2-4.2-1.3Z" fill="#8fb095"/>
+      </g>
+      <ellipse cx="66" cy="70" rx="3.4" ry="4.4" fill="#3b3a32"/>
+      <ellipse cx="94" cy="70" rx="3.4" ry="4.4" fill="#3b3a32"/>
+      <circle cx="67.2" cy="68.1" r="1.15" fill="#fffdf8"/>
+      <circle cx="95.2" cy="68.1" r="1.15" fill="#fffdf8"/>
+      <ellipse cx="53" cy="80" rx="7.2" ry="3.8" fill="#e39a8e" opacity=".5"/>
+      <ellipse cx="107" cy="80" rx="7.2" ry="3.8" fill="#e39a8e" opacity=".5"/>
+      <path d="M76 81q2 3 4 0 2 3 4 0" fill="none" stroke="#3b3a32" stroke-width="2.1" stroke-linecap="round"/>
+      <path d="M112 134c0-6 0-10 0-14" stroke="#5d7a63" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+      <g fill="#f3d9cf">
+        <circle cx="112" cy="114" r="3"/>
+        <circle cx="116" cy="118" r="3"/>
+        <circle cx="114" cy="122" r="3"/>
+        <circle cx="109" cy="121" r="3"/>
+        <circle cx="108" cy="117" r="3"/>
+      </g>
+      <circle cx="112" cy="118" r="2.1" fill="#e5c07b"/>
+    </symbol>
+
+    <!-- ========================================================== C: moon === -->
+    <symbol id="doll-c" viewBox="0 0 160 180">
+      <ellipse cx="80" cy="169" rx="34" ry="5.2" fill="#3b372e" opacity=".12"/>
+      <path d="M70 58C64 36 54 16 46 8c-8 14-1 38 14 52Z" fill="url(#g-skin)"/>
+      <path d="M64 55c-6-17-13-31-16-39-3 11 3 28 11 39Z" fill="#e9b3aa" opacity=".55"/>
+      <path d="M92 56c8-18 16-34 24-40 8 6 10 20 4 30-6 10-16 16-24 18Z" fill="url(#g-skin)"/>
+      <path d="M98 55c7-14 13-26 18-31 2 6 1 15-3 21-5 8-11 12-15 14Z" fill="#e9b3aa" opacity=".5"/>
+      <path d="M64 116q0-14 16-14t16 14l7 34q-23 10-46 0Z" fill="url(#g-night)"/>
+      <path d="M66 120h28" stroke="#e5c07b" stroke-width="1.4" opacity=".55" stroke-linecap="round"/>
+      <g fill="#e5c07b" opacity=".7">
+        <path d="M66 128l1.2 2.6 2.6 1.2-2.6 1.2L66 136l-1.2-2.6-2.6-1.2 2.6-1.2Z"/>
+        <path d="M91 138l1 2.2 2.2 1-2.2 1-1 2.2-1-2.2-2.2-1 2.2-1Z" opacity=".7"/>
+        <path d="M74 146l.9 2 2 .9-2 .9-.9 2-.9-2-2-.9 2-.9Z" opacity=".5"/>
+      </g>
+      <circle cx="80" cy="78" r="33" fill="url(#g-skin)"/>
+      <path d="M50 88c4 16 16 24 30 24s26-8 30-24" fill="#e6cfae" opacity=".2"/>
+      <path d="M100 56l1.7 3.8 4 .6-3 3 .8 4.2-3.5-2.2-3.5 2.2.8-4.2-3-3 4-.6Z" fill="#e5c07b"/>
+      <ellipse cx="67" cy="80" rx="3.3" ry="4.4" fill="#3b3a32"/>
+      <ellipse cx="93" cy="80" rx="3.3" ry="4.4" fill="#3b3a32"/>
+      <circle cx="68.2" cy="78.1" r="1.1" fill="#fffdf8"/>
+      <circle cx="94.2" cy="78.1" r="1.1" fill="#fffdf8"/>
+      <ellipse cx="54" cy="90" rx="7" ry="3.8" fill="#e39a8e" opacity=".5"/>
+      <ellipse cx="106" cy="90" rx="7" ry="3.8" fill="#e39a8e" opacity=".5"/>
+      <path d="M77 92q1.8 2.6 3.6 0 1.8 2.6 3.6 0" fill="none" stroke="#3b3a32" stroke-width="2" stroke-linecap="round"/>
+      <path d="M63 132c-3 2-5 5-5 8" fill="none" stroke="#f7e8d1" stroke-width="8" stroke-linecap="round"/>
+      <path d="M97 132c3 2 5 5 5 8" fill="none" stroke="#f7e8d1" stroke-width="8" stroke-linecap="round"/>
+      <circle cx="58" cy="139" r="4.4" fill="#f9ecd8"/>
+      <circle cx="102" cy="139" r="4.4" fill="#f9ecd8"/>
+      <circle cx="116" cy="126" r="10" fill="url(#g-moon)" mask="url(#mask-moon)"/>
+      <path d="M128 103l.9 2 2 .9-2 .9-.9 2-.9-2-2-.9 2-.9Z" fill="#e5c07b" opacity=".8"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="page">
+  <header class="page-head">
+    <div class="kicker">Eunoia · 视觉提案 01</div>
+    <h1>给 Eunoia 一个<br><em>可以坐下来</em>的样子</h1>
+    <p>
+      现在的助手头像是一个字母 <strong>“e”</strong>。它是准确的，但不温暖，也不像一个人。
+      我想让 Eunoia 变成一个住在纸页边缘的小人偶：不抢话、不卖萌，只是安静地在那里，
+      在你打字的时候抬头，在你难过的时候把灯调暗一点。
+    </p>
+    <p class="decision">最终采用：<b>小芽</b> · 已接入头像、空状态、角标与 favicon</p>
+  </header>
+
+  <section class="compare" aria-label="现状与目标">
+    <div class="compare-card before">
+      <div class="label">现在</div>
+      <div class="mini-turn">
+        <span class="letter-avatar" aria-hidden="true">e</span>
+        <div class="mini-bubble">嗯，我在。</div>
+      </div>
+    </div>
+    <div class="compare-arrow" aria-hidden="true">→</div>
+    <div class="compare-card after">
+      <div class="label">之后</div>
+      <div class="mini-turn">
+        <span class="msg-avatar" aria-hidden="true"><svg viewBox="0 0 64 64"><use href="#face-a"/></svg></span>
+        <div class="mini-bubble">嗯，我在。</div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="concept-title">
+    <div class="section-head">
+      <h2 id="concept-title">三个方向</h2>
+      <p>同一个骨架，三种性格 · 可放大看细节</p>
+    </div>
+    <div class="concepts">
+
+      <article class="card recommended">
+        <div class="stage">
+          <div class="halo"></div><div class="halo inner"></div><div class="floor"></div>
+          <svg viewBox="0 0 160 180" role="img" aria-label="小芽：奶油色的小人偶，头顶两片嫩芽，围着陶土色围巾"><use href="#doll-a"/></svg>
+        </div>
+        <div class="card-body">
+          <div class="name-row"><h3>小芽</h3><span class="badge">已采用</span></div>
+          <p class="tagline">从现有的小芽图标长出来的一只小人偶。奶油色的身体，鼠尾草绿的背带裤，陶土色的围巾。</p>
+          <ul class="traits">
+            <li>和现在的品牌记号同源，不像空降的角色</li>
+            <li>24px 只留头和芽也认得出</li>
+            <li>两片芽可以做出“倾听 / 思考 / 睡着”</li>
+          </ul>
+          <div class="palette" aria-label="配色">
+            <span class="swatch" style="background:#f8ecd8"></span>
+            <span class="swatch" style="background:#6f8f76"></span>
+            <span class="swatch" style="background:#ce8b7d"></span>
+            <span class="swatch" style="background:#e39a8e"></span>
+            <span class="swatch" style="background:#3b3a32"></span>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="stage b">
+          <div class="halo"></div><div class="halo inner"></div><div class="floor"></div>
+          <svg viewBox="0 0 160 180" role="img" aria-label="小笺：身体是一封信的小人偶，脸侧贴着一张邮票"><use href="#doll-b"/></svg>
+        </div>
+        <div class="card-body">
+          <div class="name-row"><h3>小笺</h3><span class="badge quiet">叙事感</span></div>
+          <p class="tagline">身体是一只没有寄出的信封，封口是一颗心的火漆。适合更强调“记忆”和“写下来”的版本。</p>
+          <ul class="traits">
+            <li>把“对话被记住”变成看得见的隐喻</li>
+            <li>邮票、火漆、信纸，浪漫但不甜腻</li>
+            <li>细节多，24px 下需要单独画简化头</li>
+          </ul>
+          <div class="palette" aria-label="配色">
+            <span class="swatch" style="background:#fffbf0"></span>
+            <span class="swatch" style="background:#d98a80"></span>
+            <span class="swatch" style="background:#8fb095"></span>
+            <span class="swatch" style="background:#e5c07b"></span>
+            <span class="swatch" style="background:#3b3a32"></span>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="stage c">
+          <div class="halo"></div><div class="halo inner"></div><div class="floor"></div>
+          <svg viewBox="0 0 160 180" role="img" aria-label="月兔：奶油色的兔子，一只耳朵垂下来，戴星星发夹，披着夜色斗篷"><use href="#doll-c"/></svg>
+        </div>
+        <div class="card-body">
+          <div class="name-row"><h3>月兔</h3><span class="badge quiet">备选</span></div>
+          <p class="tagline">一只耳朵垂下来的兔子。星星发夹、月色斗篷，适合把深色模式做成“夜晚”的版本。</p>
+          <ul class="traits">
+            <li>垂耳朵天生适合做“困了 / 放松”</li>
+            <li>月亮和星星在深色模式里会发光</li>
+            <li>兔子的联想比较常见，辨识度靠配色拉</li>
+          </ul>
+          <div class="palette" aria-label="配色">
+            <span class="swatch" style="background:#f8ecd8"></span>
+            <span class="swatch" style="background:#4f615c"></span>
+            <span class="swatch" style="background:#e5c07b"></span>
+            <span class="swatch" style="background:#e9b3aa"></span>
+            <span class="swatch" style="background:#3b3a32"></span>
+          </div>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <section class="sheet" aria-labelledby="sheet-title">
+    <div class="sheet-head">
+      <div>
+        <h2 id="sheet-title">角色设定 · 小芽</h2>
+        <p>一个头身比约 2.5 的小人偶。头大、手短、脚小，所有细节都为“远看也认得出”服务。</p>
+      </div>
+      <div class="sheet-note">Character sheet · v0.1</div>
+    </div>
+
+    <div class="sizes" aria-label="尺寸测试">
+      <div class="size">
+        <div class="box"><svg width="24" height="24" viewBox="0 0 64 64" aria-hidden="true"><use href="#face-a"/></svg></div>
+        <div class="cap"><b>24px</b>图标</div>
+      </div>
+      <div class="size">
+        <div class="box"><svg width="30" height="30" viewBox="0 0 64 64" aria-hidden="true"><use href="#face-a"/></svg></div>
+        <div class="cap"><b>30px</b>消息头像</div>
+      </div>
+      <div class="size">
+        <div class="box"><svg width="56" height="63" viewBox="0 0 160 180" aria-hidden="true"><use href="#doll-a"/></svg></div>
+        <div class="cap"><b>56px</b>品牌角标</div>
+      </div>
+      <div class="size">
+        <div class="box"><svg width="96" height="108" viewBox="0 0 160 180" aria-hidden="true"><use href="#doll-a"/></svg></div>
+        <div class="cap"><b>96px</b>空状态</div>
+      </div>
+      <div class="size">
+        <div class="box"><svg width="160" height="180" viewBox="0 0 160 180" aria-hidden="true"><use href="#doll-a"/></svg></div>
+        <div class="cap"><b>160px</b>场景</div>
+      </div>
+    </div>
+
+    <div class="states">
+      <div class="state">
+        <svg viewBox="0 0 160 180" aria-hidden="true"><use href="#doll-a"/></svg>
+        <b>在</b><span>呼吸、眨眼，芽轻轻晃</span>
+      </div>
+      <div class="state">
+        <svg viewBox="0 0 160 180" aria-hidden="true"><use href="#doll-a-think"/></svg>
+        <b>思考</b><span>闭眼，旁边冒三个小泡泡</span>
+      </div>
+      <div class="state">
+        <svg viewBox="0 0 160 180" aria-hidden="true"><use href="#doll-a-happy"/></svg>
+        <b>开心</b><span>弯眼睛，围巾跟着跳一下</span>
+      </div>
+      <div class="state">
+        <svg viewBox="0 0 160 180" aria-hidden="true"><use href="#doll-a-sleep"/></svg>
+        <b>困了</b><span>长时间没说话才出现，不催</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="placement" aria-labelledby="placement-title">
+    <div class="section-head">
+      <h2 id="placement-title">落位示意</h2>
+      <p>空状态 · 不是一张插画，而是一个可以坐下来的角落</p>
+    </div>
+    <div class="mock">
+      <div class="mock-bar">
+        <span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span>
+        <b>Eunoia</b><span>· 对话</span>
+        <span class="mock-pill">长期记忆</span>
+      </div>
+      <div class="mock-main">
+        <div class="mock-scene" aria-hidden="true">
+          <div class="plant"><span class="pot"></span><span class="leaf"></span><span class="leaf two"></span></div>
+          <div class="shelf"></div>
+          <svg class="hero-doll" viewBox="0 0 160 180"><use href="#doll-a"/></svg>
+          <div class="mug"><span class="steam"></span></div>
+        </div>
+        <p class="mock-eyebrow">这里没有别人</p>
+        <h4>今天想聊点什么？</h4>
+        <p class="mock-sub">不用整理好情绪再开口。说说今天发生的事，或者只是坐一会儿。</p>
+        <div class="mock-chips">
+          <span>今天有点累，不想说话</span>
+          <span>帮我理一理最近的想法</span>
+          <span>记住：我喜欢下雨天</span>
+          <span>随便聊聊就好</span>
+        </div>
+        <div class="mock-composer">和 Eunoia 说点什么…<span class="mock-send">↑</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="notes" aria-label="设计说明">
+    <div class="note">
+      <span class="tag">Why this</span>
+      <b>为什么不是真的画一张图</b>
+      <p>页面是单文件、离线可打开的。内联 SVG 能跟着亮暗主题变色、放大不糊、不增加网络请求，也不会引进来路不明的素材。</p>
+    </div>
+    <div class="note">
+      <span class="tag">Tone</span>
+      <b>可爱，但不幼稚</b>
+      <p>圆、软、低饱和，靠“小动作”而不是大面积粉色。一次只让一个地方动，剩下的留给文字和留白。</p>
+    </div>
+    <div class="note">
+      <span class="tag">Next</span>
+      <b>确认方向后再写代码</b>
+      <p>选定角色后，我会先替换 30px 头像和 96px 空状态，再加状态动画与细节。不会一次把所有彩蛋都塞进去。</p>
+    </div>
+  </section>
+
+  <footer>
+    <span><b>Eunoia 人偶概念</b> · 设计提案 01 · 2026</span>
+    <span>概念稿，不是最终资产 · 所有图形均为手写 SVG</span>
+  </footer>
+</div>
+</body>
+</html>

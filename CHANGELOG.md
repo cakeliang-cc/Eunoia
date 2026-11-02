@@ -10,6 +10,14 @@
 
 ### Added
 
+- **小芽接替字母头像。** 助手每一轮的左侧、空状态、侧栏角标、工作区空态和
+  favicon 现在都用 `docs/design/mascot-concepts.html` 里选定的小芽；聊天页不再
+  出现 `content: "e"`。小芽以一组内联 `<symbol>` 放在 `web/index.html`：完整的
+  小芽用于空状态，概念页里的 64px 脸给 30px 头像和角标；`addTurn` 用
+  `createElementNS` 建 `<use>`，模型文本仍然不进 `innerHTML`。空状态有一圈
+  虚线圆环和轻微浮动，`prefers-reduced-motion` 下自动停。
+  - **测试**：`tests/web/client.test.ts` 断言助手有头像、用户没有，且源码里不再
+    有字母 `e` 的 fallback。
 - **本机权限控制面（ADR 022）。** 聊天页现在有模式切换器和待审批卡片；四种模式的
   语义没变，变的是入口。实现见
   [docs/adr/022-local-permission-ui.md](docs/adr/022-local-permission-ui.md)。

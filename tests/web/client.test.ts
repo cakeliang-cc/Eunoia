@@ -107,6 +107,25 @@ describe('the page shell', () => {
   });
 });
 
+describe('the mascot face', () => {
+  it('stands in for the assistant, and only the assistant', async () => {
+    const harness = await boot({
+      frames: [{ type: 'completed', text: '在。', conversationId: 'c1', messageId: 'm1' }],
+    });
+    await harness.send('在吗');
+
+    const turns = harness.transcript.children.filter((node) => node.classList.contains('turn'));
+    expect(turns.at(-2)?.child('bubble')?.child('msg-avatar')).toBeUndefined();
+    expect(turns.at(-1)?.child('bubble')?.child('msg-avatar')).toBeDefined();
+  });
+
+  it('does not fall back to the letter e', () => {
+    const html = readFileSync(join(import.meta.dirname, '..', '..', 'web', 'index.html'), 'utf8');
+    expect(html).not.toContain('content: "e"');
+    expect(html).toContain('sprout-avatar');
+  });
+});
+
 describe('the reasoning block', () => {
   it('streams the thinking, then closes it with how long it took', async () => {
     const { thinking, head, body } = lastTurn(await runTurn(THINKING_TURN));

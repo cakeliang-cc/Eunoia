@@ -6,6 +6,7 @@
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f3ee">
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#131311">
 <title>Eunoia</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiM0ZTZhNTYiLz4KICA8cGF0aCBkPSJNMzIgMjJjMC01LTItOC0xLTEyIiBzdHJva2U9IiNhOWMzYTYiIHN0cm9rZS13aWR0aD0iMi40IiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNMzEgMThjLTUgMS0xMC0yLTExLTggNi0yIDEwIDMgMTEuNSA3WiIgZmlsbD0iIzhmYjA5NSIvPgogIDxwYXRoIGQ9Ik0zMi41IDE1YzQtMSA2LjUtNSA2LjUtOS01LS41LTggMy41LTggOFoiIGZpbGw9IiNiZGQyYjkiLz4KICA8Y2lyY2xlIGN4PSIzMiIgY3k9IjQwIiByPSIxOCIgZmlsbD0iI2Y4ZWNkOCIvPgogIDxjaXJjbGUgY3g9IjI2IiBjeT0iNDAiIHI9IjIiIGZpbGw9IiMzYjNhMzIiLz4KICA8Y2lyY2xlIGN4PSIzOCIgY3k9IjQwIiByPSIyIiBmaWxsPSIjM2IzYTMyIi8+CiAgPHBhdGggZD0iTTI5IDQ2cTEuNSAyIDMgMCAxLjUgMiAzIDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzNiM2EzMiIgc3Ryb2tlLXdpZHRoPSIxLjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxlbGxpcHNlIGN4PSIyMCIgY3k9IjQ1IiByeD0iMy40IiByeT0iMS45IiBmaWxsPSIjZTM5YThlIiBvcGFjaXR5PSIuNTUiLz4KICA8ZWxsaXBzZSBjeD0iNDQiIGN5PSI0NSIgcng9IjMuNCIgcnk9IjEuOSIgZmlsbD0iI2UzOWE4ZSIgb3BhY2l0eT0iLjU1Ii8+Cjwvc3ZnPg==">
 <script>
   // Resolve the theme before the first paint. The stylesheet only has two
   // states, so an explicit choice has to be written onto <html> rather than
@@ -137,6 +138,7 @@
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   ::selection { background: var(--accent-soft); color: var(--ink); }
 
+  .mascot-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
   * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -178,7 +180,10 @@
     box-shadow: 0 7px 18px -8px rgba(61, 86, 68, .65),
                 inset 0 1px 0 rgba(255, 255, 255, .2);
   }
-  .brand-mark .icon { width: 21px; height: 21px; stroke-width: 1.6; }
+  .brand-mark .mascot-face { width: 28px; height: 28px; display: block; }
+  :root[data-theme="dark"] .brand-mark {
+    background: linear-gradient(145deg, #3b5444 0%, #2a3d32 100%);
+  }
   .brand-copy { min-width: 0; }
   .brand-copy h1 {
     font-family: var(--font-display); font-size: 21px; font-weight: 600;
@@ -456,14 +461,34 @@
     animation: hero-in .55s cubic-bezier(.2, .8, .2, 1) both;
   }
   .hero-mark {
-    width: 58px; height: 58px; margin: 0 auto 22px;
-    display: grid; place-items: center; border-radius: 19px;
-    color: var(--on-accent);
-    background: linear-gradient(145deg, var(--accent) 0%, var(--accent-strong) 100%);
-    box-shadow: 0 18px 40px -18px rgba(61, 86, 68, .65),
-                inset 0 1px 0 rgba(255, 255, 255, .22);
+    position: relative;
+    width: 132px; height: 148px; margin: 0 auto 18px;
+    display: grid; place-items: center;
   }
-  .hero-mark .icon { width: 30px; height: 30px; stroke-width: 1.45; }
+  .hero-mark::before {
+    content: ""; position: absolute; inset: 9% 0 1%;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 36%, #f8fbf5 0%, #e6efe4 62%, #d8e6d9 100%);
+    border: 1px dashed rgba(201, 133, 119, .32);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .35),
+                0 16px 34px -26px rgba(61, 86, 68, .55);
+    opacity: 1;
+  }
+  .hero-mark svg {
+    position: relative; z-index: 1;
+    width: 132px; height: 148px; display: block;
+    filter: drop-shadow(0 16px 26px rgba(61, 86, 68, .18));
+    animation: mascot-float 5.5s ease-in-out infinite;
+  }
+  :root[data-theme="dark"] .hero-mark::before {
+    background: radial-gradient(circle at 50% 36%, #2b3a33 0%, #22302a 62%, #1b2722 100%);
+    border-color: rgba(229, 192, 123, .22);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04),
+                0 18px 40px -28px rgba(0, 0, 0, .7);
+  }
+  :root[data-theme="dark"] .hero-mark svg {
+    filter: drop-shadow(0 0 26px rgba(229, 192, 123, .14)) drop-shadow(0 16px 30px rgba(0, 0, 0, .55));
+  }
   .hero-eyebrow {
     margin-bottom: 11px;
     font-size: 10px; font-weight: 600; letter-spacing: .24em;
@@ -530,16 +555,18 @@
     max-width: 100%;
     padding: 1px 0 0 46px;
   }
-  .assistant .bubble::before {
-    content: "e";
+  /* The same face as the empty state, cropped for the margin. It is created
+     in addTurn, so a stored turn and a streamed one look the same. */
+  .msg-avatar {
     position: absolute; left: 0; top: 0;
     width: 30px; height: 30px;
     display: grid; place-items: center;
-    border: 1px solid var(--user-border); border-radius: 10px;
-    background: var(--accent-soft); color: var(--accent-strong);
-    font-family: var(--font-display); font-size: 15px; font-weight: 600;
-    line-height: 1;
+    border: 1px solid #48624f; border-radius: 10px;
+    background: linear-gradient(150deg, #6f8f76, #4e6a56);
+    box-shadow: 0 3px 8px -5px rgba(40, 60, 45, .7);
+    overflow: hidden;
   }
+  .msg-avatar svg { width: 27px; height: 27px; display: block; }
   .text {
     white-space: pre-wrap;
     font-size: 15px; line-height: 1.88;
@@ -1033,10 +1060,12 @@
   .wb-body[data-empty="true"] .wb-pane { display: none; }
   .wb-empty-mark {
     width: 48px; height: 48px; display: grid; place-items: center;
-    border-radius: 15px; background: var(--accent-soft); color: var(--accent-strong);
-    box-shadow: inset 0 0 0 1px var(--user-border);
+    border-radius: 15px;
+    background: linear-gradient(150deg, #6f8f76, #4e6a56);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14),
+                0 6px 16px -10px rgba(40, 60, 45, .7);
   }
-  .wb-empty-mark .icon { width: 23px; height: 23px; }
+  .wb-empty-mark .mascot-face { width: 32px; height: 32px; display: block; }
   .wb-empty h3 {
     margin: 0; font-family: var(--font-display);
     font-size: 20px; font-weight: 500; letter-spacing: -.01em;
@@ -1398,6 +1427,10 @@
   @keyframes caret { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
   @keyframes dot { 0%, 100% { opacity: .3; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
   @keyframes think { 0%, 100% { opacity: .3; transform: scale(.75); } 50% { opacity: 1; transform: scale(1.1); } }
+  @keyframes mascot-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-5px); }
+  }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -1459,12 +1492,13 @@
     .empty-inner > p { font-size: 13px; margin-bottom: 24px; }
     .starter-grid { grid-template-columns: 1fr; gap: 8px; }
     .starter { padding: 12px 13px; font-size: 12px; }
-    .hero-mark { width: 50px; height: 50px; border-radius: 16px; margin-bottom: 19px; }
-    .hero-mark .icon { width: 26px; height: 26px; }
+    .hero-mark { width: 104px; height: 117px; margin-bottom: 16px; }
+    .hero-mark svg { width: 104px; height: 117px; }
     .user .bubble { max-width: 90%; }
-    .assistant .bubble { padding-left: 0; }
-    .assistant .bubble::before { display: none; }
-    .assistant .meta { padding-left: 0; }
+    .assistant .bubble { padding-left: 36px; }
+    .assistant .meta { padding-left: 36px; }
+    .msg-avatar { width: 26px; height: 26px; border-radius: 9px; }
+    .msg-avatar svg { width: 23px; height: 23px; }
     .text { font-size: 14.5px; }
     .composer-hint .hint-sep,
     .composer-hint .hint-keys { display: none; }
@@ -1497,16 +1531,99 @@
 </style>
 </head>
 <body>
+<svg class="mascot-defs" width="0" height="0" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="g-skin" x1="0" y1="0" x2=".25" y2="1">
+      <stop offset="0" stop-color="#fffdf8"/>
+      <stop offset=".55" stop-color="#f8ecd8"/>
+      <stop offset="1" stop-color="#ecd6b6"/>
+    </linearGradient>
+    <linearGradient id="g-skin-2" x1="0" y1="0" x2=".2" y2="1">
+      <stop offset="0" stop-color="#fffdf8"/>
+      <stop offset="1" stop-color="#f0ddc2"/>
+    </linearGradient>
+    <linearGradient id="g-leaf" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#5d7a63"/>
+      <stop offset="1" stop-color="#8fb095"/>
+    </linearGradient>
+    <linearGradient id="g-leaf2" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#8fb095"/>
+      <stop offset="1" stop-color="#bdd2b9"/>
+    </linearGradient>
+    <linearGradient id="g-overall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7e9c82"/>
+      <stop offset="1" stop-color="#5c7a64"/>
+    </linearGradient>
+    <linearGradient id="g-scarf" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d89a8d"/>
+      <stop offset="1" stop-color="#c07d70"/>
+    </linearGradient>
+
+    <symbol id="sprout-avatar" viewBox="0 0 64 64">
+      <circle cx="32" cy="37" r="21.5" fill="url(#g-skin-2)"/>
+      <path d="M32 16.5c0-5.5-2-8.5-1-12.5" stroke="#a9c3a6" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <path d="M31 14c-5 1-10-2-11-8 6-2 10 3 11.5 7Z" fill="#8fb095" stroke="#fffdf8" stroke-width=".8"/>
+      <path d="M32.5 11c4-1 6.5-5 6.5-9-5-.5-8 3.5-8 8Z" fill="#bdd2b9" stroke="#fffdf8" stroke-width=".8"/>
+      <ellipse cx="25" cy="37" rx="2.3" ry="3" fill="#3b3a32"/>
+      <ellipse cx="39" cy="37" rx="2.3" ry="3" fill="#3b3a32"/>
+      <circle cx="25.8" cy="35.9" r=".75" fill="#fffdf8"/>
+      <circle cx="39.8" cy="35.9" r=".75" fill="#fffdf8"/>
+      <ellipse cx="18" cy="43" rx="4" ry="2.2" fill="#e39a8e" opacity=".5"/>
+      <ellipse cx="46" cy="43" rx="4" ry="2.2" fill="#e39a8e" opacity=".5"/>
+      <path d="M29 44q1.5 2.2 3 0 1.5 2.2 3 0" fill="none" stroke="#3b3a32" stroke-width="1.6" stroke-linecap="round"/>
+    </symbol>
+
+    <symbol id="sprout-base" viewBox="0 0 160 180">
+      <ellipse cx="80" cy="169" rx="36" ry="5.4" fill="#3b372e" opacity=".13"/>
+      <path d="M67 112C59 117 54 125 54 133" fill="none" stroke="#f7e8d1" stroke-width="10" stroke-linecap="round"/>
+      <path d="M93 112C101 117 106 125 106 133" fill="none" stroke="#f7e8d1" stroke-width="10" stroke-linecap="round"/>
+      <circle cx="54" cy="134" r="5.2" fill="#f9ecd8"/>
+      <circle cx="106" cy="134" r="5.2" fill="#f9ecd8"/>
+      <rect x="69" y="138" width="10" height="21" rx="5" fill="#f1dfc4"/>
+      <rect x="81" y="138" width="10" height="21" rx="5" fill="#f1dfc4"/>
+      <ellipse cx="74" cy="160" rx="9.5" ry="5.4" fill="#6e8a72"/>
+      <ellipse cx="86" cy="160" rx="9.5" ry="5.4" fill="#6e8a72"/>
+      <path d="M60 112c0-8 7-12 14-12h12c7 0 14 4 14 12v22c0 12-8 17-20 17s-20-5-20-17Z" fill="url(#g-skin)"/>
+      <path d="M64 118h32v16c0 10-7 15-16 15s-16-5-16-15Z" fill="url(#g-overall)"/>
+      <path d="M72 135h16" stroke="#a9c3a6" stroke-width="1.1" stroke-dasharray="2 3" stroke-linecap="round" opacity=".6"/>
+      <path d="M80 124c-1.7-2.1-4.4-.5-3.3 1.9.9 1.8 3.3 3.2 3.3 3.2s2.4-1.4 3.3-3.2c1.1-2.4-1.6-4-3.3-1.9Z" fill="#e5a399"/>
+    </symbol>
+
+    <symbol id="sprout-head" viewBox="0 0 160 180">
+      <ellipse cx="80" cy="114" rx="16" ry="4" fill="#e2cdaf" opacity=".5"/>
+      <circle cx="80" cy="76" r="41" fill="url(#g-skin)"/>
+      <path d="M46 88c4 20 17 30 34 30s30-10 34-30" fill="#e6cfae" opacity=".22"/>
+      <path d="M80 40c0-8-3-13-2-19" stroke="#5d7a63" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+      <path d="M78 31c-8 1-16-4-18-13 9-3 16 4 19 12Z" fill="url(#g-leaf)"/>
+      <path d="M81 27c7-2 12-8 12-16-8-1-14 6-15 14Z" fill="url(#g-leaf2)"/>
+      <path d="M56 109c12-5 36-5 48 0l-2 9c-12-5-32-5-44 0Z" fill="url(#g-scarf)"/>
+      <circle cx="101" cy="113" r="4.2" fill="#b97264"/>
+      <rect x="99" y="114" width="7" height="20" rx="3.5" fill="#ce8b7d" transform="rotate(-10 102 124)"/>
+      <rect x="105" y="116" width="6" height="16" rx="3" fill="#d89a8d" transform="rotate(8 108 124)"/>
+    </symbol>
+
+    <g id="sprout-face-idle">
+      <ellipse cx="66" cy="80" rx="3.5" ry="4.6" fill="#3b3a32"/>
+      <ellipse cx="94" cy="80" rx="3.5" ry="4.6" fill="#3b3a32"/>
+      <circle cx="67.2" cy="78.1" r="1.2" fill="#fffdf8"/>
+      <circle cx="95.2" cy="78.1" r="1.2" fill="#fffdf8"/>
+      <ellipse cx="53" cy="90" rx="7.6" ry="4" fill="#e39a8e" opacity=".5"/>
+      <ellipse cx="107" cy="90" rx="7.6" ry="4" fill="#e39a8e" opacity=".5"/>
+      <path d="M76 92q2 3 4 0 2 3 4 0" fill="none" stroke="#3b3a32" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+
+    <symbol id="sprout" viewBox="0 0 160 180">
+      <use href="#sprout-base"/><use href="#sprout-head"/><use href="#sprout-face-idle"/>
+    </symbol>
+  </defs>
+</svg>
+
 <div class="app">
   <aside class="sidebar" id="history" data-open="false" aria-label="对话列表">
     <div class="sidebar-head">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true">
-          <svg class="icon" viewBox="0 0 24 24">
-            <path d="M12 3.5c4.2 3.7 6.5 6.7 6.5 10a6.5 6.5 0 1 1-13 0c0-3.3 2.3-6.3 6.5-10Z"/>
-            <path d="M12 20v-6.5"/>
-            <path d="M12 15.5c1.4 0 2.6-.9 3.2-2.2"/>
-          </svg>
+          <svg class="mascot-face" viewBox="0 0 64 64"><use href="#sprout-avatar"/></svg>
         </span>
         <div class="brand-copy">
           <h1>Eunoia</h1>
@@ -1622,11 +1739,7 @@
       <section class="empty-hero" aria-label="开始一段对话">
         <div class="empty-inner">
           <div class="hero-mark" aria-hidden="true">
-            <svg class="icon" viewBox="0 0 24 24">
-              <path d="M12 3.5c4.2 3.7 6.5 6.7 6.5 10a6.5 6.5 0 1 1-13 0c0-3.3 2.3-6.3 6.5-10Z"/>
-              <path d="M12 20v-6.5"/>
-              <path d="M12 15.5c1.4 0 2.6-.9 3.2-2.2"/>
-            </svg>
+            <svg viewBox="0 0 160 180"><use href="#sprout"/></svg>
           </div>
           <div class="hero-eyebrow">这里没有别人</div>
           <h2 id="greeting">今天想聊点什么？</h2>
@@ -1756,9 +1869,7 @@
 
       <div class="wb-empty" id="wb-empty">
         <div class="wb-empty-mark" aria-hidden="true">
-          <svg class="icon" viewBox="0 0 24 24">
-            <path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2h6.4a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z"/>
-          </svg>
+          <svg class="mascot-face" viewBox="0 0 64 64"><use href="#sprout-avatar"/></svg>
         </div>
         <h3>没有打开工作区</h3>
         <p>选一个本地目录，文件树、改动和终端都会指向它。agent 的代码工作区仍然由服务端配置决定。</p>
@@ -2069,10 +2180,32 @@ function dots() {
   return box;
 }
 
+/**
+ * The assistant's face, drawn from the symbol in the page.
+ *
+ * The test shim has no `createElementNS`, so it gets the empty span and the
+ * class it asserts on; a browser gets the drawing. Nothing here is model text,
+ * and nothing goes through innerHTML.
+ */
+function mascotAvatar() {
+  const face = el('span', 'msg-avatar');
+  face.setAttribute('aria-hidden', 'true');
+  if (typeof document.createElementNS === 'function') {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 64 64');
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttribute('href', '#sprout-avatar');
+    svg.append(use);
+    face.append(svg);
+  }
+  return face;
+}
+
 function addTurn(role, text = '') {
   transcript.classList.remove('empty');
   const turn = el('div', `turn ${role}`);
   const bubble = el('div', 'bubble');
+  if (role === 'assistant') bubble.append(mascotAvatar());
   const body = el('div', 'text');
   // User text stays literal; only the assistant's prose is Markdown. A person
   // who types ** on purpose should see exactly what they typed.
