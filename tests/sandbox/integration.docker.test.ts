@@ -28,6 +28,7 @@ import { MemorySandboxStore } from '../../src/sandbox/store-memory.ts';
 import { RESOURCE_PROFILES, SANDBOX_POLICY_VERSION } from '../../src/sandbox/types.ts';
 import type { SandboxSettings } from '../../src/sandbox/config.ts';
 import { sandboxContainerName } from '../../src/sandbox/runtime/oci-args.ts';
+import { testPermissionSettings } from './helpers.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -93,6 +94,7 @@ async function startHarness(mode: 'bind' | 'copy' = 'bind'): Promise<Harness> {
     allowWrites: true,
     allowCommands: true,
     deniedTools: [],
+    permission: testPermissionSettings({ mode: 'auto' }),
     heartbeatMs: 30_000,
     nonGvisorAcknowledged: RUNTIME_CLASS !== 'gvisor',
   };

@@ -12,6 +12,9 @@
  *   npm run sandbox -- status
  *   npm run sandbox -- recover
  *   npm run sandbox -- approve --task <id> --action fs.write --scope /workspace --minutes 10
+ *   npm run sandbox -- mode --task <id> --mode read-only
+ *   npm run sandbox -- requests --task <id>
+ *   npm run sandbox -- approve-request --approval <id> --by alice
  *   npm run sandbox -- checkpoint --task <id>
  *   npm run sandbox -- gc --idle-minutes 60
  *   npm run sandbox -- proxy --listen 0.0.0.0:8788
@@ -23,6 +26,7 @@ import { selectStore } from '../db/select.ts';
 import { EgressPolicy } from './network/egress-policy.ts';
 import { createEgressProxy } from './network/egress-proxy.ts';
 import { SandboxError } from './errors.ts';
+import { PERMISSION_MODES, type PermissionMode } from './permissions/types.ts';
 import { log } from '../observability/logging.ts';
 
 interface Args {
@@ -64,11 +68,39 @@ function minutes(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed * 60_000 : fallback;
 }
 
+function parseMode(value: string): PermissionMode {
+  const normalized = value.trim().toLowerCase();
+  if (!(PERMISSION_MODES as readonly string[]).includes(normalized)) {
+    throw new SandboxError(
+      'invalid_input',
+      `unknown mode ${value}; expected ${PERMISSION_MODES.join(', ')}`,
+    );
+  }
+  return normalized as PermissionMode;
+}
+
+function parseApprovalScope(value: string): 'once' | 'task' | 'session' {
+  const normalized = value.trim().toLowerCase();
+  if (normalized !== 'once' && normalized !== 'task' && normalized !== 'session') {
+    throw new SandboxError('invalid_input', `unknown approval scope ${value}; expected once|task|session`);
+  }
+  return normalized;
+}
+
+function permissionScope(
+  flags: Readonly<Record<string, string>>,
+  task: { readonly taskId: string; readonly sessionId: string; readonly sandboxId: string | null },
+): { scopeType: 'session' | 'task' | 'sandbox'; scopeId: string } {
+  if (flags.sandbox) return { scopeType: 'sandbox', scopeId: flags.sandbox };
+  if (flags.session) return { scopeType: 'session', scopeId: flags.session };
+  return { scopeType: 'task', scopeId: task.taskId };
+}
+
 async function main(): Promise<void> {
   const { command, flags } = parseArgs(process.argv.slice(2));
   if (command === 'help' || command === '--help') {
     process.stdout.write(
-      'usage: sandbox <status|recover|approve|revoke|checkpoint|gc|proxy> [--flags]\n',
+      'usage: sandbox <status|recover|mode|permissions|requests|approvals|grants|approve|approve-request|deny-request|revoke|sweep|checkpoint|gc|proxy> [--flags]\n',
     );
     return;
   }
@@ -141,6 +173,119 @@ async function main(): Promise<void> {
           },
         );
         output(grant);
+        return;
+      }
+      case 'permissions': {
+        const taskId = requireFlag(flags, 'task');
+        const task = await selection.sandboxStore.getTask(taskId);
+        if (!task) throw new SandboxError('not_found', `task ${taskId} does not exist`);
+        output(
+          await platform.gateway.permissionStatus({
+            taskId,
+            userId: task.userId,
+            sessionId: task.sessionId,
+          }),
+        );
+        return;
+      }
+      case 'mode': {
+        const taskId = requireFlag(flags, 'task');
+        const task = await selection.sandboxStore.getTask(taskId);
+        if (!task) throw new SandboxError('not_found', `task ${taskId} does not exist`);
+        const context = { taskId, userId: task.userId, sessionId: task.sessionId };
+        if (!flags.mode) {
+          output(await platform.gateway.permissionStatus(context));
+          return;
+        }
+        const mode = parseMode(flags.mode);
+        const scope = permissionScope(flags, task);
+        const policy = await platform.gateway.setPermissionPolicy({
+          scopeType: scope.scopeType,
+          scopeId: scope.scopeId,
+          mode,
+          ...(flags.minutes ? { ttlMs: minutes(flags.minutes, 0) } : {}),
+          actor: flags.by?.trim() || settings.permission.operatorId,
+        });
+        output(policy);
+        return;
+      }
+      case 'requests': {
+        const taskId = requireFlag(flags, 'task');
+        const task = await selection.sandboxStore.getTask(taskId);
+        if (!task) throw new SandboxError('not_found', `task ${taskId} does not exist`);
+        output(
+          await platform.gateway.listPermissionRequests({
+            taskId,
+            userId: task.userId,
+            sessionId: task.sessionId,
+          }),
+        );
+        return;
+      }
+      case 'approvals': {
+        const taskId = requireFlag(flags, 'task');
+        const task = await selection.sandboxStore.getTask(taskId);
+        if (!task) throw new SandboxError('not_found', `task ${taskId} does not exist`);
+        output(
+          await platform.gateway.listPermissionApprovals({
+            taskId,
+            userId: task.userId,
+            sessionId: task.sessionId,
+          }),
+        );
+        return;
+      }
+      case 'grants': {
+        const taskId = requireFlag(flags, 'task');
+        const task = await selection.sandboxStore.getTask(taskId);
+        if (!task) throw new SandboxError('not_found', `task ${taskId} does not exist`);
+        output(
+          await platform.gateway.listPermissionGrants({
+            taskId,
+            userId: task.userId,
+            sessionId: task.sessionId,
+          }),
+        );
+        return;
+      }
+      case 'approve-request': {
+        const approvalId = requireFlag(flags, 'approval');
+        const approval = await selection.sandboxStore.getHumanApproval(approvalId);
+        if (!approval) throw new SandboxError('not_found', `approval ${approvalId} does not exist`);
+        const task = await selection.sandboxStore.getTask(approval.taskId);
+        if (!task) throw new SandboxError('not_found', `task ${approval.taskId} does not exist`);
+        const result = await platform.gateway.approvePermissionRequest(
+          { taskId: task.taskId, userId: task.userId, sessionId: task.sessionId },
+          {
+            approvalRequestId: approvalId,
+            decidedBy: requireFlag(flags, 'by'),
+            ...(flags.scope ? { scope: parseApprovalScope(flags.scope) } : {}),
+            ...(flags.minutes ? { ttlSeconds: Math.floor(minutes(flags.minutes, 0) / 1_000) } : {}),
+            ...(flags.reason ? { reason: flags.reason } : {}),
+          },
+        );
+        output(result);
+        return;
+      }
+      case 'deny-request': {
+        const approvalId = requireFlag(flags, 'approval');
+        const approval = await selection.sandboxStore.getHumanApproval(approvalId);
+        if (!approval) throw new SandboxError('not_found', `approval ${approvalId} does not exist`);
+        const task = await selection.sandboxStore.getTask(approval.taskId);
+        if (!task) throw new SandboxError('not_found', `task ${approval.taskId} does not exist`);
+        const result = await platform.gateway.denyPermissionRequest(
+          { taskId: task.taskId, userId: task.userId, sessionId: task.sessionId },
+          {
+            approvalRequestId: approvalId,
+            decidedBy: requireFlag(flags, 'by'),
+            ...(flags.reason ? { reason: flags.reason } : {}),
+          },
+        );
+        output(result);
+        return;
+      }
+      case 'sweep': {
+        output(await platform.gateway.sweepPermissions());
         return;
       }
       case 'checkpoint': {

@@ -87,6 +87,43 @@ describe('sandbox settings', () => {
     expect(settings?.resources.executionTimeoutMs).toBe(2 * 60 * 60_000);
   });
 
+  it('derives a permission mode from the deployment switches', () => {
+    const readOnly = sandboxSettings(env());
+    expect(readOnly?.permission.mode).toBe('read-only');
+    expect(readOnly?.permission.autoReview.enabled).toBe(false);
+
+    const onRequest = sandboxSettings(env({ WORKSPACE_COMMANDS: '1' }));
+    expect(onRequest?.permission.mode).toBe('on-request');
+
+    const auto = sandboxSettings(env({ WORKSPACE_WRITES: '1', WORKSPACE_COMMANDS: '1' }));
+    expect(auto?.permission.mode).toBe('auto');
+    expect(auto?.permission.autoReview.enabled).toBe(true);
+  });
+
+  it('honours explicit permission settings and rejects an unknown mode', () => {
+    const settings = sandboxSettings(
+      env({
+        WORKSPACE_WRITES: '1',
+        WORKSPACE_COMMANDS: '1',
+        SANDBOX_PERMISSION_MODE: 'restricted',
+        SANDBOX_AUTO_REVIEW: 'off',
+        SANDBOX_AUTO_APPROVE_RISK: 'low',
+        SANDBOX_RESTRICTED_WRITE: '/workspace/tests',
+        SANDBOX_RESTRICTED_TOOLS: 'read_file,write_file',
+      }),
+    );
+    expect(settings?.permission.mode).toBe('restricted');
+    expect(settings?.permission.autoReview.enabled).toBe(false);
+    expect(settings?.permission.autoReview.allowedRiskLevels).toEqual(['low']);
+    expect(settings?.permission.restricted.filesystem.write).toEqual(['/workspace/tests']);
+    expect(settings?.permission.restricted.allowedTools).toEqual(['read_file', 'write_file']);
+
+    expect(() => sandboxSettings(env({ SANDBOX_PERMISSION_MODE: 'yolo' }))).toThrow(/PERMISSION_MODE/);
+    expect(() =>
+      sandboxSettings(env({ SANDBOX_PERMISSION_ALLOWED_MODES: 'auto,everything' })),
+    ).toThrow(/allowed/i);
+  });
+
   it('builds nerdctl global arguments from operator configuration', () => {
     const settings = sandboxSettings(
       env({

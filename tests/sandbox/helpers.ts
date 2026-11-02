@@ -20,7 +20,7 @@ import {
   SANDBOX_POLICY_VERSION,
   type SandboxLimits,
 } from '../../src/sandbox/types.ts';
-import type { SandboxSettings } from '../../src/sandbox/config.ts';
+import type { SandboxPermissionSettings, SandboxSettings } from '../../src/sandbox/config.ts';
 
 export interface TestClock {
   current: Date;
@@ -47,14 +47,57 @@ export interface TestPlatform {
   readonly settings: SandboxSettings;
   readonly runtime: FakeRuntime;
   readonly platform: SandboxPlatform;
+  readonly permissionRecovery: SandboxPlatform['permissionRecovery'];
   readonly gateway: SandboxPlatform['gateway'];
   readonly clock: TestClock;
   cleanup: () => Promise<void>;
 }
 
+/** A permission configuration a test can reason about: auto-review off by default. */
+export function testPermissionSettings(
+  overrides: {
+    readonly mode?: SandboxPermissionSettings['mode'];
+    readonly allowedModes?: readonly SandboxPermissionSettings['mode'][];
+    readonly autoReview?: Partial<SandboxPermissionSettings['autoReview']>;
+    readonly approval?: Partial<SandboxPermissionSettings['approval']>;
+    readonly restricted?: Partial<SandboxPermissionSettings['restricted']>;
+    readonly requestTtlMs?: number;
+    readonly approvalTtlMs?: number;
+  } = {},
+): SandboxPermissionSettings {
+  return {
+    organizationId: 'default',
+    projectId: 'default',
+    mode: overrides.mode ?? 'auto',
+    allowedModes: overrides.allowedModes ?? ['read-only', 'auto', 'on-request', 'restricted'],
+    autoReview: {
+      enabled: false,
+      allowedRiskLevels: ['low', 'medium'],
+      maxTtlMs: 10 * 60_000,
+      ...overrides.autoReview,
+    },
+    approval: {
+      allowed: true,
+      requireHumanForRiskLevels: ['high', 'critical'],
+      maxTtlMs: 24 * 60 * 60_000,
+      ...overrides.approval,
+    },
+    requestTtlMs: overrides.requestTtlMs ?? 30 * 60_000,
+    approvalTtlMs: overrides.approvalTtlMs ?? 15 * 60_000,
+    operatorId: 'operator',
+    restricted: {
+      allowedTools: ['read_file', 'list_dir', 'glob', 'grep', 'run_command'],
+      filesystem: { read: ['/workspace'], write: [] },
+      network: { mode: 'none', allowedDomains: [], allowedPorts: [] },
+      ...overrides.restricted,
+    },
+  };
+}
+
 export interface TestPlatformOptions {
   readonly writes?: boolean;
   readonly commands?: boolean;
+  readonly permission?: Parameters<typeof testPermissionSettings>[0];
   readonly network?: 'none' | 'proxy_only';
   readonly allowedDomains?: readonly string[];
   readonly allowedPorts?: readonly number[];
@@ -85,6 +128,9 @@ export async function createTestPlatform(options: TestPlatformOptions = {}): Pro
 
   const clock = options.now ?? testClock();
   const store = options.store ?? new MemorySandboxStore();
+  const writes = options.writes ?? true;
+  const commands = options.commands ?? true;
+  const permissionOverrides = options.permission ?? {};
   const settings: SandboxSettings = {
     enabled: true,
     imageDigest: `sha256:${'a'.repeat(64)}`,
@@ -122,9 +168,15 @@ export async function createTestPlatform(options: TestPlatformOptions = {}): Pro
       maxOutputBytes: options.maxOutputBytes ?? 64 * 1024,
       ...options.limits,
     },
-    allowWrites: options.writes ?? true,
-    allowCommands: options.commands ?? true,
+    allowWrites: writes,
+    allowCommands: commands,
     deniedTools: [],
+    permission: testPermissionSettings({
+      ...permissionOverrides,
+      mode:
+        permissionOverrides.mode ??
+        (writes && commands ? 'auto' : writes || commands ? 'on-request' : 'read-only'),
+    }),
     heartbeatMs: 30_000,
     nonGvisorAcknowledged: true,
   };
@@ -144,6 +196,7 @@ export async function createTestPlatform(options: TestPlatformOptions = {}): Pro
     settings,
     runtime,
     platform,
+    permissionRecovery: platform.permissionRecovery,
     gateway: platform.gateway,
     clock,
     cleanup: async () => {

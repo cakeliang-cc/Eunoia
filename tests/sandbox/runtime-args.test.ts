@@ -24,6 +24,7 @@ const config: RuntimeSandboxConfig = {
   imageDigest: `sha256:${'c'.repeat(64)}`,
   workspaceHostPath: '/tmp/eunoia/workspace',
   workspaceWritable: true,
+  configDigest: `sha256:${'d'.repeat(64)}`,
   runtimeClass: 'gvisor',
   resources: {
     cpuQuota: 2,

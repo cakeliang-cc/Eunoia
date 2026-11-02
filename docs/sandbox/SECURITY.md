@@ -7,14 +7,15 @@
 
 | 层 | 负责 | 不负责 |
 |---|---|---|
-| Permission Manager (`policy.ts`) | 授权决策：system deny > tenant > task > approval | 内核隔离 |
+| Permission Manager (`permissions/`) | 授权决策：system deny > policy > mode > grant > auto/human approval | 内核隔离 |
 | Sandbox Runtime (`runtime/`) | 容器隔离、资源限制、无宿主 mount | 业务授权 |
 | Network Layer (`network/`) | 默认拒绝、egress 策略、DNS/IP 检查 | 宿主防火墙本身 |
 | Credential Broker | 短期凭证、scope、撤销、脱敏 | 外部系统的权限模型 |
 | Audit | 决策/执行/恢复的 append-only 记录 | 阻止行为 |
 
-**没有任何一层把安全交给模型或 auto-review。** 策略是值，审批是带范围/过期/
-policy version 的记录，`DENY` 不能被审批覆盖。
+**没有任何一层把安全边界交给模型或 auto-review。** auto-review 是确定性的风险
+评估器；即使注入自定义 reviewer，结果也会被策略二次校验。策略是值，审批是带
+范围/过期/policy version 的记录，`DENY` 不能被审批覆盖。
 
 ## 2. 运行时基线
 
@@ -56,18 +57,29 @@ policy version 的记录，`DENY` 不能被审批覆盖。
 
 ## 4. 权限
 
+完整模型见 [PERMISSIONS.md](PERMISSIONS.md)。这里只列安全边界：
+
 ```text
 system deny  ── 不可覆盖（/etc/shadow、/proc/sys、docker.sock、metadata…）
-   tenant    ── 只能收窄
-   task      ── workspace 形状
-   approval  ── 带 scope/过期/policy version
+   policy    ── 部署 / session / task / sandbox，只能收紧或申请扩展
+   mode      ── read-only 清空写权限；restricted 收窄到白名单
+   grant     ── 带 action/scope/task/principal/policy version/TTL
+   auto      ── 只批准策略允许的风险，不能碰 system deny 或 restricted
    runtime   ── 内核执行
 ```
 
-- `fs.write` / `process.exec` 在 `WORKSPACE_WRITES` / `WORKSPACE_COMMANDS` 关闭时
-  返回 `APPROVAL_REQUIRED`，不是 ALLOW；
-- `ApprovalGrant` 必须匹配 action、scope、policyVersion、task、未过期、未撤销；
-- `tests/sandbox/policy.test.ts` 验证“审批不能提升 system deny”。
+- `read-only` 通过把 `/workspace` 编译成只读 mount 实现“不能写”，不是靠命令名；
+- `restricted` 的子路径限制由 Permission Manager + 宿主文件 guard 执行；
+- 每次工具执行前调用 `PermissionManager.evaluate()`；`execute()` 在提交进程前
+  还会 `revalidate()`（grant 未撤销、未过期、policy version 未变）；
+- 模式切换会改变 `config_digest`，Controller 对比后销毁并重建容器，旧的可写
+  mount 不会继续服务；
+- Permission Manager 抛错 / 策略读不出来 / 上下文缺失 → `deny`（`fail_closed`），
+  不会降级执行；
+- 恢复时 PENDING 不会变 APPROVED；APPROVED 但无 Grant 的请求直接 DENIED；
+- 审批身份不能是 `agent:*`，也不能是请求者本人；审批重复提交只有一个赢家。
+
+测试：`permission-policy.test.ts`、`permission-flow.test.ts`、`policy.test.ts`。
 
 ## 5. 网络
 
@@ -147,7 +159,12 @@ Desktop 只提供 `runc`，所以本机跑的是 `runc` 配置，且在 `/health
    workspace 的 remote URL 里，使用 credential broker / 单独的 git 代理。
 9. `SANDBOX_DISK_MB` 没有在 Docker overlay2 上强制执行；磁盘配额需要 volume +
    文件系统 quota。CPU/memory/pids 由 cgroups 强制执行。
-10. `src/workspace-ui/` 是**人**使用的工作台（读 git、人自己输入的命令），不是
+10. restricted 模式对**工作区子路径**的限制由 Permission Manager 和宿主文件 guard
+    执行；bind mount 本身只能表达整个 workspace 可写/只读。绕过 Gateway 的
+    in-container 命令仍然只能在 mount 允许的范围内活动。
+11. 运行中新增网络域名 / 工作区外路径需要修改部署策略并重启，不能靠一次审批
+    热扩展；相关请求会被记录为 DENY 而不是假装批准。
+12. `src/workspace-ui/` 是**人**使用的工作台（读 git、人自己输入的命令），不是
    agent 工具。它有独立的超时/字节上限/净化环境，并且架构测试禁止 agent、tools、
    service 引入它。把它当成 agent 的 Git Tool 是不正确的；本仓库目前没有 agent
    可调用的 Git 工具。

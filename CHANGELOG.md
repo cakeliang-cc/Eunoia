@@ -10,6 +10,46 @@
 
 ### Added
 
+- **Permission Modes 与权限生命周期（ADR 020）。** Sandbox 之上的授权层从
+  “写/命令开关 + operator grant”扩展为四种模式、统一 Permission Manager、
+  auto-review、人工审批和带策略版本的 Grant。实现与偏差见
+  [docs/sandbox/PERMISSIONS.md](docs/sandbox/PERMISSIONS.md)。
+  - **四种模式**：`read-only`（写权限清空，`/workspace` 只读 mount）、
+    `auto`（授权范围内自动，扩展走 auto-review）、`on-request`（扩展找人）、
+    `restricted`（工具/路径/网络显式白名单，auto-review 不能扩大）。
+  - **统一入口**：命令和文件工具都先调用 `PermissionManager.evaluate()`；
+    判定顺序是 system deny → policy rules → grant → mode → auto/human approval，
+    任何一层都不能提升 system deny。执行前还会 `revalidate()` grant 与 policy version。
+  - **Request / Approval / Grant**：一个 (principal, action, resource, policy version)
+    只有一个打开的请求；重复工具调用复用请求，重复审批只有一个赢家；
+    `once` grant 在执行授权点消费；TTL、撤销、跨 task/session/sandbox 绑定都持久化。
+  - **auto-review 是确定性评估器**：风险分级、私网/metadata/提权命令直接 forbidden；
+    不可信文本（reason、命令、metadata）只扫描指令式内容，命中即 escalate；
+    自定义 reviewer 的返回值仍会被策略二次校验。它只在 `auto` 模式运行。
+  - **人工审批**：CLI `approve-request` / `deny-request`；审批者不能是 `agent:*`
+    或请求者本人；审批记录带 scope、TTL、decided_by、reason 和审计事件。
+  - **模式切换**：写新的 policy version、过期旧 grant、把受影响 sandbox 标记
+    `INTERRUPTED`；Controller 比较 `config_digest` 后销毁旧容器并按新策略重建，
+    避免 read-only 模式继续跑在可写 mount 上。
+  - **Recovery / fail closed**：PENDING 不会在恢复时变 APPROVED；APPROVED 但无
+    grant 的请求直接 DENIED；权限层不可用、策略读不出来、执行前版本变化一律
+    拒绝执行。
+  - **持久化**：SQLite schema v4，新增 `permission_policies` /
+    `permission_requests` / `permission_approval_requests` /
+    `permission_decisions`，并给 grants、executions、sandboxes 增加权限列；
+    迁移支持 1/2/3 → 4 且可从中途失败的迁移继续。
+  - **配置**：`SANDBOX_PERMISSION_MODE`、`SANDBOX_PERMISSION_ALLOWED_MODES`、
+    `SANDBOX_AUTO_REVIEW`、`SANDBOX_AUTO_APPROVE_RISK`、
+    `SANDBOX_REQUIRE_HUMAN_RISK`、`SANDBOX_*_TTL_MS`、
+    `SANDBOX_RESTRICTED_*`；默认模式由写入/命令开关推导。
+  - **测试**：新增 `tests/sandbox/permission-policy.test.ts`（模式/规则/auto-review/
+    注入）与 `tests/sandbox/permission-flow.test.ts`（四种模式、审批、grant 过期、
+    模式切换重建、跨 task、审批身份、fail closed、recovery）；schema 迁移测试
+    覆盖 1/2/3 → 4。
+  - **明确偏差**：审批通过 CLI 而不是回合中弹窗；auto-review 不调用模型；
+    运行中新增网络域名/工作区外路径需要改部署策略，记录为 DENY；restricted 的
+    工作区子路径由权限层而非 mount 执行。原因见 PERMISSIONS.md §12。
+
 - **`npm run sandbox:smoke`：真实 SQLite + Docker 的端到端冒烟。** 走聊天工具适配器
   （task → workspace → sandbox → list → command），用临时数据库，不碰生产
   `data/eunoia.sqlite`；用于捕捉内存 store 看不到的外键/迁移问题。

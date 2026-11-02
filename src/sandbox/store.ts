@@ -12,7 +12,10 @@
  *   - `transitionExecution` is compare-and-set, so two concurrent paths cannot
  *     both move `RUNNING` to `SUCCEEDED`;
  *   - events are append-only and are written before the state change they
- *     describe, so there is never a terminal execution without a trail.
+ *     describe, so there is never a terminal execution without a trail;
+ *   - permission requests and approvals use the same compare-and-set shape, so
+ *     two approvers cannot both create a grant and a duplicated tool call cannot
+ *     open two approval queues.
  */
 
 import type {
@@ -27,6 +30,17 @@ import type {
   Workspace,
   WorkspaceCheckpoint,
 } from './types.ts';
+import type {
+  AutoReviewResultRecord,
+  HumanApprovalRecord,
+  HumanApprovalStatus,
+  PermissionDecision,
+  PermissionPolicyRecord,
+  PermissionRequestRecord,
+  PermissionRequestStatus,
+  PermissionScopeLevel,
+  RiskLevel,
+} from './permissions/types.ts';
 
 export interface ExecutionTransitionPatch {
   readonly exitCode?: number | null;
@@ -40,6 +54,35 @@ export interface CreateExecutionResult {
   readonly execution: Execution;
   /** False when the idempotency key already existed; the stored row is returned. */
   readonly created: boolean;
+}
+
+export interface PermissionRequestPatch {
+  readonly reason?: string;
+  readonly riskLevel?: RiskLevel;
+  readonly decisionId?: string | null;
+  readonly grantId?: string | null;
+  readonly approvalRequestId?: string | null;
+  readonly autoReview?: AutoReviewResultRecord | null;
+  readonly executionId?: string | null;
+}
+
+export interface CreatePermissionRequestResult {
+  readonly request: PermissionRequestRecord;
+  readonly created: boolean;
+}
+
+export interface HumanApprovalPatch {
+  readonly decidedBy?: string | null;
+  readonly decisionReason?: string | null;
+  readonly decidedAt?: string | null;
+  readonly scope?: HumanApprovalRecord['scope'];
+}
+
+export interface GrantFilter {
+  readonly taskId?: string;
+  readonly sessionId?: string;
+  readonly requestId?: string;
+  readonly approvalRequestId?: string;
 }
 
 export interface SandboxStore {
@@ -65,7 +108,10 @@ export interface SandboxStore {
   getSandbox(sandboxId: string): Promise<Sandbox | null>;
   getSandboxForTask(taskId: string): Promise<Sandbox | null>;
   listSandboxes(statuses?: readonly SandboxStatus[]): Promise<Sandbox[]>;
-  updateSandbox(sandboxId: string, patch: Partial<Pick<Sandbox, 'status' | 'runtimeId' | 'runtimeType' | 'lastHeartbeatAt'>>): Promise<Sandbox | null>;
+  updateSandbox(
+    sandboxId: string,
+    patch: Partial<Pick<Sandbox, 'status' | 'runtimeId' | 'runtimeType' | 'lastHeartbeatAt' | 'configDigest'>>,
+  ): Promise<Sandbox | null>;
   touchSandboxHeartbeat(sandboxId: string, at: string): Promise<void>;
 
   // -------------------------------------------------------------- executions ---
@@ -88,6 +134,71 @@ export interface SandboxStore {
   getApproval(approvalId: string): Promise<ApprovalGrant | null>;
   listApprovals(taskId: string, now: string): Promise<ApprovalGrant[]>;
   revokeApproval(approvalId: string, at: string): Promise<boolean>;
+
+  // ------------------------------------------------------------------ grants ---
+  /**
+   * Grants for a task and/or session, filtered by the store rather than the
+   * caller. `now` is passed in so an "active" list is deterministic under a test
+   * clock instead of depending on the wall clock inside SQLite.
+   */
+  listGrants(filter: GrantFilter, now: string): Promise<ApprovalGrant[]>;
+  /** Consume a `once` grant. Returns false when it was already used. */
+  markGrantUsed(grantId: string, at: string): Promise<boolean>;
+  /** `status` is `expired` or `revoked`; revocation also sets `revoked_at`. */
+  setGrantStatus(grantId: string, status: 'active' | 'revoked' | 'expired', at: string): Promise<boolean>;
+
+  // ----------------------------------------------------- permission requests ---
+  savePermissionPolicy(record: PermissionPolicyRecord): Promise<void>;
+  getPermissionPolicy(
+    scopeType: PermissionScopeLevel,
+    scopeId: string,
+    version: number,
+  ): Promise<PermissionPolicyRecord | null>;
+  latestPermissionPolicy(
+    scopeType: PermissionScopeLevel,
+    scopeId: string,
+  ): Promise<PermissionPolicyRecord | null>;
+  listPermissionPolicies(
+    scopeType: PermissionScopeLevel,
+    scopeId: string,
+  ): Promise<PermissionPolicyRecord[]>;
+
+  /** Idempotent per `requestId`; the caller handles the request-key lookup. */
+  createPermissionRequest(request: PermissionRequestRecord): Promise<CreatePermissionRequestResult>;
+  getPermissionRequest(requestId: string): Promise<PermissionRequestRecord | null>;
+  findOpenPermissionRequest(requestKey: string): Promise<PermissionRequestRecord | null>;
+  updatePermissionRequest(
+    requestId: string,
+    from: readonly PermissionRequestStatus[],
+    to: PermissionRequestStatus,
+    patch?: PermissionRequestPatch,
+  ): Promise<PermissionRequestRecord | null>;
+  listPermissionRequests(filter?: {
+    readonly taskId?: string;
+    readonly sessionId?: string;
+    readonly statuses?: readonly PermissionRequestStatus[];
+    readonly limit?: number;
+  }): Promise<PermissionRequestRecord[]>;
+
+  // -------------------------------------------------------- human approvals ---
+  createHumanApproval(record: HumanApprovalRecord): Promise<HumanApprovalRecord>;
+  getHumanApproval(approvalRequestId: string): Promise<HumanApprovalRecord | null>;
+  listHumanApprovals(filter?: {
+    readonly taskId?: string;
+    readonly requestId?: string;
+    readonly statuses?: readonly HumanApprovalStatus[];
+    readonly limit?: number;
+  }): Promise<HumanApprovalRecord[]>;
+  decideHumanApproval(
+    approvalRequestId: string,
+    from: readonly HumanApprovalStatus[],
+    to: HumanApprovalStatus,
+    patch?: HumanApprovalPatch,
+  ): Promise<HumanApprovalRecord | null>;
+
+  // --------------------------------------------------- permission decisions ---
+  savePermissionDecision(decision: PermissionDecision): Promise<void>;
+  getPermissionDecision(decisionId: string): Promise<PermissionDecision | null>;
 
   // ---------------------------------------------------------------- policies ---
   savePolicy(version: string, scope: string, configuration: unknown, at: string): Promise<void>;

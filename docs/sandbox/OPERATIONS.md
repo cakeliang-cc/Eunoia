@@ -51,7 +51,16 @@ SANDBOX_ALLOW_NON_GVISOR=1
 
 ```bash
 npm run sandbox -- status          # 配置、probe、sandboxes
-npm run sandbox -- recover         # 扫描 runtime，重连/重建，核验未完成执行
+npm run sandbox -- recover         # 扫描 runtime，重连/重建，核验未完成执行与权限状态
+npm run sandbox -- permissions --task <taskId>       # 模式、策略版本、请求、审批、grant
+npm run sandbox -- mode --task <taskId> --mode read-only --minutes 30 --by alice
+npm run sandbox -- requests --task <taskId>          # 待处理 / 历史权限请求
+npm run sandbox -- approvals --task <taskId>         # 等待人工决策的队列
+npm run sandbox -- approve-request --approval <id> --by alice --scope once
+npm run sandbox -- deny-request --approval <id> --by alice --reason "out of scope"
+npm run sandbox -- grants --task <taskId>
+npm run sandbox -- revoke --task <taskId> --approval <id>
+npm run sandbox -- sweep           # 过期 request/approval/grant 清扫
 npm run sandbox -- approve --task <taskId> --action fs.write --scope /workspace --minutes 10
 npm run sandbox -- checkpoint --task <taskId>
 npm run sandbox -- gc --idle-minutes 60 --checkpoint-days 7
@@ -60,8 +69,13 @@ npm run sandbox:check              # 真实 runtime 安全自检（不通过则�
 npm run sandbox:smoke              # 真实 SQLite + Docker 的端到端冒烟
 ```
 
-`approve` 写一条带 scope、过期时间、policy version 和批准人的 grant；它不能
-覆盖 `DENY`。`gc` 只销毁 runtime 和过期 checkpoint，不删除 bind 模式的项目目录。
+`approve` / `approve-request` 写一条带 scope、过期时间、policy version 和批准人的
+grant；它不能覆盖 `DENY`。`mode` 切换会 bump policy version、把旧 grant 标记过期，
+并让受影响的 sandbox 在下次执行时重建（read-only 的只读 mount 由此生效）。
+`gc` 只销毁 runtime 和过期 checkpoint，不删除 bind 模式的项目目录。
+
+审批只能由人执行：`--by` 不能是 `agent:*`，也不能是请求者本人。重复 approve 是
+幂等的，不会创建第二个 grant。
 
 ## 4. 健康与指标
 

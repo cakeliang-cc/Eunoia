@@ -23,8 +23,27 @@ import type {
 } from './types.ts';
 import { UNFINISHED_EXECUTION_STATES } from './state.ts';
 import type {
+  AutoReviewResultRecord,
+  HumanApprovalRecord,
+  HumanApprovalStatus,
+  PermissionAction,
+  PermissionDecision,
+  PermissionDecisionEffect,
+  PermissionDecisionLayer,
+  PermissionMode,
+  PermissionPolicyRecord,
+  PermissionRequestRecord,
+  PermissionRequestStatus,
+  PermissionScopeLevel,
+  RiskLevel,
+} from './permissions/types.ts';
+import type {
   CreateExecutionResult,
+  CreatePermissionRequestResult,
   ExecutionTransitionPatch,
+  GrantFilter,
+  HumanApprovalPatch,
+  PermissionRequestPatch,
   SandboxStore,
 } from './store.ts';
 
@@ -60,6 +79,7 @@ interface SandboxRow {
   workspace_id: string;
   policy_version: string;
   resource_profile: string;
+  config_digest: string;
   status: string;
   created_at: string;
   last_heartbeat_at: string | null;
@@ -82,6 +102,9 @@ interface ExecutionRow {
   stderr: string;
   policy_version: string;
   tool_call_id: string | null;
+  decision_id: string | null;
+  permission_mode: string | null;
+  permission_policy_version: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -108,6 +131,90 @@ interface ApprovalRow {
   policy_version: string;
   created_at: string;
   revoked_at: string | null;
+  grant_id: string | null;
+  organization_id: string | null;
+  project_id: string | null;
+  session_id: string | null;
+  sandbox_id: string | null;
+  principal_id: string | null;
+  source: string | null;
+  status: string | null;
+  scope_level: string | null;
+  request_id: string | null;
+  approval_request_id: string | null;
+  used_at: string | null;
+}
+
+interface PermissionPolicyRow {
+  policy_id: string;
+  scope_type: string;
+  scope_id: string;
+  version: number;
+  mode: string;
+  configuration: string;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface PermissionRequestRow {
+  request_id: string;
+  request_key: string;
+  organization_id: string;
+  project_id: string;
+  session_id: string;
+  task_id: string;
+  sandbox_id: string | null;
+  execution_id: string | null;
+  mode: string;
+  principal_type: string;
+  principal_id: string;
+  action: string;
+  tool_name: string;
+  resource_type: string;
+  resource_identifier: string;
+  resource_scope: string;
+  status: string;
+  reason: string;
+  risk_level: string;
+  permission_policy_version: string;
+  decision_id: string | null;
+  grant_id: string | null;
+  approval_request_id: string | null;
+  auto_review: string | null;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface HumanApprovalRow {
+  approval_request_id: string;
+  request_id: string;
+  task_id: string;
+  session_id: string;
+  sandbox_id: string | null;
+  scope: string;
+  status: string;
+  requested_by: string;
+  decided_by: string | null;
+  decision_reason: string | null;
+  expires_at: string;
+  decided_at: string | null;
+  created_at: string;
+}
+
+interface PermissionDecisionRow {
+  decision_id: string;
+  request_id: string;
+  task_id: string;
+  session_id: string;
+  sandbox_id: string | null;
+  effect: string;
+  layer: string;
+  mode: string;
+  permission_policy_version: string;
+  reason: string;
+  created_at: string;
 }
 
 interface AuditRow {
@@ -138,12 +245,32 @@ interface CheckpointRow {
 const TASK_COLUMNS = 'task_id, session_id, user_id, status, workspace_id, sandbox_id, created_at, updated_at';
 const WORKSPACE_COLUMNS = 'workspace_id, task_id, storage_location, mode, current_version, created_at, updated_at';
 const SANDBOX_COLUMNS =
-  'sandbox_id, task_id, runtime_type, runtime_id, image_digest, workspace_id, policy_version, resource_profile, status, created_at, last_heartbeat_at, updated_at';
+  'sandbox_id, task_id, runtime_type, runtime_id, image_digest, workspace_id, policy_version, resource_profile, config_digest, status, created_at, last_heartbeat_at, updated_at';
 const EXECUTION_COLUMNS =
-  'execution_id, task_id, sandbox_id, idempotency_key, command_digest, command_json, cwd, status, exit_code, started_at, finished_at, stdout, stderr, policy_version, tool_call_id, created_at, updated_at';
+  'execution_id, task_id, sandbox_id, idempotency_key, command_digest, command_json, cwd, status, exit_code, started_at, finished_at, stdout, stderr, policy_version, tool_call_id, decision_id, permission_mode, permission_policy_version, created_at, updated_at';
+const APPROVAL_COLUMNS =
+  'approval_id, task_id, action, resource_scope, expires_at, approved_by, policy_version, created_at, revoked_at, grant_id, organization_id, project_id, session_id, sandbox_id, principal_id, source, status, scope_level, request_id, approval_request_id, used_at';
+const REQUEST_COLUMNS =
+  'request_id, request_key, organization_id, project_id, session_id, task_id, sandbox_id, execution_id, mode, principal_type, principal_id, action, tool_name, resource_type, resource_identifier, resource_scope, status, reason, risk_level, permission_policy_version, decision_id, grant_id, approval_request_id, auto_review, expires_at, created_at, updated_at';
+
+/** Request states that still count as "open" for idempotency. */
+const REQUEST_OPEN_STATES: readonly PermissionRequestStatus[] = [
+  'CREATED',
+  'EVALUATING',
+  'PENDING',
+  'APPROVED',
+  'GRANT_CREATED',
+  'REVALIDATING',
+];
 
 const TASK_MUTABLE = new Set(['status', 'sandbox_id', 'workspace_id']);
-const SANDBOX_MUTABLE = new Set(['status', 'runtime_id', 'runtime_type', 'last_heartbeat_at']);
+const SANDBOX_MUTABLE = new Set([
+  'status',
+  'runtime_id',
+  'runtime_type',
+  'last_heartbeat_at',
+  'config_digest',
+]);
 
 export class SqliteSandboxStore implements SandboxStore {
   readonly #db: DatabaseSync;
@@ -279,10 +406,11 @@ export class SqliteSandboxStore implements SandboxStore {
 
   async saveSandbox(sandbox: Sandbox): Promise<void> {
     this.#run(
-      `INSERT INTO sandboxes (${SANDBOX_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO sandboxes (${SANDBOX_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (sandbox_id) DO UPDATE SET
          runtime_type = excluded.runtime_type,
          runtime_id = excluded.runtime_id,
+         config_digest = excluded.config_digest,
          status = excluded.status,
          last_heartbeat_at = excluded.last_heartbeat_at,
          updated_at = excluded.updated_at`,
@@ -294,6 +422,7 @@ export class SqliteSandboxStore implements SandboxStore {
       sandbox.workspaceId,
       sandbox.policyVersion,
       sandbox.resourceProfile,
+      sandbox.configDigest ?? '',
       sandbox.status,
       sandbox.createdAt,
       sandbox.lastHeartbeatAt,
@@ -356,7 +485,7 @@ export class SqliteSandboxStore implements SandboxStore {
   async createExecution(execution: Execution): Promise<CreateExecutionResult> {
     const inserted = this.#run(
       `INSERT INTO executions (${EXECUTION_COLUMNS})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (sandbox_id, idempotency_key) DO NOTHING`,
       execution.executionId,
       execution.taskId,
@@ -373,6 +502,9 @@ export class SqliteSandboxStore implements SandboxStore {
       execution.stderr,
       execution.policyVersion,
       execution.toolCallId,
+      execution.decisionId ?? null,
+      execution.permissionMode ?? null,
+      execution.permissionPolicyVersion ?? null,
       execution.createdAt,
       execution.updatedAt,
     );
@@ -487,9 +619,8 @@ export class SqliteSandboxStore implements SandboxStore {
 
   async saveApproval(grant: ApprovalGrant): Promise<void> {
     this.#run(
-      `INSERT INTO sandbox_approvals
-         (approval_id, task_id, action, resource_scope, expires_at, approved_by, policy_version, created_at, revoked_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO sandbox_approvals (${APPROVAL_COLUMNS})
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (approval_id) DO NOTHING`,
       grant.approvalId,
       grant.taskId,
@@ -500,13 +631,24 @@ export class SqliteSandboxStore implements SandboxStore {
       grant.policyVersion,
       grant.createdAt,
       grant.revokedAt,
+      grant.grantId ?? grant.approvalId,
+      grant.organizationId ?? null,
+      grant.projectId ?? null,
+      grant.sessionId ?? null,
+      grant.sandboxId ?? null,
+      grant.principalId ?? null,
+      grant.source ?? 'human_approval',
+      grant.status ?? 'active',
+      grant.scope ?? 'task',
+      grant.requestId ?? null,
+      grant.approvalRequestId ?? null,
+      grant.usedAt ?? null,
     );
   }
 
   async getApproval(approvalId: string): Promise<ApprovalGrant | null> {
     const row = this.#get<ApprovalRow>(
-      `SELECT approval_id, task_id, action, resource_scope, expires_at, approved_by, policy_version, created_at, revoked_at
-         FROM sandbox_approvals WHERE approval_id = ?`,
+      `SELECT ${APPROVAL_COLUMNS} FROM sandbox_approvals WHERE approval_id = ?`,
       approvalId,
     );
     return row ? toApproval(row) : null;
@@ -514,13 +656,65 @@ export class SqliteSandboxStore implements SandboxStore {
 
   async listApprovals(taskId: string, now: string): Promise<ApprovalGrant[]> {
     return this.#all<ApprovalRow>(
-      `SELECT approval_id, task_id, action, resource_scope, expires_at, approved_by, policy_version, created_at, revoked_at
+      `SELECT ${APPROVAL_COLUMNS}
          FROM sandbox_approvals
         WHERE task_id = ? AND revoked_at IS NULL AND expires_at > ?
         ORDER BY created_at DESC`,
       taskId,
       now,
     ).map(toApproval);
+  }
+
+  async listGrants(filter: GrantFilter): Promise<ApprovalGrant[]> {
+    const clauses: string[] = [];
+    const params: SqlValue[] = [];
+    if (filter.taskId !== undefined) {
+      clauses.push('task_id = ?');
+      params.push(filter.taskId);
+    }
+    if (filter.sessionId !== undefined) {
+      clauses.push('session_id = ?');
+      params.push(filter.sessionId);
+    }
+    if (filter.requestId !== undefined) {
+      clauses.push('request_id = ?');
+      params.push(filter.requestId);
+    }
+    if (filter.approvalRequestId !== undefined) {
+      clauses.push('approval_request_id = ?');
+      params.push(filter.approvalRequestId);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    return this.#all<ApprovalRow>(
+      `SELECT ${APPROVAL_COLUMNS} FROM sandbox_approvals ${where} ORDER BY created_at DESC`,
+      ...params,
+    ).map(toApproval);
+  }
+
+  async markGrantUsed(grantId: string, at: string): Promise<boolean> {
+    return (
+      this.#run(
+        'UPDATE sandbox_approvals SET used_at = ? WHERE approval_id = ? AND used_at IS NULL',
+        at,
+        grantId,
+      ).changes > 0
+    );
+  }
+
+  async setGrantStatus(
+    grantId: string,
+    status: 'active' | 'revoked' | 'expired',
+    at: string,
+  ): Promise<boolean> {
+    const revokedAt = status === 'revoked' ? at : null;
+    return (
+      this.#run(
+        'UPDATE sandbox_approvals SET status = ?, revoked_at = COALESCE(?, revoked_at) WHERE approval_id = ?',
+        status,
+        revokedAt,
+        grantId,
+      ).changes > 0
+    );
   }
 
   async revokeApproval(approvalId: string, at: string): Promise<boolean> {
@@ -531,6 +725,348 @@ export class SqliteSandboxStore implements SandboxStore {
         approvalId,
       ).changes > 0
     );
+  }
+
+  // ---------------------------------------------------- permission policies ---
+
+  async savePermissionPolicy(record: PermissionPolicyRecord): Promise<void> {
+    this.#run(
+      `INSERT INTO permission_policies
+         (policy_id, scope_type, scope_id, version, mode, configuration, expires_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (policy_id) DO UPDATE SET
+         version = excluded.version,
+         mode = excluded.mode,
+         configuration = excluded.configuration,
+         expires_at = excluded.expires_at,
+         updated_at = excluded.updated_at`,
+      record.policyId,
+      record.scopeType,
+      record.scopeId,
+      record.version,
+      record.mode,
+      JSON.stringify({
+        rules: record.rules,
+        autoReview: record.autoReview,
+        approval: record.approval,
+        restricted: record.restricted,
+      }),
+      record.expiresAt,
+      record.createdAt,
+      record.updatedAt,
+    );
+  }
+
+  async getPermissionPolicy(
+    scopeType: PermissionScopeLevel,
+    scopeId: string,
+    version: number,
+  ): Promise<PermissionPolicyRecord | null> {
+    const row = this.#get<PermissionPolicyRow>(
+      `SELECT policy_id, scope_type, scope_id, version, mode, configuration, expires_at, created_at, updated_at
+         FROM permission_policies WHERE scope_type = ? AND scope_id = ? AND version = ?`,
+      scopeType,
+      scopeId,
+      version,
+    );
+    return row ? toPermissionPolicy(row) : null;
+  }
+
+  async latestPermissionPolicy(
+    scopeType: PermissionScopeLevel,
+    scopeId: string,
+  ): Promise<PermissionPolicyRecord | null> {
+    const row = this.#get<PermissionPolicyRow>(
+      `SELECT policy_id, scope_type, scope_id, version, mode, configuration, expires_at, created_at, updated_at
+         FROM permission_policies WHERE scope_type = ? AND scope_id = ?
+        ORDER BY version DESC LIMIT 1`,
+      scopeType,
+      scopeId,
+    );
+    return row ? toPermissionPolicy(row) : null;
+  }
+
+  async listPermissionPolicies(
+    scopeType: PermissionScopeLevel,
+    scopeId: string,
+  ): Promise<PermissionPolicyRecord[]> {
+    return this.#all<PermissionPolicyRow>(
+      `SELECT policy_id, scope_type, scope_id, version, mode, configuration, expires_at, created_at, updated_at
+         FROM permission_policies WHERE scope_type = ? AND scope_id = ? ORDER BY version DESC`,
+      scopeType,
+      scopeId,
+    ).map(toPermissionPolicy);
+  }
+
+  // ----------------------------------------------------- permission requests ---
+
+  async createPermissionRequest(
+    request: PermissionRequestRecord,
+  ): Promise<CreatePermissionRequestResult> {
+    const inserted = this.#run(
+      `INSERT INTO permission_requests (${REQUEST_COLUMNS})
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (request_id) DO NOTHING`,
+      request.requestId,
+      request.requestKey,
+      request.organizationId,
+      request.projectId,
+      request.sessionId,
+      request.taskId,
+      request.sandboxId,
+      request.executionId,
+      request.mode,
+      request.principalType,
+      request.principalId,
+      request.action,
+      request.toolName,
+      request.resourceType,
+      request.resourceIdentifier,
+      JSON.stringify(request.resourceScope),
+      request.status,
+      request.reason,
+      request.riskLevel,
+      request.permissionPolicyVersion,
+      request.decisionId,
+      request.grantId,
+      request.approvalRequestId,
+      request.autoReview ? JSON.stringify(request.autoReview) : null,
+      request.expiresAt,
+      request.createdAt,
+      request.updatedAt,
+    );
+    const stored = await this.getPermissionRequest(request.requestId);
+    if (!stored) throw new Error('permission request insert did not produce a row');
+    return { request: stored, created: inserted.changes > 0 };
+  }
+
+  async getPermissionRequest(requestId: string): Promise<PermissionRequestRecord | null> {
+    const row = this.#get<PermissionRequestRow>(
+      `SELECT ${REQUEST_COLUMNS} FROM permission_requests WHERE request_id = ?`,
+      requestId,
+    );
+    return row ? toPermissionRequest(row) : null;
+  }
+
+  async findOpenPermissionRequest(requestKey: string): Promise<PermissionRequestRecord | null> {
+    const placeholders = REQUEST_OPEN_STATES.map(() => '?').join(', ');
+    const row = this.#get<PermissionRequestRow>(
+      `SELECT ${REQUEST_COLUMNS} FROM permission_requests
+        WHERE request_key = ? AND status IN (${placeholders})
+        ORDER BY created_at DESC LIMIT 1`,
+      requestKey,
+      ...REQUEST_OPEN_STATES,
+    );
+    return row ? toPermissionRequest(row) : null;
+  }
+
+  async updatePermissionRequest(
+    requestId: string,
+    from: readonly PermissionRequestStatus[],
+    to: PermissionRequestStatus,
+    patch: PermissionRequestPatch = {},
+  ): Promise<PermissionRequestRecord | null> {
+    if (from.length === 0) throw new Error('updatePermissionRequest requires at least one source state');
+    const assignments: string[] = ['status = ?', 'updated_at = ?'];
+    const values: SqlValue[] = [to, new Date().toISOString()];
+    const columns: Record<keyof PermissionRequestPatch, string> = {
+      reason: 'reason',
+      riskLevel: 'risk_level',
+      decisionId: 'decision_id',
+      grantId: 'grant_id',
+      approvalRequestId: 'approval_request_id',
+      autoReview: 'auto_review',
+      executionId: 'execution_id',
+    };
+    for (const [key, column] of Object.entries(columns) as [keyof PermissionRequestPatch, string][]) {
+      const value = patch[key];
+      if (value === undefined) continue;
+      assignments.push(`${column} = ?`);
+      values.push(
+        key === 'autoReview'
+          ? value === null
+            ? null
+            : JSON.stringify(value as AutoReviewResultRecord)
+          : (value as SqlValue),
+      );
+    }
+    const placeholders = from.map(() => '?').join(', ');
+    const result = this.#run(
+      `UPDATE permission_requests SET ${assignments.join(', ')}
+        WHERE request_id = ? AND status IN (${placeholders})`,
+      ...values,
+      requestId,
+      ...from,
+    );
+    if (result.changes === 0) return null;
+    return this.getPermissionRequest(requestId);
+  }
+
+  async listPermissionRequests(filter: {
+    readonly taskId?: string;
+    readonly sessionId?: string;
+    readonly statuses?: readonly PermissionRequestStatus[];
+    readonly limit?: number;
+  } = {}): Promise<PermissionRequestRecord[]> {
+    const clauses: string[] = [];
+    const params: SqlValue[] = [];
+    if (filter.taskId !== undefined) {
+      clauses.push('task_id = ?');
+      params.push(filter.taskId);
+    }
+    if (filter.sessionId !== undefined) {
+      clauses.push('session_id = ?');
+      params.push(filter.sessionId);
+    }
+    if (filter.statuses && filter.statuses.length > 0) {
+      clauses.push(`status IN (${filter.statuses.map(() => '?').join(', ')})`);
+      params.push(...filter.statuses);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const limit = Math.min(Math.max(filter.limit ?? 200, 1), 1_000);
+    return this.#all<PermissionRequestRow>(
+      `SELECT ${REQUEST_COLUMNS} FROM permission_requests ${where}
+        ORDER BY created_at DESC LIMIT ?`,
+      ...params,
+      limit,
+    ).map(toPermissionRequest);
+  }
+
+  // --------------------------------------------------------- human approvals ---
+
+  async createHumanApproval(record: HumanApprovalRecord): Promise<HumanApprovalRecord> {
+    this.#run(
+      `INSERT INTO permission_approval_requests
+         (approval_request_id, request_id, task_id, session_id, sandbox_id, scope, status,
+          requested_by, decided_by, decision_reason, expires_at, decided_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (approval_request_id) DO NOTHING`,
+      record.approvalRequestId,
+      record.requestId,
+      record.taskId,
+      record.sessionId,
+      record.sandboxId,
+      record.scope,
+      record.status,
+      record.requestedBy,
+      record.decidedBy,
+      record.decisionReason,
+      record.expiresAt,
+      record.decidedAt,
+      record.createdAt,
+    );
+    return (await this.getHumanApproval(record.approvalRequestId)) as HumanApprovalRecord;
+  }
+
+  async getHumanApproval(approvalRequestId: string): Promise<HumanApprovalRecord | null> {
+    const row = this.#get<HumanApprovalRow>(
+      `SELECT approval_request_id, request_id, task_id, session_id, sandbox_id, scope, status,
+              requested_by, decided_by, decision_reason, expires_at, decided_at, created_at
+         FROM permission_approval_requests WHERE approval_request_id = ?`,
+      approvalRequestId,
+    );
+    return row ? toHumanApproval(row) : null;
+  }
+
+  async listHumanApprovals(filter: {
+    readonly taskId?: string;
+    readonly requestId?: string;
+    readonly statuses?: readonly HumanApprovalStatus[];
+    readonly limit?: number;
+  } = {}): Promise<HumanApprovalRecord[]> {
+    const clauses: string[] = [];
+    const params: SqlValue[] = [];
+    if (filter.taskId !== undefined) {
+      clauses.push('task_id = ?');
+      params.push(filter.taskId);
+    }
+    if (filter.requestId !== undefined) {
+      clauses.push('request_id = ?');
+      params.push(filter.requestId);
+    }
+    if (filter.statuses && filter.statuses.length > 0) {
+      clauses.push(`status IN (${filter.statuses.map(() => '?').join(', ')})`);
+      params.push(...filter.statuses);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const limit = Math.min(Math.max(filter.limit ?? 200, 1), 1_000);
+    return this.#all<HumanApprovalRow>(
+      `SELECT approval_request_id, request_id, task_id, session_id, sandbox_id, scope, status,
+              requested_by, decided_by, decision_reason, expires_at, decided_at, created_at
+         FROM permission_approval_requests ${where} ORDER BY created_at DESC LIMIT ?`,
+      ...params,
+      limit,
+    ).map(toHumanApproval);
+  }
+
+  async decideHumanApproval(
+    approvalRequestId: string,
+    from: readonly HumanApprovalStatus[],
+    to: HumanApprovalStatus,
+    patch: HumanApprovalPatch = {},
+  ): Promise<HumanApprovalRecord | null> {
+    if (from.length === 0) throw new Error('decideHumanApproval requires at least one source state');
+    const assignments = ['status = ?'];
+    const values: SqlValue[] = [to];
+    if (patch.decidedBy !== undefined) {
+      assignments.push('decided_by = ?');
+      values.push(patch.decidedBy);
+    }
+    if (patch.decisionReason !== undefined) {
+      assignments.push('decision_reason = ?');
+      values.push(patch.decisionReason);
+    }
+    if (patch.decidedAt !== undefined) {
+      assignments.push('decided_at = ?');
+      values.push(patch.decidedAt);
+    }
+    if (patch.scope !== undefined) {
+      assignments.push('scope = ?');
+      values.push(patch.scope);
+    }
+    const placeholders = from.map(() => '?').join(', ');
+    const result = this.#run(
+      `UPDATE permission_approval_requests SET ${assignments.join(', ')}
+        WHERE approval_request_id = ? AND status IN (${placeholders})`,
+      ...values,
+      approvalRequestId,
+      ...from,
+    );
+    if (result.changes === 0) return null;
+    return this.getHumanApproval(approvalRequestId);
+  }
+
+  // ---------------------------------------------------- permission decisions ---
+
+  async savePermissionDecision(decision: PermissionDecision): Promise<void> {
+    this.#run(
+      `INSERT INTO permission_decisions
+         (decision_id, request_id, task_id, session_id, sandbox_id, effect, layer, mode,
+          permission_policy_version, reason, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (decision_id) DO NOTHING`,
+      decision.decisionId,
+      decision.requestId,
+      decision.taskId ?? '',
+      decision.sessionId ?? '',
+      decision.sandboxId ?? null,
+      decision.effect,
+      decision.layer,
+      decision.mode,
+      decision.permissionPolicyVersion,
+      decision.reason,
+      decision.createdAt ?? new Date().toISOString(),
+    );
+  }
+
+  async getPermissionDecision(decisionId: string): Promise<PermissionDecision | null> {
+    const row = this.#get<PermissionDecisionRow>(
+      `SELECT decision_id, request_id, task_id, session_id, sandbox_id, effect, layer, mode,
+              permission_policy_version, reason, created_at
+         FROM permission_decisions WHERE decision_id = ?`,
+      decisionId,
+    );
+    return row ? toPermissionDecision(row) : null;
   }
 
   // ---------------------------------------------------------------- policies ---
@@ -663,6 +1199,7 @@ function toSandbox(row: SandboxRow): Sandbox {
     workspaceId: row.workspace_id,
     policyVersion: row.policy_version,
     resourceProfile: row.resource_profile,
+    configDigest: row.config_digest,
     status: row.status as SandboxStatus,
     createdAt: row.created_at,
     lastHeartbeatAt: row.last_heartbeat_at,
@@ -687,6 +1224,9 @@ function toExecution(row: ExecutionRow): Execution {
     stderr: row.stderr,
     policyVersion: row.policy_version,
     toolCallId: row.tool_call_id,
+    decisionId: row.decision_id,
+    permissionMode: row.permission_mode,
+    permissionPolicyVersion: row.permission_policy_version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -703,6 +1243,120 @@ function toApproval(row: ApprovalRow): ApprovalGrant {
     policyVersion: row.policy_version,
     createdAt: row.created_at,
     revokedAt: row.revoked_at,
+    grantId: row.grant_id ?? row.approval_id,
+    organizationId: row.organization_id ?? undefined,
+    projectId: row.project_id ?? undefined,
+    sessionId: row.session_id,
+    sandboxId: row.sandbox_id,
+    principalId: row.principal_id ?? undefined,
+    source: (row.source as ApprovalGrant['source']) ?? 'human_approval',
+    status: (row.status as ApprovalGrant['status']) ?? (row.revoked_at ? 'revoked' : 'active'),
+    scope: (row.scope_level as ApprovalGrant['scope']) ?? 'task',
+    requestId: row.request_id,
+    approvalRequestId: row.approval_request_id,
+    usedAt: row.used_at,
+  };
+}
+
+function toPermissionPolicy(row: PermissionPolicyRow): PermissionPolicyRecord {
+  const configuration = (parseJson(row.configuration) ?? {}) as {
+    rules?: PermissionPolicyRecord['rules'];
+    autoReview?: PermissionPolicyRecord['autoReview'];
+    approval?: PermissionPolicyRecord['approval'];
+    restricted?: PermissionPolicyRecord['restricted'];
+  };
+  return {
+    policyId: row.policy_id,
+    scopeType: row.scope_type as PermissionScopeLevel,
+    scopeId: row.scope_id,
+    version: Number(row.version),
+    mode: row.mode as PermissionMode,
+    rules: configuration.rules ?? [],
+    autoReview: configuration.autoReview ?? {
+      enabled: false,
+      allowedRiskLevels: [],
+      maxTtlMs: 0,
+    },
+    approval: configuration.approval ?? {
+      allowed: false,
+      requireHumanForRiskLevels: [],
+      maxTtlMs: 0,
+    },
+    restricted: configuration.restricted ?? {
+      allowedTools: [],
+      filesystem: { read: [], write: [] },
+      network: { mode: 'none', allowedDomains: [], allowedPorts: [] },
+    },
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function toPermissionRequest(row: PermissionRequestRow): PermissionRequestRecord {
+  return {
+    requestId: row.request_id,
+    requestKey: row.request_key,
+    organizationId: row.organization_id,
+    projectId: row.project_id,
+    sessionId: row.session_id,
+    taskId: row.task_id,
+    sandboxId: row.sandbox_id,
+    executionId: row.execution_id,
+    mode: row.mode as PermissionMode,
+    principalType: row.principal_type as PermissionRequestRecord['principalType'],
+    principalId: row.principal_id,
+    action: row.action as PermissionAction,
+    toolName: row.tool_name,
+    resourceType: row.resource_type as PermissionRequestRecord['resourceType'],
+    resourceIdentifier: row.resource_identifier,
+    resourceScope: (parseJson(row.resource_scope) as string[]) ?? [],
+    status: row.status as PermissionRequestStatus,
+    reason: row.reason,
+    riskLevel: row.risk_level as RiskLevel,
+    permissionPolicyVersion: row.permission_policy_version,
+    decisionId: row.decision_id,
+    grantId: row.grant_id,
+    approvalRequestId: row.approval_request_id,
+    autoReview: row.auto_review ? (parseJson(row.auto_review) as AutoReviewResultRecord) : null,
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function toHumanApproval(row: HumanApprovalRow): HumanApprovalRecord {
+  return {
+    approvalRequestId: row.approval_request_id,
+    requestId: row.request_id,
+    taskId: row.task_id,
+    sessionId: row.session_id,
+    sandboxId: row.sandbox_id,
+    scope: row.scope as HumanApprovalRecord['scope'],
+    status: row.status as HumanApprovalStatus,
+    requestedBy: row.requested_by,
+    decidedBy: row.decided_by,
+    decisionReason: row.decision_reason,
+    expiresAt: row.expires_at,
+    decidedAt: row.decided_at,
+    createdAt: row.created_at,
+  };
+}
+
+function toPermissionDecision(row: PermissionDecisionRow): PermissionDecision {
+  return {
+    decisionId: row.decision_id,
+    requestId: row.request_id,
+    effect: row.effect as PermissionDecisionEffect,
+    layer: row.layer as PermissionDecisionLayer,
+    mode: row.mode as PermissionMode,
+    permissionPolicyVersion: row.permission_policy_version,
+    reason: row.reason,
+    resources: [],
+    taskId: row.task_id,
+    sessionId: row.session_id,
+    sandboxId: row.sandbox_id,
+    createdAt: row.created_at,
   };
 }
 

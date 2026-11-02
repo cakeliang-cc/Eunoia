@@ -58,7 +58,8 @@ run_command tool
 | `src/tools/types.ts` | `ToolExecutor` / `ToolWorkspacePort` 端口 | 不知道 sandbox 存在 |
 | `src/sandbox/tool-adapter.ts` | 端口 → Gateway；task 懒初始化；`/workspace` 路径映射 | 不直接执行命令 |
 | `src/sandbox/gateway.ts` | 唯一入口：create/execute/inspect/interrupt/recover/destroy；文件工具；idempotency；事件 | 不生成 OCI argv |
-| `src/sandbox/policy.ts` | system/tenant/task/approval 决策；策略编译 | 不做 I/O |
+| `src/sandbox/policy.ts` | 结构策略（system/tenant/task）；runtime 配置编译 | 不做 I/O |
+| `src/sandbox/permissions/*` | 模式解析、规则、Grant、Request、Auto-review、Human Approval、权限恢复 | 不执行命令、不建容器 |
 | `src/sandbox/controller.ts` | 生命周期状态机；heartbeat；recover/rebuild | 不接收任意 OCI 配置 |
 | `src/sandbox/runtime/*` | 唯一的容器客户端；硬化的 argv | 不向调用方暴露 runtime 类型 |
 | `src/sandbox/workspace-manager.ts` | bind/copy workspace、checkpoint、清理 | 不销毁 bind 模式的用户目录 |
@@ -69,7 +70,7 @@ run_command tool
 | `src/sandbox/network/*` | egress 策略、DNS/IP 检查、HTTP/CONNECT 代理 | 不改容器网络 |
 | `src/sandbox/credentials.ts` | 短期凭证、scope、过期、撤销、脱敏 | 不注入宿主长期密钥 |
 | `src/sandbox/audit.ts` | append-only 审计、指标 | 不修改已写记录 |
-| `src/sandbox/cli.ts` | status/recover/approve/checkpoint/gc/proxy | 不绕过 Gateway |
+| `src/sandbox/cli.ts` | status/recover/permission modes/requests/approvals/grants/checkpoint/gc/proxy | 不绕过 Gateway |
 
 `tests/architecture/sandbox-boundaries.test.ts` 机械化检查：
 
@@ -89,8 +90,12 @@ sandbox_tasks 1 ── 1 sandbox_workspaces 1 ── N sandbox_workspace_checkpo
                     │
                     └── N sandbox_audit_events
 
-sandbox_approvals   (task-scoped, expiring)
+sandbox_approvals   (grants: task/session-scoped, expiring, policy-versioned)
 sandbox_policies    (versioned policy documents)
+permission_policies (session/task/sandbox mode + rules + restricted allow-list)
+permission_requests (one open request per principal/action/resource/policy)
+permission_approval_requests (human approval queue)
+permission_decisions (append-only decision ids)
 ```
 
 关键约束：
@@ -100,6 +105,10 @@ sandbox_policies    (versioned policy documents)
 - `sandbox_audit_events` 只追加。
 - `sandboxes` 通过 `workspace_id` 引用 workspace，worker 不拥有 workspace 的生命周期。
 - 所有状态更新都是 compare-and-set：`UPDATE ... WHERE status IN (...)`。
+- `permission_requests` 和 `permission_approval_requests` 同样用 CAS 迁移状态；
+  `permission_decisions` 只追加。
+- `sandboxes.config_digest` 记录编译后的 runtime 配置哈希；模式切换后 Controller
+  不重连旧容器。
 
 ## 4. 状态机
 
