@@ -93,6 +93,25 @@ export class El {
     return this.find((node) => node.classList.contains(className))[0] ?? null;
   }
 
+  /** Class or tag selector, enough for the approval buttons. */
+  querySelectorAll(selector: string): El[] {
+    const match = selector.startsWith('.')
+      ? (node: El) => node.classList.contains(selector.slice(1))
+      : (node: El) => node.tagName === selector;
+    return this.find(match);
+  }
+
+  /** The menu measures itself before it is positioned. */
+  getBoundingClientRect(): {
+    left: number; top: number; right: number; bottom: number; width: number; height: number;
+  } {
+    return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
+  }
+
+  offsetWidth = 0;
+  offsetHeight = 0;
+  hidden = false;
+
   remove(): void {
     const index = this.parent?.children.indexOf(this) ?? -1;
     if (index >= 0) this.parent?.children.splice(index, 1);
@@ -132,6 +151,7 @@ export interface CapturedRequest {
   readonly url: string;
   readonly method: string;
   readonly body: Record<string, unknown> | null;
+  readonly headers: Record<string, string>;
 }
 
 /** What the fake server answers with, keyed by `"METHOD /path"`. */
@@ -169,6 +189,13 @@ export async function boot(options: {
   stored?: string;
   /** Extra localStorage entries, written before the module runs. */
   local?: Record<string, string>;
+  /**
+   * The local permission token the server injects into `<head>`.
+   *
+   * Omitted means "opened from disk": the client must then keep the permission
+   * control hidden rather than sending mutations the server would refuse.
+   */
+  token?: string;
 } = {}): Promise<Harness> {
   const html = readFileSync(join(import.meta.dirname, '..', '..', 'web', 'index.html'), 'utf8');
   const source = /<script type="module">([\s\S]*?)<\/script>/.exec(html)?.[1];
@@ -187,10 +214,23 @@ export async function boot(options: {
   if (options.stored) store.set('df_conversation', options.stored);
   for (const [key, value] of Object.entries(options.local ?? {})) store.set(key, value);
 
+  const documentElement = new El('html');
+  (globalThis as { window?: unknown }).window = {
+    innerWidth: 1280,
+    innerHeight: 800,
+    addEventListener: () => {},
+  };
   (globalThis as { document?: unknown }).document = {
     createElement: (tag: string) => new El(tag),
     getElementById: element,
     addEventListener: () => {},
+    documentElement,
+    querySelector: (selector: string) => {
+      if (options.token && selector.includes('eunoia-token')) {
+        return { getAttribute: (name: string) => (name === 'content' ? options.token : null) };
+      }
+      return null;
+    },
   };
   (globalThis as { localStorage?: unknown }).localStorage = {
     getItem: (key: string) => store.get(key) ?? null,
@@ -200,7 +240,8 @@ export async function boot(options: {
   (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
-    requests.push({ url, method, body });
+    const headers = (init?.headers ?? {}) as Record<string, string>;
+    requests.push({ url, method, body, headers });
 
     // The stream the turn is read from, for whatever asked for the chat route.
     if (url === '/api/chat') {

@@ -740,6 +740,123 @@
     font-size: 10px; color: var(--faint);
   }
 
+  /* -------------------------------------------------------- permission mode --
+     A quiet pill beside send: context, not a feature. It reuses the palette so a
+     mode change never makes the composer louder than the conversation, and the
+     only saturated colour is the pending count, which is the one thing that
+     actually wants attention. */
+  .perm-pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 30px; padding: 0 11px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--surface-2); color: var(--ink-2);
+    font-size: 11.5px; white-space: nowrap; cursor: pointer;
+    transition: border-color .16s ease, background .16s ease;
+  }
+  .perm-pill:hover { border-color: var(--line-strong); background: var(--surface-3); }
+  .perm-pill[hidden] { display: none; }
+  .perm-pill .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .perm-pill[data-mode="read-only"] .dot {
+    background: var(--warn-ink); box-shadow: 0 0 0 3px var(--warn-bg);
+  }
+  .perm-pill[data-mode="restricted"] .dot {
+    background: var(--muted); box-shadow: 0 0 0 3px var(--surface-3);
+  }
+  .perm-pill[data-pending="0"] .perm-count { display: none; }
+  .perm-count {
+    min-width: 15px; padding: 0 5px; border-radius: 999px;
+    background: var(--danger); color: var(--on-danger);
+    font-size: 10px; line-height: 15px; text-align: center;
+  }
+
+  .perm-menu {
+    position: fixed; z-index: 40;
+    width: min(336px, calc(100vw - 24px));
+    padding: 7px;
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--surface); box-shadow: var(--shadow-lg);
+  }
+  .perm-menu[hidden] { display: none; }
+  .perm-menu-title {
+    padding: 6px 9px 7px;
+    font-size: 10px; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--faint);
+  }
+  .perm-option {
+    display: block; width: 100%; text-align: left;
+    padding: 8px 10px; border-radius: 10px;
+  }
+  .perm-option:hover { background: var(--surface-2); }
+  .perm-option[aria-current="true"] { background: var(--accent-soft); }
+  .perm-option .name { display: block; font-size: 12.5px; color: var(--ink); }
+  .perm-option .desc {
+    display: block; margin-top: 2px;
+    font-size: 11px; line-height: 1.5; color: var(--muted);
+  }
+  .perm-sep { height: 1px; margin: 6px; background: var(--line); }
+  .perm-note { padding: 7px 9px 3px; font-size: 10.5px; line-height: 1.55; color: var(--muted); }
+  .perm-remember {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; font-size: 11.5px; color: var(--ink-2); cursor: pointer;
+  }
+  .perm-remember input { accent-color: var(--accent); }
+  .perm-pending-item {
+    padding: 8px 10px; border-radius: 10px;
+    background: var(--warn-bg);
+  }
+  .perm-pending-item + .perm-pending-item { margin-top: 6px; }
+  .perm-pending-title { font-size: 12px; color: var(--warn-ink); }
+  .perm-pending-resource {
+    margin-top: 2px; font-size: 10.5px; line-height: 1.5;
+    color: var(--muted); word-break: break-all;
+  }
+  .perm-pending-actions { display: flex; gap: 6px; margin-top: 7px; }
+  .perm-pending-actions button { padding: 3px 9px; }
+  .perm-error { margin-right: 8px; font-size: 11px; color: var(--danger); }
+
+  /* The approval card inside a turn. Amber because it is a stop, not an error:
+     the call did not fail, it is waiting. */
+  .approval {
+    margin-top: 10px; padding: 10px 12px;
+    border: 1px solid var(--warn-border); border-radius: var(--radius-sm);
+    background: var(--warn-bg);
+  }
+  .approval[data-state="approved"] {
+    border-color: var(--accent-soft); background: var(--accent-softer);
+  }
+  .approval[data-state="denied"] {
+    border-color: var(--line); background: var(--surface-2);
+  }
+  .approval-head {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 12px; font-weight: 600; color: var(--warn-ink);
+  }
+  .approval[data-state="approved"] .approval-head { color: var(--accent-ink); }
+  .approval[data-state="denied"] .approval-head { color: var(--muted); }
+  .approval-body {
+    margin-top: 5px; font-size: 11.5px; line-height: 1.6; color: var(--ink-2);
+  }
+  .approval-body code {
+    padding: 1px 4px; border-radius: 4px;
+    background: var(--surface); font-family: var(--font-mono); font-size: 11px;
+  }
+  .approval-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+  .approval-actions button,
+  .perm-pending-actions button {
+    padding: 4px 10px; border: 1px solid var(--line-strong); border-radius: 8px;
+    background: var(--surface); color: var(--ink-2); font-size: 11.5px;
+    transition: border-color .16s ease, background .16s ease;
+  }
+  .approval-actions button:hover,
+  .perm-pending-actions button:hover { border-color: var(--ink-2); }
+  .approval-actions button.primary {
+    border-color: transparent; background: var(--accent); color: var(--on-accent);
+  }
+  .approval-actions button:disabled { opacity: .55; cursor: default; }
+
   /* ------------------------------------------------------------ workbench --
      The person-facing side of the workspace: a file tree, a read-only preview, a
      git diff and a command console. It is deliberately not the agent's tool
@@ -1519,6 +1636,12 @@
               <span class="hint-sep">·</span>
               <span class="hint-keys"><kbd>Enter</kbd> 发送</span>
             </span>
+            <button class="perm-pill" id="perm-pill" type="button" hidden
+                    aria-haspopup="dialog" aria-expanded="false" title="权限模式">
+              <span class="dot"></span>
+              <span id="perm-label">自动</span>
+              <span class="perm-count" id="perm-count"></span>
+            </button>
             <button class="send" id="send" type="submit" aria-label="发送">
               <svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
             </button>
@@ -1687,6 +1810,10 @@
   </div>
 </div>
 
+<!-- The permission menu is fixed-positioned and lives outside the composer so
+     the form's overflow can never clip it. It is filled by paintPermissionMenu. -->
+<div class="perm-menu" id="perm-menu" role="dialog" aria-label="权限模式" hidden></div>
+
 <script type="module">
 const $ = (id) => document.getElementById(id);
 const transcript = $('transcript');
@@ -1703,7 +1830,17 @@ const state = {
   memoryEnabled: true,
   showArchived: false,
   feedback: new Map(),
+  /** Last `GET /api/permissions` payload, or null before the first answer. */
+  permission: null,
 };
+
+/**
+ * The local control token, written into <head> by the server that served this
+ * page. A copy opened from disk has none, and the permission control then stays
+ * hidden instead of firing requests it knows will be refused.
+ */
+const localToken =
+  document.querySelector('meta[name="eunoia-token"]')?.getAttribute('content') || null;
 
 /** Titles from the conversation list, so the topbar and sidebar agree. */
 const conversationTitles = new Map();
@@ -1957,6 +2094,420 @@ function notice(text) {
   scrollToEnd();
 }
 
+// ---------------------------------------------------------- permissions ----
+
+/**
+ * The permission control.
+ *
+ * The server owns every rule — which modes exist, what each one means, whether
+ * auto-review is on — and this side only draws the answer. That is deliberate:
+ * a client that hard-codes "four modes" (or the risk levels) drifts from the
+ * deployment the first time an operator narrows `SANDBOX_PERMISSION_ALLOWED_MODES`.
+ *
+ * Two things are stateful here, both of them UI state rather than policy:
+ *
+ *   - the pill shows the mode of the open conversation, or the deployment
+ *     default when no conversation is open yet;
+ *   - an approval card is created from the `tool_result` event's `approval`
+ *     field, keyed by approval id so a retried call does not draw it twice.
+ */
+
+/** Cards by approval id, so a repeated event updates rather than duplicates. */
+const approvalCards = new Map();
+/** Only the newest permission read may paint. */
+let permissionRequest = 0;
+/** Menu visibility is state, not a read of the attribute: the attribute is the
+ *  paint, and a test shim (or a browser mid-transition) may not reflect it. */
+let permMenuOpen = false;
+
+function permissionEnabled() {
+  return Boolean(localToken);
+}
+
+function permissionHeaders() {
+  return { 'Content-Type': 'application/json', 'X-Eunoia-Token': localToken };
+}
+
+async function refreshPermissions() {
+  const pill = $('perm-pill');
+  if (!pill) return;
+  if (!permissionEnabled()) {
+    pill.hidden = true;
+    return;
+  }
+  const request = ++permissionRequest;
+  const query = state.conversationId
+    ? `?conversationId=${encodeURIComponent(state.conversationId)}`
+    : '';
+  const response = await fetch(`/api/permissions${query}`).catch(() => null);
+  // A slower earlier read has nothing useful to say about the current view.
+  if (request !== permissionRequest) return;
+  if (!response || !response.ok) {
+    pill.hidden = true;
+    return;
+  }
+  const payload = await response.json().catch(() => null);
+  // A partial answer is worse than none: without `modes` there is no menu to
+  // draw, and assuming it exists would throw inside a fire-and-forget call.
+  if (!payload || payload.enabled === false || !Array.isArray(payload.modes)) {
+    pill.hidden = true;
+    return;
+  }
+  state.permission = payload;
+  pill.hidden = false;
+  paintPermissionPill();
+  if (isPermissionMenuOpen()) paintPermissionMenu();
+  reconcileApprovalCards(payload);
+}
+
+/**
+ * Bring a card in line with the queue after a refresh.
+ *
+ * The same request can be decided from the menu, from the CLI, or from another
+ * tab; a card that kept saying "等你批准" after that would be a stale prompt.
+ */
+function reconcileApprovalCards(permission) {
+  const approvals = permission.approvals || [];
+  for (const [id, card] of approvalCards) {
+    if (!card.isConnected) {
+      approvalCards.delete(id);
+      continue;
+    }
+    if (card.dataset.state !== 'pending') continue;
+    const record = approvals.find((entry) => entry.approvalRequestId === id);
+    if (!record) continue;
+    if (record.status === 'APPROVED') finishApprovalCard(card, true);
+    else if (record.status === 'DENIED') finishApprovalCard(card, false);
+  }
+}
+
+function paintPermissionPill() {
+  const permission = state.permission;
+  const pill = $('perm-pill');
+  if (!permission || !pill) return;
+  const option = permission.modes.find((entry) => entry.id === permission.mode);
+  $('perm-label').textContent = option ? option.label : permission.mode;
+  pill.dataset.mode = permission.mode;
+  const pending = permission.pending ? permission.pending.length : 0;
+  pill.dataset.pending = String(pending);
+  $('perm-count').textContent = pending > 0 ? String(pending) : '';
+  pill.title = pending > 0 ? `${pending} 个操作等你批准` : '权限模式';
+}
+
+function isPermissionMenuOpen() {
+  return permMenuOpen;
+}
+
+function openPermissionMenu() {
+  const menu = $('perm-menu');
+  const pill = $('perm-pill');
+  if (!menu || !pill) return;
+  paintPermissionMenu();
+  permMenuOpen = true;
+  menu.hidden = false;
+  pill.setAttribute('aria-expanded', 'true');
+  placePermissionMenu();
+}
+
+function closePermissionMenu() {
+  const menu = $('perm-menu');
+  const pill = $('perm-pill');
+  permMenuOpen = false;
+  if (menu) menu.hidden = true;
+  if (pill) pill.setAttribute('aria-expanded', 'false');
+}
+
+/**
+ * Put the menu above the pill, or below it when the pill is near the top.
+ *
+ * Measured after the menu is visible: a hidden element has no height, and the
+ * first paint used to jump.
+ */
+function placePermissionMenu() {
+  const menu = $('perm-menu');
+  const pill = $('perm-pill');
+  if (!menu || !pill) return;
+  const rect = pill.getBoundingClientRect();
+  const width = menu.offsetWidth;
+  const height = menu.offsetHeight;
+  // Right-aligned to the pill: the pill sits at the end of the composer bar, so
+  // a left-aligned menu would hang past the window edge before it clamps.
+  const left = Math.max(12, Math.min(rect.right - width, window.innerWidth - width - 12));
+  const above = rect.top - height - 8;
+  const top =
+    above >= 12 ? above : Math.min(rect.bottom + 8, window.innerHeight - height - 12);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${Math.max(12, top)}px`;
+}
+
+function labelOfMode(mode) {
+  const option = state.permission?.modes.find((entry) => entry.id === mode);
+  return option ? option.label : mode;
+}
+
+/**
+ * Risk levels arrive as the deployment spells them; the page reads in Chinese.
+ *
+ * A map rather than a server field: the levels are a closed set in the permission
+ * types, and putting the translation here keeps the API free of display copy.
+ */
+const RISK_LABELS = { low: '低', medium: '中', high: '高', critical: '危急' };
+
+function riskLabel(level) {
+  return RISK_LABELS[level] || level;
+}
+
+function paintPermissionMenu() {
+  const permission = state.permission;
+  const menu = $('perm-menu');
+  if (!menu || !permission) return;
+  menu.textContent = '';
+  menu.append(el('div', 'perm-menu-title', '权限模式'));
+
+  // Read at click time, not at paint time: the checkbox below can change after
+  // the options were drawn.
+  let remember = permission.default_mode === permission.mode;
+
+  for (const option of permission.modes) {
+    const button = el('button', 'perm-option');
+    button.type = 'button';
+    button.setAttribute('aria-current', String(option.id === permission.mode));
+    button.append(
+      el('span', 'name', option.label),
+      el('span', 'desc', option.description),
+    );
+    button.onclick = () => void changePermissionMode(option.id, remember);
+    menu.append(button);
+  }
+
+  // The one thing about a mode that is invisible until it fires.
+  const auto = permission.auto_review;
+  const human = permission.approval?.requireHumanForRiskLevels ?? [];
+  menu.append(
+    el(
+      'div',
+      'perm-note',
+      permission.mode === 'auto' && auto && auto.enabled
+        ? `自动审核会批准「${auto.allowedRiskLevels.map(riskLabel).join(' / ')}」风险；「${human.map(riskLabel).join(' / ')}」仍然问你。`
+        : '自动审核只在「自动」模式里参与；其他模式需要扩展时直接问你。',
+    ),
+  );
+
+  if (permission.pending && permission.pending.length > 0) {
+    menu.append(el('div', 'perm-sep'));
+    menu.append(el('div', 'perm-menu-title', `等你的批准（${permission.pending.length}）`));
+    for (const entry of permission.pending) menu.append(pendingApprovalRow(entry));
+  }
+
+  menu.append(el('div', 'perm-sep'));
+  const rememberLabel = el('label', 'perm-remember');
+  const box = el('input');
+  box.type = 'checkbox';
+  box.checked = remember;
+  box.onchange = () => {
+    remember = box.checked;
+    const fallback = permission.deployment?.mode ?? permission.mode;
+    void setRememberedMode(box.checked ? permission.mode : fallback);
+  };
+  rememberLabel.append(box, el('span', null, '新对话也用这个模式'));
+  menu.append(rememberLabel);
+}
+
+async function changePermissionMode(mode, remember) {
+  // There is no task to scope a policy to until the conversation exists; a
+  // conversation is created by the first message.
+  if (!state.conversationId) {
+    closePermissionMenu();
+    notice('先发一句话；权限模式是跟着对话走的。');
+    return;
+  }
+  const response = await fetch('/api/permissions/mode', {
+    method: 'POST',
+    headers: permissionHeaders(),
+    body: JSON.stringify({ conversationId: state.conversationId, mode, remember }),
+  }).catch(() => null);
+  const payload = response ? await response.json().catch(() => ({})) : {};
+  if (!response || !response.ok) {
+    notice(`没能切换：${payload.error || '请求没有到达'}`);
+    return;
+  }
+  closePermissionMenu();
+  await refreshPermissions();
+  notice(`已切换到「${labelOfMode(mode)}」。下一次动手会按新的权限执行。`);
+}
+
+async function setRememberedMode(mode) {
+  const response = await fetch('/api/preferences', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 'permission.mode.default': mode }),
+  }).catch(() => null);
+  if (!response || !response.ok) {
+    notice('没能记住这个默认模式。');
+    return;
+  }
+  await refreshPermissions();
+}
+
+/** The compact row the menu uses for requests opened in an earlier turn. */
+function pendingApprovalRow(entry) {
+  const row = el('div', 'perm-pending-item');
+  row.append(
+    el(
+      'div',
+      'perm-pending-title',
+      `${entry.tool || '工具调用'} · ${entry.risk_level ? `${riskLabel(entry.risk_level)}风险` : '未知风险'}`,
+    ),
+  );
+  if (entry.resource) row.append(el('div', 'perm-pending-resource', entry.resource));
+  if (entry.reason) row.append(el('div', 'perm-pending-resource', entry.reason));
+
+  const actions = el('div', 'perm-pending-actions');
+  const approve = el('button', null, '批准');
+  approve.type = 'button';
+  approve.onclick = () =>
+    void decideFromMenu(entry.approvalRequestId, 'approve', { scope: 'once', ttlSeconds: 60 });
+  const deny = el('button', null, '拒绝');
+  deny.type = 'button';
+  deny.onclick = () => void decideFromMenu(entry.approvalRequestId, 'deny', {});
+  actions.append(approve, deny);
+  row.append(actions);
+  return row;
+}
+
+async function decideFromMenu(approvalRequestId, action, options) {
+  const response = await fetch(
+    `/api/permissions/approvals/${approvalRequestId}/${action}`,
+    {
+      method: 'POST',
+      headers: permissionHeaders(),
+      body: JSON.stringify(options),
+    },
+  ).catch(() => null);
+  const payload = response ? await response.json().catch(() => ({})) : {};
+  if (!response || !response.ok) {
+    notice(`没能${action === 'approve' ? '批准' : '拒绝'}：${payload.error || '请求没有到达'}`);
+    return;
+  }
+  closePermissionMenu();
+  await refreshPermissions();
+  notice(
+    action === 'approve'
+      ? '已批准。让 ta 重试刚才那一步；批准只对下一次同样的调用生效。'
+      : '已拒绝，这次调用不会再执行。',
+  );
+}
+
+/**
+ * The card under a stopped tool call.
+ *
+ * Drawn from the event rather than from a poll so the person sees the request
+ * in the same breath as the failed row; the menu's pending list is the fallback
+ * for a page that was reloaded.
+ */
+function addApprovalCard(bubble, event) {
+  const approval = event.approval;
+  if (!approval || !approval.approvalRequestId) return;
+  const existing = approvalCards.get(approval.approvalRequestId);
+  if (existing && existing.isConnected) return;
+
+  const card = el('div', 'approval');
+  card.dataset.state = 'pending';
+  card.append(el('div', 'approval-head', `需要你批准：${event.name}`));
+
+  const body = el('div', 'approval-body');
+  if (event.summary) body.append(el('div', null, event.summary));
+  if (event.error) body.append(el('div', null, event.error));
+  card.append(body, el('div', 'approval-actions'));
+
+  bubble.append(card);
+  approvalCards.set(approval.approvalRequestId, card);
+  renderApprovalActions(card, approval.approvalRequestId);
+  scrollToEnd();
+}
+
+function renderApprovalActions(card, approvalRequestId) {
+  const actions = card.querySelector('.approval-actions');
+  actions.textContent = '';
+  const once = el('button', 'primary', '批准一次');
+  once.type = 'button';
+  once.onclick = () =>
+    void decideInCard(card, approvalRequestId, 'approve', { scope: 'once', ttlSeconds: 60 });
+  const forAWhile = el('button', null, '批准 30 分钟');
+  forAWhile.type = 'button';
+  forAWhile.onclick = () =>
+    void decideInCard(card, approvalRequestId, 'approve', { scope: 'task', ttlSeconds: 1800 });
+  const deny = el('button', null, '拒绝');
+  deny.type = 'button';
+  deny.onclick = () => void decideInCard(card, approvalRequestId, 'deny', {});
+  actions.append(once, forAWhile, deny);
+}
+
+async function decideInCard(card, approvalRequestId, action, options) {
+  const actions = card.querySelector('.approval-actions');
+  for (const button of actions.querySelectorAll('button')) button.disabled = true;
+  const response = await fetch(
+    `/api/permissions/approvals/${approvalRequestId}/${action}`,
+    {
+      method: 'POST',
+      headers: permissionHeaders(),
+      body: JSON.stringify(options),
+    },
+  ).catch(() => null);
+  const payload = response ? await response.json().catch(() => ({})) : {};
+  if (!response || !response.ok) {
+    actions.textContent = '';
+    const retry = el('button', null, '重试');
+    retry.type = 'button';
+    retry.onclick = () => void decideInCard(card, approvalRequestId, action, options);
+    actions.append(
+      el('span', 'perm-error', `失败：${payload.error || '网络错误'}`),
+      retry,
+    );
+    return;
+  }
+  finishApprovalCard(card, action === 'approve');
+  await refreshPermissions();
+}
+
+function finishApprovalCard(card, approved) {
+  card.dataset.state = approved ? 'approved' : 'denied';
+  const head = card.querySelector('.approval-head');
+  if (head) head.textContent = approved ? '已批准' : '已拒绝';
+
+  const body = card.querySelector('.approval-body');
+  if (body) {
+    body.append(
+      el(
+        'div',
+        null,
+        approved
+          ? '批准只对下一次同样的调用生效：点下面的按钮让 ta 接着做。'
+          : '这次调用不会再执行。',
+      ),
+    );
+  }
+
+  const actions = card.querySelector('.approval-actions');
+  actions.textContent = '';
+  if (approved) {
+    const again = el('button', 'primary', '让 ta 继续');
+    again.type = 'button';
+    again.onclick = () => {
+      // A tool can be approved while the turn is still streaming; starting a
+      // second turn now would be dropped by `send` and the button would stay
+      // disabled with nothing to explain it.
+      if (state.sending) {
+        notice('这一轮还没说完，等它停下来再让它继续。');
+        return;
+      }
+      again.disabled = true;
+      void send('已经批准了，请继续刚才那一步。');
+    };
+    actions.append(again);
+  }
+}
+
 // ------------------------------------------------------------ transport ----
 
 /**
@@ -2083,6 +2634,7 @@ async function send(text) {
         trace.call(event);
       } else if (event.type === 'tool_result') {
         trace?.resolve(event);
+        if (event.approval) addApprovalCard(bubble, event);
       } else if (event.type === 'loop_exhausted') {
         note.textContent = `达到 ${event.steps} 步工具上限`;
       }
@@ -2103,6 +2655,9 @@ async function send(text) {
     state.sending = false;
     sendButton.disabled = false;
     scrollToEnd();
+    // A turn can leave a request pending; the badge has to learn about it even
+    // if this client chose not to draw the card.
+    void refreshPermissions();
   }
 }
 
@@ -2152,6 +2707,9 @@ function rememberConversation(id) {
   markActiveThread();
   if (!id) setThreadTitle('新的对话');
   else updateThreadTitle();
+  // The permission mode is per conversation, so the pill has to follow the
+  // thread; a stale label would claim a mode this task is not running under.
+  void refreshPermissions();
 }
 
 function recallConversation() {
@@ -3609,9 +4167,29 @@ $('history-archived').onclick = () => {
 
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
+  if (isPermissionMenuOpen()) closePermissionMenu();
   for (const id of ['drawer', 'history']) {
     if ($(id).dataset.open === 'true') $(id).dataset.open = 'false';
   }
+});
+
+// The pill opens a menu rather than a modal: choosing a mode is one click and
+// the conversation stays visible while the description is read.
+const permPill = $('perm-pill');
+if (permPill) {
+  permPill.onclick = (event) => {
+    event.stopPropagation();
+    if (isPermissionMenuOpen()) closePermissionMenu();
+    else openPermissionMenu();
+  };
+}
+const permMenu = $('perm-menu');
+if (permMenu) permMenu.onclick = (event) => event.stopPropagation();
+document.addEventListener('click', () => {
+  if (isPermissionMenuOpen()) closePermissionMenu();
+});
+window.addEventListener('resize', () => {
+  if (isPermissionMenuOpen()) placePermissionMenu();
 });
 
 $('memory-enable').onclick = async () => {
@@ -3663,6 +4241,7 @@ async function bootstrap() {
   await restore().catch(() => undefined);
   await refreshHistory();
   await refreshMemoryStatus();
+  await refreshPermissions().catch(() => undefined);
   await restoreWorkbench().catch(() => undefined);
 }
 

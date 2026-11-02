@@ -10,6 +10,27 @@
 
 ### Added
 
+- **本机权限控制面（ADR 022）。** 聊天页现在有模式切换器和待审批卡片；四种模式的
+  语义没变，变的是入口。实现见
+  [docs/adr/022-local-permission-ui.md](docs/adr/022-local-permission-ui.md)。
+  - **4 个端点**：`GET /api/permissions`、`POST /api/permissions/mode`、
+    `POST /api/permissions/approvals/:id/approve|deny`。
+  - **写端点只接受 `mode`**：`autoReview` / `approval` / `restricted` 的覆盖不从
+    HTTP 暴露，风险线仍是部署配置；否则"子作用域只能收紧"会在外部被绕过。
+  - **本机边界**：只接受 loopback socket，要求 `Content-Type: application/json` 和
+    每进程生成的 `X-Eunoia-Token`。token 注入主页 `<meta name="eunoia-token">`，
+    因此跨源页面读不到、DNS rebinding 也猜不到；`HOST=0.0.0.0` 时写端点直接 403。
+  - **UI**：pill 显示当前模式与待审批数；菜单里的标签/描述/可选模式由服务端返回，
+    不硬编码"四种"；被卡住的调用在对话里画"批准一次 / 批准 30 分钟 / 拒绝"卡片，
+    批准后出现"让 ta 继续"，不自动重放。勾选"新对话也用这个模式"写入
+    `permission.mode.default`，新会话创建时落成一条 task 策略。
+  - **approval id 结构化透传**：工具层把 `SandboxApprovalRequiredError` 的
+    `requestId` / `approvalRequestId` 放进 `ToolResult.meta.approval`，
+    `tool_result` 事件直接携带，不再从错误文案里解析。
+  - **测试**：新增 `tests/api/permissions.test.ts`（token / JSON / 跨用户 / 未知 id /
+    默认模式沿用 / 页面注入 token），`permission-policy.test.ts` 增加 scope 收紧
+    不变量。
+
 - **Permission Modes 与权限生命周期（ADR 020）。** Sandbox 之上的授权层从
   “写/命令开关 + operator grant”扩展为四种模式、统一 Permission Manager、
   auto-review、人工审批和带策略版本的 Grant。实现与偏差见
@@ -315,6 +336,13 @@
   再次被写入，因此抽屉有一个兜底，而不是一行空白。
 
 ### Changed
+
+- **scope 策略不再能加宽 auto-review / approval / restricted。** 解析器对这三层改为
+  与父层取交集（风险等级、工具、路径、域名、端口），`requireHumanForRiskLevels`
+  取并集。此前是整层替换：一条旧的 scope 策略会在部署收紧之后继续生效，等于旧策略
+  有权把风险线加回去。见 ADR 022 §5。
+- **ADR 020 偏差表更新**："审批只走 CLI"改为"CLI + 本机页面"；回合中暂停和远程审批
+  仍然不做，理由未变。
 
 - **存储从 Postgres + Docker 换成了 SQLite 单文件。** 这不是一次“追新”，而是
   删除一个与产品规模不匹配的依赖：单用户、单进程的本地应用，却要带着 Docker
@@ -757,6 +785,11 @@
 
 ### Known Issues
 
+- 批准之后不会自动重试：需要再说一句"继续"，服务端不重放上一条用户消息。
+- 权限模式跟着对话走；切换会让活动 sandbox `INTERRUPTED`，下一次工具调用才按新策略
+  重建容器。
+- 本机控制面只对 loopback 开放；`HOST=0.0.0.0` 时模式切换与审批端点返回 403，仍只能
+  用 CLI。
 - **`narrative-01` 的检查是一个代理指标，而这个用例就被当作代理保留下来。** 它
   匹配的是"回指某个正在经历的主题"这一*形状*，而不是那个主题本身；它被标为
   `expectation` 而不是 `violation`，所以一次未命中会降低分数而不会判该用例失败。

@@ -115,9 +115,14 @@ export function resolveEffectivePermissionPolicy(
     if (isNarrowerOrEqual(layer.mode, mode) || allowedModes.includes(layer.mode)) {
       mode = layer.mode;
     }
-    autoReview = layer.autoReview;
-    approval = layer.approval;
-    restricted = layer.restricted;
+    // The control-plane setters copy the parent, so the common case is a layer
+    // that equals its parent and the intersection changes nothing. What this
+    // prevents is a stored layer that was written against a *looser* deployment
+    // and would otherwise survive a later tightening — an approval ceiling that
+    // a child scope can raise is not a ceiling.
+    autoReview = tightenAutoReview(autoReview, layer.autoReview);
+    approval = tightenApproval(approval, layer.approval);
+    restricted = tightenRestricted(restricted, layer.restricted);
     rules.push(...layer.rules);
     scopes.push({
       scopeType: layer.scopeType,
@@ -246,6 +251,75 @@ function intersectNumbers(a: readonly number[], b: readonly number[]): number[] 
 
 function underAny(path: string, prefix: string): boolean {
   return path === prefix || path.startsWith(`${prefix.replace(/\/+$/, '')}/`);
+}
+
+/**
+ * Intersect two auto-review settings.
+ *
+ * A narrower scope can switch auto-review off, shorten its TTL or remove risk
+ * levels from the auto-approved set. It cannot add one back: that is what stops
+ * a stale scope policy from quietly widening a deployment that was tightened
+ * afterwards.
+ */
+function tightenAutoReview(
+  parent: AutoReviewSettings,
+  child: AutoReviewSettings,
+): AutoReviewSettings {
+  return {
+    enabled: parent.enabled && child.enabled,
+    allowedRiskLevels: child.allowedRiskLevels.filter((level) =>
+      parent.allowedRiskLevels.includes(level),
+    ),
+    maxTtlMs: Math.min(parent.maxTtlMs, child.maxTtlMs),
+  };
+}
+
+/**
+ * Intersect two approval settings.
+ *
+ * `requireHumanForRiskLevels` grows, never shrinks: a child may demand a human
+ * for a level the deployment would have let auto-review approve, but it may not
+ * excuse itself from one.
+ */
+function tightenApproval(parent: ApprovalSettings, child: ApprovalSettings): ApprovalSettings {
+  const humanRequired = [...parent.requireHumanForRiskLevels];
+  for (const level of child.requireHumanForRiskLevels) {
+    if (!humanRequired.includes(level)) humanRequired.push(level);
+  }
+  return {
+    allowed: parent.allowed && child.allowed,
+    requireHumanForRiskLevels: humanRequired,
+    maxTtlMs: Math.min(parent.maxTtlMs, child.maxTtlMs),
+  };
+}
+
+/**
+ * Intersect a restricted allow-list with its parent.
+ *
+ * The scope setter copies the parent, so this is normally a no-op. It matters
+ * when the deployment was tightened after a scope policy was written: a stored
+ * write path or tool that the deployment no longer names must not survive.
+ */
+function tightenRestricted(
+  parent: RestrictedAllowlist,
+  child: RestrictedAllowlist,
+): RestrictedAllowlist {
+  return {
+    allowedTools: child.allowedTools.filter((tool) => parent.allowedTools.includes(tool)),
+    filesystem: {
+      read: intersectPrefixes(parent.filesystem.read, child.filesystem.read),
+      write: intersectPrefixes(parent.filesystem.write, child.filesystem.write),
+    },
+    network: {
+      mode: parent.network.mode === 'none' ? 'none' : child.network.mode,
+      allowedDomains: child.network.allowedDomains.filter((domain) =>
+        parent.network.allowedDomains.includes(domain),
+      ),
+      allowedPorts: child.network.allowedPorts.filter((port) =>
+        parent.network.allowedPorts.includes(port),
+      ),
+    },
+  };
 }
 
 function policyDigest(deployment: PermissionPolicyRecord, policy: SandboxPolicy): string {

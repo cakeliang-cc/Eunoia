@@ -394,6 +394,9 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       ...(result.ok
         ? {}
         : { error: truncateLine(result.error ?? 'tool failed', 300) }),
+      // The trace is not the place to parse prose for an approval id; the tool
+      // that was refused already recorded the two ids in `meta`.
+      ...(result.meta?.approval ? { approval: result.meta.approval } : {}),
     };
   }
 }

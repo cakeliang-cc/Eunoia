@@ -120,6 +120,7 @@ const ALLOWED: Readonly<Record<string, string>> = {
   less: 'example of an interactive command',
   loop: 'example path segment',
   agent: 'example path segment',
+  models: 'example path segment in the change_directory description',
   based: 'as in 1-based line numbers',
   run: 'as in npm run',
   true: 'JSON literal in an example',

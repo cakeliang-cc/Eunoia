@@ -160,6 +160,72 @@ describe('permission mode resolution', () => {
   });
 });
 
+describe('scope policies can only tighten', () => {
+  it('cannot widen the auto-approved risk levels or the human list', () => {
+    const widened = scopePolicy('task', 'auto', {
+      autoReview: {
+        enabled: true,
+        allowedRiskLevels: ['low', 'medium', 'high', 'critical'],
+        maxTtlMs: 24 * 60 * 60_000,
+      },
+      approval: {
+        allowed: true,
+        requireHumanForRiskLevels: [],
+        maxTtlMs: 24 * 60 * 60_000,
+      },
+    });
+
+    const effective = resolve(
+      { task: widened },
+      {
+        mode: 'auto',
+        autoReview: { enabled: true, allowedRiskLevels: ['low'] },
+        approval: { requireHumanForRiskLevels: ['high'] },
+      },
+    );
+
+    // A row written against a looser deployment must not survive a tightening:
+    // that is the difference between a ceiling and a suggestion.
+    expect(effective.autoReview.allowedRiskLevels).toEqual(['low']);
+    expect(effective.autoReview.maxTtlMs).toBe(10 * 60_000);
+    expect(effective.approval.requireHumanForRiskLevels).toEqual(['high']);
+  });
+
+  it('cannot add a tool, a write path or a network domain from a narrower scope', () => {
+    const widened = scopePolicy('task', 'restricted', {
+      restricted: {
+        allowedTools: ['read_file', 'write_file'],
+        filesystem: { read: ['/workspace'], write: ['/workspace/src'] },
+        network: {
+          mode: 'proxy_only',
+          allowedDomains: ['registry.npmjs.org'],
+          allowedPorts: [443],
+        },
+      },
+    });
+
+    const effective = resolve({ task: widened }, { mode: 'restricted' });
+    expect(effective.restricted.allowedTools).toEqual(['read_file']);
+    expect(effective.restricted.filesystem.write).toEqual([]);
+    expect(effective.restricted.network.mode).toBe('none');
+    expect(effective.restricted.network.allowedDomains).toEqual([]);
+  });
+
+  it('still lets a scope genuinely narrow the allow-list', () => {
+    const narrowed = scopePolicy('task', 'restricted', {
+      restricted: {
+        allowedTools: ['read_file'],
+        filesystem: { read: ['/workspace/src'], write: [] },
+        network: { mode: 'none', allowedDomains: [], allowedPorts: [] },
+      },
+    });
+
+    const effective = resolve({ task: narrowed }, { mode: 'restricted' });
+    expect(effective.restricted.allowedTools).toEqual(['read_file']);
+    expect(effective.restricted.filesystem.read).toEqual(['/workspace/src']);
+  });
+});
+
 describe('permission rules', () => {
   const rule = (overrides: Partial<PermissionRule> = {}): PermissionRule => ({
     ruleId: 'rule-1',

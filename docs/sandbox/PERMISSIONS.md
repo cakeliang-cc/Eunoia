@@ -104,9 +104,11 @@ System deny
   > execution grant
 ```
 
-- 子作用域可以自由收紧。
+- 子作用域可以自由收紧。`autoReview` / `approval` / `restricted` 三层按交集解析：
+  子作用域不能加回部署已经删掉的风险等级、工具或路径（见 §13 的“陈旧策略”一行）。
 - 子作用域要放宽模式，必须落在 `SANDBOX_PERMISSION_ALLOWED_MODES` 里；否则解析器
-  忽略它并回退到父级。切换入口只有可信控制面（CLI），Agent 没有 API。
+  忽略它并回退到父级。切换入口是可信控制面：CLI，或本机页面通过 loopback +
+  per-process token 的 HTTP 端点（ADR 022）。Agent 没有 API。
 - 过期的作用域策略被整体忽略，回退到父级。
 - 每一层都有数值 `version`；有效版本是：
 
@@ -201,7 +203,7 @@ npm run sandbox -- deny-request --approval <id> --by alice
 - `execute()` 在 `controller.execute()` 之前再次 `revalidate()`：Grant 被撤销、
   TTL 到期、Policy Version 变化都会让 Execution 以 `FAILED` 结束（命令没有提交），
   不会把旧授权用到新策略上。
-- 模式切换（CLI）会：
+- 模式切换（CLI 或本机 UI）会：
   1. 写新 Policy Version；
   2. 写 `permission.mode.changed` / `permission.policy.changed` 审计；
   3. 把受影响的活动 sandbox 标记 `INTERRUPTED`；
@@ -211,6 +213,27 @@ npm run sandbox -- deny-request --approval <id> --by alice
 `config_digest` 是 `RuntimeSandboxConfig` 的规范化哈希（mount 可写性、资源、网络、
 环境、mask）。没有它，一个从 auto 切到 read-only 的任务会继续跑在可写 mount 的
 旧容器里——这正是 ADR 020 §12.2 要求避免的。
+
+### 8.1 本机控制面（ADR 022）
+
+| 方法 | 路径 | 作用 |
+|---|---|---|
+| `GET` | `/api/permissions?conversationId=` | 有效模式、scope 链、auto-review 配置、待审批列表 |
+| `POST` | `/api/permissions/mode` | `{conversationId, mode, minutes?, remember?}` |
+| `POST` | `/api/permissions/approvals/:id/approve` | `{scope?, ttlSeconds?, reason?}` |
+| `POST` | `/api/permissions/approvals/:id/deny` | `{reason?}` |
+
+约束：
+
+- 写端点只接受 `mode`，不接受 `autoReview` / `approval` / `restricted` 覆盖；风险等级
+  和人工审批线是部署决策，不能由请求放宽。
+- 审批按 `approvalRequestId` 定位，但仍校验该审批属于当前用户的会话：知道 id
+  不等于获得批准权。
+- 写端点要求 `Content-Type: application/json` 和 `X-Eunoia-Token`；token 由服务端
+  每个进程生成一次并注入 `index.html` 的 `<meta name="eunoia-token">`，所以别的源
+  读不到它（同源策略），DNS rebinding 也猜不到。
+- 只接受 loopback 来源；`HOST=0.0.0.0` 时这些路由直接 403，不跟随部署放宽。
+- 批准/拒绝后的工具调用**不会**自动重试，这和 CLI 的语义一致：下一次调用才会通过。
 
 ## 9. 持久化（schema v4）
 
@@ -272,7 +295,7 @@ npm run sandbox -- deny-request --approval <id> --by alice
 | 网络/新域名扩展可以审批 | 记录 Request 后 DENY，要求改部署策略 + 重启代理 | 容器网络和 egress proxy 在启动时固定；运行中加域名无法由应用单方面兑现 |
 | 工作区外路径扩展可以审批 | DENY（system/task 层） | bind mount 只有 `/workspace`；批准后仍无法访问 |
 | Organization / Project 分层 | `organization`/`project` 是部署配置和 ID；可持久化的只有 session/task/sandbox | 单用户单租户产品，没有组织表 |
-| Approval UI | CLI（`approve-request` / `deny-request`） | 没有 HTTP 认证层（ADR 009），加一个能批权限的 HTTP 端点风险更大 |
+| Approval UI | CLI + 本机页面（`/api/permissions/*`，见 §8.1、ADR 022） | 没有 HTTP 认证层（ADR 009），所以端点只开 loopback、只收 JSON、并要求 per-process token；远程审批仍然不做 |
 | 运行中权限收紧会终止执行 | 标记 sandbox `INTERRUPTED` 并让下次执行重建；已经在 `controller.execute()` 中的命令不会被强杀 | 与 ADR 018 的 timeout/interrupt 语义一致；强杀需要额外的信号通道 |
 
 ## 13. 威胁模型
@@ -281,7 +304,7 @@ npm run sandbox -- deny-request --approval <id> --by alice
 |---|---|---|
 | Agent 伪造 permission mode | `request.permissionMode` 只是提示；模式由 store + 部署配置解析 | `permission-policy.test.ts` |
 | Agent 伪造 grant id | Grant 必须匹配 task、principal、action、resource、policy version、TTL；`grantId` 不是授权凭证 | `permission-flow.test.ts` 跨 task/过期 |
-| Agent 伪造 approval result | 审批只能由 CLI 的 `--by` 人类身份写入；`agent:*` 被拒 | `permission-flow.test.ts` |
+| Agent 伪造 approval result | 审批只能由 CLI 的 `--by` 或本机 UI 的 operator 身份写入；`agent:*` 被拒 | `permission-flow.test.ts` |
 | 审批重复提交 / 重放 | Approval CAS；重复 approve 返回已有 Grant；`once` 消费 | `permission-flow.test.ts` |
 | Grant 跨 task / session / workspace 重用 | Grant 绑定 task/session/sandbox；查询按 task/session 过滤 | `permission-flow.test.ts` |
 | Grant 在策略变更后继续有效 | 复合 policy version + revalidate + recovery sweep | `permission-flow.test.ts` |
@@ -292,12 +315,16 @@ npm run sandbox -- deny-request --approval <id> --by alice
 | 旧容器绕过新挂载策略 | `config_digest` 不匹配即销毁重建 | `permission-flow.test.ts` |
 | 工具绕过 Permission Manager | 唯一执行入口是 Gateway；`sandbox-boundaries.test.ts` 机械检查 | 架构测试 |
 | 恢复时把 PENDING 当 APPROVED | 状态机无此边；recovery 只允许 EXPIRED/DENIED | `permission-flow.test.ts` |
+| 跨站页面伪造模式切换 / 审批（CSRF） | 写端点要求 JSON content-type + per-process token；token 在服务端注入页面，跨源读不到 | `tests/api/permissions.test.ts` |
+| DNS rebinding 打到 loopback | token 不是可猜的值（每进程随机），且写端点只对 loopback socket 开放 | `tests/api/permissions.test.ts` |
+| 陈旧 scope 策略在部署收紧后继续生效 | scope 层的 `autoReview` / `approval` / `restricted` 与父层取交集，不能加回被移除的等级、工具或路径 | `permission-policy.test.ts` |
+| 本机 UI 放宽自动审核 | 端点不接受 `autoReview` / `approval` 覆盖，只有 `mode` | `tests/api/permissions.test.ts` |
 
 ## 14. 测试证据
 
 | 文件 | 覆盖 |
 |---|---|
-| `tests/sandbox/permission-policy.test.ts` | 模式解析、优先级、过期作用域、规则、restricted 收窄、auto-review 风险/注入/自定义 reviewer |
+| `tests/sandbox/permission-policy.test.ts` | 模式解析、优先级、过期作用域、规则、restricted 收窄、scope 收紧不变量、auto-review 风险/注入/自定义 reviewer |
 | `tests/sandbox/permission-flow.test.ts` | 四种模式、请求→审批→Grant、一次性 Grant、Grant 过期、模式切换重建、跨 task、审批身份、fail closed、recovery |
 | `tests/sandbox/permission-manager.test.ts` | 伪造 mode 提示无效、重复评估只开一个请求、Grant 按字段校验、once 消费、撤销立即生效 |
 | `tests/sandbox/policy.test.ts` | system deny 不可提升、路径规范化、网络白名单 |

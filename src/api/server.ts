@@ -16,6 +16,7 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -43,9 +44,21 @@ import type { ToolPolicy } from '../tools/types.ts';
 import type { SandboxPlatform } from '../sandbox/index.ts';
 import { createSandboxPlatform } from '../sandbox/index.ts';
 import { sandboxSettings } from '../sandbox/config.ts';
+import type {
+  HumanApprovalRecord,
+  PermissionRequestRecord,
+} from '../sandbox/permissions/types.ts';
 import { discoverSkillRegistry } from '../skills/registry.ts';
 import type { SkillRegistry } from '../skills/registry.ts';
 import { clearIdentity, readIdentity, resolveIdentity, singleUserId } from './identity.ts';
+import {
+  PERMISSION_MODE_DEFAULT_KEY,
+  isPermissionMode,
+  isUuid,
+  parseApprovalDecision,
+  parsePermissionModeChange,
+  permissionModeOptions,
+} from './permissions.ts';
 import { pipeEventsAsSse } from './sse.ts';
 import {
   WorkspaceUiService,
@@ -101,6 +114,68 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 
 function asObject(raw: unknown): Json | null {
   return typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as Json) : null;
+}
+
+/**
+ * Only a local socket may touch the permission surface.
+ *
+ * There is still no authentication (ADR 009), so "can open a TCP connection"
+ * must not be the same thing as "may change what the agent is allowed to do".
+ * The bind address is loopback by default; this is the second lock, for a
+ * deployment that set `HOST=0.0.0.0` anyway.
+ */
+function isLoopbackRequest(req: IncomingMessage): boolean {
+  const address = req.socket.remoteAddress;
+  return (
+    address === '127.0.0.1' ||
+    address === '::1' ||
+    address === '::ffff:127.0.0.1'
+  );
+}
+
+function isJsonContentType(value: string | undefined): boolean {
+  return (value ?? '').split(';')[0]?.trim().toLowerCase() === 'application/json';
+}
+
+/**
+ * Constant-time token comparison.
+ *
+ * The token is not a password and the socket is local, but comparing secrets
+ * with `===` is the kind of habit that survives into a deployment where it
+ * matters, so it is done properly here.
+ */
+function tokensMatch(given: string, expected: string): boolean {
+  const left = Buffer.from(given);
+  const right = Buffer.from(expected);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function isSandboxNotFound(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === 'not_found'
+  );
+}
+
+/**
+ * HTTP status for an error raised by the permission layer.
+ *
+ * The permission classes deliberately do not know about HTTP, so the mapping
+ * lives at the transport edge. Anything unrecognised is a 500: a bug in the
+ * permission layer must not read as "your request was fine and we said no".
+ */
+function permissionErrorStatus(error: unknown): number {
+  if (typeof error !== 'object' || error === null) return 500;
+  const name = (error as { name?: unknown }).name;
+  const code = (error as { code?: unknown }).code;
+  if (name === 'SandboxNotFoundError' || code === 'not_found') return 404;
+  if (code === 'forbidden') return 403;
+  if (name === 'PermissionConflictError' || name === 'ApprovalError') return 409;
+  if (name === 'PermissionPolicyError' || name === 'GrantError' || code === 'invalid_input') {
+    return 400;
+  }
+  return 500;
 }
 
 export interface ChatPayload {
@@ -269,11 +344,21 @@ export interface AppDependencies {
    * Production leaves it unset and `runTurn` uses the real runner.
    */
   readonly runner?: TurnRunner;
+  /**
+   * Token the browser must echo on permission mutations.
+   *
+   * Generated per process and injected into the served HTML, so a page on
+   * another origin cannot read it (same-origin policy) and a DNS-rebinding
+   * attacker who reaches loopback still cannot guess it. Tests pass a known
+   * value instead of scraping the page.
+   */
+  readonly localToken?: string;
 }
 
 export function createApp(deps: AppDependencies) {
   const store = deps.store;
   const sessions = deps.sessions ?? new SessionService(store);
+  const localToken = deps.localToken ?? randomUUID();
 
   /**
    * Resolve the caller, and make sure their row exists.
@@ -298,6 +383,198 @@ export function createApp(deps: AppDependencies) {
   async function retrievalEnabled(userId: string): Promise<boolean> {
     const value = await store.getPreference(userId, MEMORY_ENABLED_KEY).catch(() => null);
     return value !== false;
+  }
+
+  /**
+   * The read side of the permission surface.
+   *
+   * Loopback only, but no token: this is a policy summary, not an action, and
+   * the page needs it on first paint. A page that can reach loopback can already
+   * read `/health`, which is the same class of information.
+   */
+  function guardPermissionRead(req: IncomingMessage, res: ServerResponse): boolean {
+    if (isLoopbackRequest(req)) return true;
+    sendJson(res, 403, { error: 'permission routes are loopback-only' });
+    return false;
+  }
+
+  /**
+   * The write side.
+   *
+   * Three independent conditions, each answering a different attacker:
+   *
+   *   - loopback: there is no login, so reachability must not equal authority;
+   *   - a JSON content type: an HTML form on another site cannot send it, and a
+   *     cross-origin `fetch` with it needs a preflight that fails;
+   *   - the per-process token: the page is served here and receives the token in
+   *     a meta tag, which another origin cannot read. That is also what stops
+   *     DNS rebinding, where the request looks same-origin to the browser.
+   */
+  function guardPermissionWrite(req: IncomingMessage, res: ServerResponse): boolean {
+    if (!guardPermissionRead(req, res)) return false;
+    if (!isJsonContentType(req.headers['content-type'])) {
+      sendJson(res, 415, { error: 'content-type must be application/json' });
+      return false;
+    }
+    const given = req.headers['x-eunoia-token'];
+    if (typeof given !== 'string' || !tokensMatch(given, localToken)) {
+      sendJson(res, 403, { error: 'missing or invalid local token' });
+      return false;
+    }
+    return true;
+  }
+
+  async function readBodyOrReject(
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<{ readonly ok: true; readonly value: unknown } | { readonly ok: false }> {
+    try {
+      return { ok: true, value: await readJsonBody(req) };
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : 'bad request' });
+      return { ok: false };
+    }
+  }
+
+  /**
+   * The whole permission surface for one conversation.
+   *
+   * `permissionStatus` needs a task row, and a brand-new conversation has none
+   * until its first tool call. That is not an error: a task policy can exist
+   * before the task does, so the fallback resolves the same policy without
+   * asking for the row.
+   */
+  async function permissionState(
+    sandbox: SandboxPlatform,
+    conversationId: string | null,
+    userId: string,
+  ): Promise<Record<string, unknown>> {
+    const settings = sandbox.settings.permission;
+    const remembered = await store
+      .getPreference(userId, PERMISSION_MODE_DEFAULT_KEY)
+      .catch(() => null);
+    const shared = {
+      enabled: true,
+      allowed_modes: settings.allowedModes,
+      modes: permissionModeOptions(settings.allowedModes),
+      operator: settings.operatorId,
+      default_mode: isPermissionMode(remembered) ? remembered : null,
+      deployment: {
+        mode: settings.mode,
+        auto_review: settings.autoReview,
+        approval: settings.approval,
+        restricted: settings.restricted,
+      },
+      sandbox: {
+        writes: sandbox.settings.allowWrites,
+        commands: sandbox.settings.allowCommands,
+        network: sandbox.settings.network.mode,
+      },
+    };
+
+    if (conversationId === null) {
+      return {
+        ...shared,
+        mode: settings.mode,
+        permission_policy_version: null,
+        scopes: [],
+        pending: [],
+        requests: [],
+        approvals: [],
+        grants: [],
+      };
+    }
+
+    let status: Record<string, unknown>;
+    try {
+      status = await sandbox.gateway.permissionStatus({
+        taskId: conversationId,
+        sessionId: conversationId,
+        userId,
+      });
+    } catch (error) {
+      if (!isSandboxNotFound(error)) throw error;
+      const effective = await sandbox.gateway.effectivePermissionPolicy(
+        conversationId,
+        conversationId,
+      );
+      status = {
+        mode: effective.mode,
+        permission_policy_version: effective.version,
+        scopes: effective.scopes,
+        auto_review: effective.autoReview,
+        approval: effective.approval,
+        restricted: effective.restricted,
+        requests: [],
+        approvals: [],
+        grants: [],
+      };
+    }
+
+    const requests = (status.requests ?? []) as readonly PermissionRequestRecord[];
+    const approvals = (status.approvals ?? []) as readonly HumanApprovalRecord[];
+    // The queue entry and the request that produced it are separate rows; a card
+    // needs both (id to act on, action/resource/reason to decide with).
+    const pending = approvals
+      .filter((approval) => approval.status === 'PENDING')
+      .map((approval) => {
+        const request =
+          requests.find(
+            (entry) =>
+              entry.approvalRequestId === approval.approvalRequestId ||
+              entry.requestId === approval.requestId,
+          ) ?? null;
+        return {
+          approvalRequestId: approval.approvalRequestId,
+          requestId: approval.requestId,
+          tool: request?.toolName ?? null,
+          action: request?.action ?? null,
+          resource: request?.resourceIdentifier ?? null,
+          risk_level: request?.riskLevel ?? null,
+          reason: request?.reason ?? '',
+          expires_at: approval.expiresAt,
+          requested_at: request?.createdAt ?? approval.createdAt,
+        };
+      });
+
+    return { ...shared, ...status, pending };
+  }
+
+  /**
+   * Give a brand-new conversation the mode the person asked to remember.
+   *
+   * This writes a task-scoped policy rather than touching deployment settings,
+   * so it goes through the same resolver, audit trail and container rebuild as a
+   * manual switch, and a deployment that later drops a mode simply ignores it.
+   * Failure is logged, never fatal: a conversation that opens in the deployment
+   * default is a smaller problem than one that refuses to open.
+   */
+  async function applyDefaultPermissionMode(
+    userId: string,
+    conversationId: string,
+  ): Promise<void> {
+    const sandbox = deps.sandbox;
+    if (!sandbox) return;
+    const stored = await store
+      .getPreference(userId, PERMISSION_MODE_DEFAULT_KEY)
+      .catch(() => null);
+    if (!isPermissionMode(stored)) return;
+    if (!sandbox.settings.permission.allowedModes.includes(stored)) return;
+    if (stored === sandbox.settings.permission.mode) return;
+    try {
+      await sandbox.gateway.setPermissionPolicy({
+        scopeType: 'task',
+        scopeId: conversationId,
+        mode: stored,
+        actor: sandbox.settings.permission.operatorId,
+      });
+    } catch (error) {
+      log.warn('permission.default_mode_failed', {
+        conversation_id: conversationId,
+        mode: stored,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -326,6 +603,18 @@ export function createApp(deps: AppDependencies) {
 
     const retrieve = await retrievalEnabled(userId);
 
+    // A chat can start a conversation implicitly. When it does, create it here
+    // instead of letting `runTurn` do it, because the remembered mode has to be
+    // written before the first tool call — afterwards is too late to matter for
+    // the turn that needed it. `runTurn` still names the conversation from the
+    // message; `nameConversation` only fills a null title.
+    let conversationId = parsed.conversationId;
+    if (conversationId === null) {
+      const conversation = await sessions.create(userId);
+      conversationId = conversation.id;
+      await applyDefaultPermissionMode(userId, conversationId);
+    }
+
     await pipeEventsAsSse(
       runTurn(
         {
@@ -340,7 +629,7 @@ export function createApp(deps: AppDependencies) {
         },
         {
           userId,
-          conversationId: parsed.conversationId,
+          conversationId,
           message: parsed.message,
           signal: controller.signal,
           // Retrieval happens inside `runTurn`; turning it off here means the
@@ -385,7 +674,7 @@ export function createApp(deps: AppDependencies) {
     }
 
     if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
-      await serveIndex(res);
+      await serveIndex(res, localToken);
       return true;
     }
 
@@ -443,6 +732,185 @@ export function createApp(deps: AppDependencies) {
       return true;
     }
 
+    // ------------------------------------------------------- permissions -----
+
+    if (req.method === 'GET' && pathname === '/api/permissions') {
+      if (!guardPermissionRead(req, res)) return true;
+      const userId = await identify(req, res);
+      const sandbox = deps.sandbox;
+      if (!sandbox) {
+        // No sandbox means no file or command tools, so there is no permission
+        // surface to show. The client hides the control instead of drawing a
+        // switch that changes nothing.
+        sendJson(res, 200, { enabled: false });
+        return true;
+      }
+
+      const requested = url.searchParams.get('conversationId');
+      let conversationId: string | null = null;
+      if (requested !== null) {
+        if (!isUuid(requested)) {
+          sendJson(res, 400, { error: 'conversationId must be a uuid' });
+          return true;
+        }
+        if (!(await sessions.get(userId, requested))) {
+          sendJson(res, 404, { error: 'conversation not found' });
+          return true;
+        }
+        conversationId = requested;
+      }
+
+      try {
+        sendJson(res, 200, await permissionState(sandbox, conversationId, userId));
+      } catch (error) {
+        log.warn('permission.state_failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        sendJson(res, 500, { error: 'permission state unavailable' });
+      }
+      return true;
+    }
+
+    if (req.method === 'POST' && pathname === '/api/permissions/mode') {
+      if (!guardPermissionWrite(req, res)) return true;
+      const userId = await identify(req, res);
+      const body = await readBodyOrReject(req, res);
+      if (!body.ok) return true;
+
+      const sandbox = deps.sandbox;
+      if (!sandbox) {
+        sendJson(res, 404, { error: 'the sandbox is not enabled' });
+        return true;
+      }
+
+      const change = parsePermissionModeChange(body.value);
+      if (typeof change === 'string') {
+        sendJson(res, 400, { error: change });
+        return true;
+      }
+      if (!(await sessions.get(userId, change.conversationId))) {
+        sendJson(res, 404, { error: 'conversation not found' });
+        return true;
+      }
+      const allowed = sandbox.settings.permission.allowedModes;
+      if (!allowed.includes(change.mode)) {
+        sendJson(res, 403, {
+          error: `mode ${change.mode} is not allowed by the deployment (${allowed.join(', ')})`,
+        });
+        return true;
+      }
+
+      try {
+        const policy = await sandbox.gateway.setPermissionPolicy({
+          scopeType: 'task',
+          scopeId: change.conversationId,
+          mode: change.mode,
+          ...(change.ttlMs === null ? {} : { ttlMs: change.ttlMs }),
+          actor: sandbox.settings.permission.operatorId,
+        });
+        if (change.remember) {
+          await store
+            .setPreference(userId, PERMISSION_MODE_DEFAULT_KEY, change.mode)
+            .catch((error: unknown) => {
+              log.warn('permission.default_mode_failed', {
+                error: error instanceof Error ? error.message : String(error),
+              });
+            });
+        }
+        log.info('permission.mode.changed_from_ui', {
+          conversation_id: change.conversationId,
+          mode: policy.mode,
+          ttl_ms: change.ttlMs,
+          remember: change.remember,
+        });
+        sendJson(res, 200, {
+          ok: true,
+          mode: policy.mode,
+          // The numeric scope version, not the composite `ppv1:…` string the
+          // read side reports; the client refetches the effective policy after
+          // a change, so this is only for the audit trail and tests.
+          policy_version: policy.version,
+          expires_at: policy.expiresAt,
+        });
+      } catch (error) {
+        sendJson(res, permissionErrorStatus(error), {
+          error: error instanceof Error ? error.message : 'permission policy rejected the change',
+        });
+      }
+      return true;
+    }
+
+    const approvalMatch = /^\/api\/permissions\/approvals\/([0-9a-f-]{36})\/(approve|deny)$/.exec(
+      pathname,
+    );
+    if (req.method === 'POST' && approvalMatch) {
+      if (!guardPermissionWrite(req, res)) return true;
+      const userId = await identify(req, res);
+      const sandbox = deps.sandbox;
+      if (!sandbox) {
+        sendJson(res, 404, { error: 'the sandbox is not enabled' });
+        return true;
+      }
+      const body = await readBodyOrReject(req, res);
+      if (!body.ok) return true;
+      const decision = parseApprovalDecision(body.value);
+      if (typeof decision === 'string') {
+        sendJson(res, 400, { error: decision });
+        return true;
+      }
+
+      const approvalRequestId = approvalMatch[1] as string;
+      const action = approvalMatch[2] as 'approve' | 'deny';
+      const approval = await sandbox.gateway.getPermissionApproval(approvalRequestId);
+      // Ownership is checked against the conversation, because the approval id
+      // alone is not a capability: knowing an id must not be enough to approve
+      // somebody else's request.
+      if (!approval || !(await sessions.get(userId, approval.taskId))) {
+        sendJson(res, 404, { error: 'approval not found' });
+        return true;
+      }
+
+      const context = {
+        taskId: approval.taskId,
+        sessionId: approval.sessionId,
+        userId,
+      };
+      try {
+        if (action === 'approve') {
+          const result = await sandbox.gateway.approvePermissionRequest(context, {
+            approvalRequestId,
+            decidedBy: sandbox.settings.permission.operatorId,
+            scope: decision.scope,
+            ...(decision.ttlSeconds === null ? {} : { ttlSeconds: decision.ttlSeconds }),
+            ...(decision.reason === null ? {} : { reason: decision.reason }),
+          });
+          log.info('permission.approved_from_ui', {
+            conversation_id: approval.taskId,
+            approval_request_id: approvalRequestId,
+            scope: decision.scope,
+            grant_id: result.grantId,
+          });
+          sendJson(res, 200, { ok: true, approval: result.approval, grantId: result.grantId });
+        } else {
+          const denied = await sandbox.gateway.denyPermissionRequest(context, {
+            approvalRequestId,
+            decidedBy: sandbox.settings.permission.operatorId,
+            ...(decision.reason === null ? {} : { reason: decision.reason }),
+          });
+          log.info('permission.denied_from_ui', {
+            conversation_id: approval.taskId,
+            approval_request_id: approvalRequestId,
+          });
+          sendJson(res, 200, { ok: true, approval: denied, grantId: null });
+        }
+      } catch (error) {
+        sendJson(res, permissionErrorStatus(error), {
+          error: error instanceof Error ? error.message : 'the approval could not be decided',
+        });
+      }
+      return true;
+    }
+
     // ---------------------------------------------------------- history -----
 
     if (req.method === 'POST' && pathname === '/api/conversations') {
@@ -463,6 +931,7 @@ export function createApp(deps: AppDependencies) {
       }
 
       const conversation = await sessions.create(userId, parsed.title, parsed.modelId);
+      await applyDefaultPermissionMode(userId, conversation.id);
       sendJson(res, 201, { conversation });
       return true;
     }
@@ -681,15 +1150,28 @@ export function createApp(deps: AppDependencies) {
   });
 }
 
-async function serveIndex(res: ServerResponse): Promise<void> {
+/**
+ * Serve the page with the local permission token in a meta tag.
+ *
+ * The token is generated per process, so it is not a build artefact and cannot
+ * be committed; it is read back off `index.html` by the client and echoed on
+ * permission mutations. Injecting it here rather than templating the file keeps
+ * `web/index.html` a plain static page that still opens from disk for layout
+ * work (in that case the permission control simply stays hidden).
+ */
+async function serveIndex(res: ServerResponse, token: string): Promise<void> {
   try {
     const html = await readFile(join(WEB_DIR, 'index.html'), 'utf8');
+    const page = html.replace(
+      '</head>',
+      `<meta name="eunoia-token" content="${token}">\n</head>`,
+    );
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
-      'Content-Length': Buffer.byteLength(html),
+      'Content-Length': Buffer.byteLength(page),
     });
-    res.end(html);
+    res.end(page);
   } catch {
     sendJson(res, 404, { error: 'web client not found' });
   }

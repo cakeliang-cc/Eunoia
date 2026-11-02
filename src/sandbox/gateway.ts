@@ -517,9 +517,11 @@ export class SandboxGateway {
   /**
    * Change a permission mode (or extend a restricted allow-list) at a scope.
    *
-   * This is a trusted control-plane operation: the CLI calls it, no tool and no
-   * HTTP route does. The policy version bump invalidates grants from the old
-   * policy and marks affected containers for rebuild.
+   * This is a trusted control-plane operation: the CLI and the loopback-only
+   * local UI call it. No tool reaches it, and the HTTP route that does is gated
+   * by a per-process token the page receives from this server. The policy
+   * version bump invalidates grants from the old policy and marks affected
+   * containers for rebuild.
    */
   async setPermissionPolicy(input: {
     readonly scopeType: 'session' | 'task' | 'sandbox';
@@ -552,6 +554,17 @@ export class SandboxGateway {
   async listPermissionRequests(context: SandboxContext): Promise<readonly PermissionRequestRecord[]> {
     const task = await this.loadTask(context);
     return this.permissions.listRequests(task.taskId);
+  }
+
+  /**
+   * One approval queue entry by id, without needing to know its task first.
+   *
+   * The local control surface approves by id — the id is what the tool error
+   * reported — so requiring a task id as well would make the caller guess. The
+   * caller still has to prove it owns the task the approval belongs to.
+   */
+  async getPermissionApproval(approvalRequestId: string): Promise<HumanApprovalRecord | null> {
+    return this.store.getHumanApproval(approvalRequestId);
   }
 
   async listPermissionApprovals(context: SandboxContext): Promise<readonly HumanApprovalRecord[]> {

@@ -353,9 +353,10 @@ export class PermissionManager {
   /**
    * Set the mode (and optionally the restricted allow-list) for a scope.
    *
-   * Only a trusted control-plane caller reaches this; no tool or HTTP route
-   * exposes it. The new policy version invalidates grants issued under the old
-   * one, and the callback makes the Gateway rebuild affected containers.
+   * Only a trusted control-plane caller reaches this: the CLI, or the local UI
+   * over a loopback-only, token-gated route. No tool can. The new policy version
+   * invalidates grants issued under the old one, and the callback makes the
+   * Gateway rebuild affected containers.
    */
   async setMode(input: {
     readonly scopeType: Exclude<PermissionScopeLevel, 'organization' | 'project'>;

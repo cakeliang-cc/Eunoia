@@ -59,6 +59,17 @@ export interface ToolResultMeta {
   readonly summary?: string;
   readonly truncated?: boolean;
   readonly read?: ReadRecord;
+  /**
+   * Set when the call was stopped by the permission layer.
+   *
+   * The ids are what a person needs to approve the request, and the error text
+   * alone is not a contract: it is prose the model may paraphrase. Keeping them
+   * here lets the transport put them on the wire without parsing a message.
+   */
+  readonly approval?: {
+    readonly requestId: string | null;
+    readonly approvalRequestId: string | null;
+  };
   readonly [key: string]: unknown;
 }
 

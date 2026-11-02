@@ -80,6 +80,15 @@ export interface ToolResultEvent {
   readonly summary?: string;
   /** Present when `ok` is false; bounded by the tool, never a stack trace. */
   readonly error?: string;
+  /**
+   * Present when the permission layer stopped the call and is waiting for a
+   * person. The ids address the persisted request and its approval queue entry;
+   * a client that ignores this field still sees a failed tool row.
+   */
+  readonly approval?: {
+    readonly requestId: string | null;
+    readonly approvalRequestId: string | null;
+  };
 }
 
 /**

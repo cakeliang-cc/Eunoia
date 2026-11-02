@@ -225,6 +225,41 @@ export async function guardToolResult(run: () => Promise<ToolResult>): Promise<T
     return await run();
   } catch (error) {
     if (error instanceof WorkspaceError) return toolError(error.message);
-    return toolError(error instanceof Error ? error.message : String(error));
+    // An approval request is not a tool failure the model can correct: it is a
+    // call waiting on a person. The ids travel in `meta` so the transport can
+    // draw an approve button, and the message stays model-readable.
+    const approval = approvalIds(error);
+    if (approval) return toolError(messageOf(error), { approval });
+    return toolError(messageOf(error));
   }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Read the approval ids off a `SandboxApprovalRequiredError` without importing
+ * the sandbox module.
+ *
+ * The tools layer must not depend on the sandbox's implementation, and the
+ * sandbox cannot depend on a tool: the stable contract is the error `name` and
+ * its two id fields, which the error class documents. Matching on those keeps
+ * the dependency arrow pointing one way.
+ */
+function approvalIds(
+  error: unknown,
+): { readonly requestId: string | null; readonly approvalRequestId: string | null } | null {
+  if (typeof error !== 'object' || error === null) return null;
+  const candidate = error as {
+    name?: unknown;
+    requestId?: unknown;
+    approvalRequestId?: unknown;
+  };
+  if (candidate.name !== 'SandboxApprovalRequiredError') return null;
+  const requestId = typeof candidate.requestId === 'string' ? candidate.requestId : null;
+  const approvalRequestId =
+    typeof candidate.approvalRequestId === 'string' ? candidate.approvalRequestId : null;
+  if (requestId === null && approvalRequestId === null) return null;
+  return { requestId, approvalRequestId };
 }

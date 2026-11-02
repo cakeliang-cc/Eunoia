@@ -169,6 +169,8 @@ gateway.denyPermissionRequest(context, {
   reason?: string,
 }): Promise<HumanApprovalRecord>
 
+gateway.getPermissionApproval(approvalRequestId: string): Promise<HumanApprovalRecord | null>
+
 gateway.sweepPermissions(): Promise<{
   requests: number, approvals: number, expiredGrants: number, staleGrants: number,
 }>
@@ -204,13 +206,39 @@ npm run sandbox -- revoke --task <id> --approval <id>
 npm run sandbox -- sweep
 ```
 
-`mode` / `approve-request` / `deny-request` 是可信控制面操作，不经过 HTTP。
+`mode` / `approve-request` / `deny-request` 是可信控制面操作：CLI 直接调用 Gateway，
+等价的本机 HTTP 端点见 §8.1。
 
 ## 8. HTTP 面
 
-沙箱目前**没有**对外 HTTP API；它从聊天工具路径进入，运维用 CLI。这是有意的：
-一个可以创建容器、执行命令的 HTTP 端点会需要一个认证层，而这个服务现在只有
-单用户身份句柄（ADR 009）。`/health` 暴露只读摘要：
+### 8.1 本机权限控制（ADR 022）
+
+聊天页需要能切换模式和批准被卡住的调用。以下 4 个端点是**本机控制面**，不是远程
+API：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/api/permissions?conversationId=` | 有效模式、scope 链、auto-review/approval 配置、`pending` 待审批 |
+| `POST` | `/api/permissions/mode` | `{conversationId, mode, minutes?, remember?}` |
+| `POST` | `/api/permissions/approvals/:id/approve` | `{scope?, ttlSeconds?, reason?}` |
+| `POST` | `/api/permissions/approvals/:id/deny` | `{reason?}` |
+
+约束：
+
+- 写端点只接受 `mode`；`autoReview` / `approval` / `restricted` 的风险线由部署配置
+  决定，请求不能放宽。
+- 写端点要求 loopback socket、`Content-Type: application/json` 和 `X-Eunoia-Token`；
+  token 每进程生成一次并注入主页的 `<meta name="eunoia-token">`，别的源读不到。
+- 审批按 `approvalRequestId` 定位，但仍校验该审批属于当前用户的会话。
+- 批准不会让失败的调用自动重试；下一次同样的调用才会通过。
+
+细节与威胁模型见 [PERMISSIONS.md](PERMISSIONS.md) §8.1、§13。
+
+### 8.2 其余沙箱能力
+
+除上面 4 个控制端点，沙箱**没有**其他对外 HTTP API；它从聊天工具路径进入，运维用
+CLI。这是有意的：一个可以创建容器、执行任意命令的 HTTP 端点会需要一个认证层，而
+这个服务现在只有单用户身份句柄（ADR 009）。`/health` 暴露只读摘要：
 
 ```json
 {
