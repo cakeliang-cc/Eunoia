@@ -101,6 +101,32 @@ describe('change_directory', () => {
     expect(result.meta).toMatchObject({ cwdError: true });
   });
 
+  it('shows the current cwd and resolved target when a relative path fails', async () => {
+    const port: ToolCwdPort = {
+      change: async () => ({
+        ok: false,
+        error: 'DIRECTORY_NOT_FOUND',
+        message: 'the requested directory does not exist',
+        currentCwd: '/workspace/src',
+        resolvedPath: '/workspace/src/src/models',
+        workspaceRoot: '/workspace',
+      }),
+      current: async () => ({ cwd: '/workspace/src', workspaceRoot: '/workspace', cwdVersion: 2 }),
+    };
+    const result = await changeDirectoryTool.execute({ path: 'src/models' }, context(port));
+    expect(result.ok).toBe(false);
+    // Without these two lines the model sees "does not exist" while the
+    // directory is visible in list_dir and retries the same path.
+    expect(result.error).toContain('当前目录：/workspace/src');
+    expect(result.error).toContain('解析目标：/workspace/src/src/models');
+    expect(result.error).toContain('/workspace/...');
+    expect(result.meta).toMatchObject({
+      error: 'DIRECTORY_NOT_FOUND',
+      currentCwd: '/workspace/src',
+      resolvedPath: '/workspace/src/src/models',
+    });
+  });
+
   it('refuses when no task working directory is configured', async () => {
     const result = await changeDirectoryTool.execute({ path: 'src' }, context(null));
     expect(result.ok).toBe(false);

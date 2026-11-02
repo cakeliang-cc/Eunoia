@@ -145,6 +145,18 @@ export interface ChangeDirectoryFailure {
   readonly success: false;
   readonly error: CwdErrorCode;
   readonly message: string;
+  /**
+   * The task cwd at the moment of the request.
+   *
+   * Reported on failure because a relative path is resolved against it: without
+   * this, "src/models does not exist" while the task is already in `/workspace/src`
+   * reads like the directory is missing from the workspace, and the model retries
+   * the same relative path (ADR 021 §4.2).
+   */
+  readonly currentCwd?: string;
+  /** The absolute container path the request resolved to, once it resolved. */
+  readonly resolvedPath?: string;
+  readonly workspaceRoot?: string;
 }
 
 export type ChangeDirectoryResult = ChangeDirectorySuccess | ChangeDirectoryFailure;

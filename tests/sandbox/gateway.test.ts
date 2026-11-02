@@ -134,13 +134,89 @@ describe('task and sandbox creation', () => {
     ).rejects.toThrow(/policy version/);
   });
 
-  it('enforces the global sandbox quota', async () => {
+  it('enforces the global sandbox quota when no sandbox is idle', async () => {
     const platform = await setup({ limits: { maxConcurrentGlobal: 1 } });
-    await prepareTask(platform);
+    const { sandboxId } = await prepareTask(platform);
+    const at = platform.clock.now().toISOString();
+    await platform.store.createExecution({
+      executionId: 'exec_busy',
+      taskId: TASK.taskId,
+      sandboxId,
+      idempotencyKey: 'call-busy',
+      commandDigest: 'sha256:abc',
+      command: ['sleep', '10'],
+      cwd: '/workspace',
+      status: 'CREATED',
+      exitCode: null,
+      startedAt: null,
+      finishedAt: null,
+      stdout: '',
+      stderr: '',
+      policyVersion: SANDBOX_POLICY_VERSION,
+      toolCallId: 'call-busy',
+      createdAt: at,
+      updatedAt: at,
+    });
     await platform.gateway.ensureTask({ taskId: 'task-2', sessionId: 'conv-2', userId: 'user-2' });
     await expect(
       platform.gateway.ensureSandbox({ taskId: 'task-2', userId: 'user-2' }),
     ).rejects.toMatchObject({ code: 'quota_exceeded' });
+  });
+
+  it('reclaims an idle sandbox instead of failing the per-user quota', async () => {
+    const platform = await setup({ limits: { maxConcurrentPerUser: 1 } });
+    const { sandboxId: firstSandbox } = await prepareTask(platform);
+    await platform.gateway.ensureTask({ taskId: 'task-2', sessionId: 'conv-2', userId: TASK.userId });
+
+    const second = await platform.gateway.ensureSandbox({
+      taskId: 'task-2',
+      userId: TASK.userId,
+    });
+    expect(second.taskId).toBe('task-2');
+    expect(platform.runtime.destroyed).toContain(firstSandbox);
+    expect((await platform.store.getTask(TASK.taskId))?.sandboxId).toBeNull();
+
+    // The reclaimed task is not broken: its workspace is intact and its next
+    // command gets a fresh container (which in turn reclaims the idle one).
+    const rebuilt = await platform.gateway.ensureSandbox({
+      taskId: TASK.taskId,
+      userId: TASK.userId,
+    });
+    expect(rebuilt.sandboxId).not.toBe(firstSandbox);
+    expect(platform.runtime.destroyed).toContain(second.sandboxId);
+    const audit = await platform.store.listAudit(200);
+    expect(audit.filter((event) => event.action === 'sandbox.reclaim')).toHaveLength(2);
+  });
+
+  it('does not reclaim a sandbox that has an execution in flight', async () => {
+    const platform = await setup({ limits: { maxConcurrentPerUser: 1 } });
+    const { sandboxId } = await prepareTask(platform);
+    const at = platform.clock.now().toISOString();
+    await platform.store.createExecution({
+      executionId: 'exec_in_flight',
+      taskId: TASK.taskId,
+      sandboxId,
+      idempotencyKey: 'call-in-flight',
+      commandDigest: 'sha256:abc',
+      command: ['sleep', '10'],
+      cwd: '/workspace',
+      status: 'CREATED',
+      exitCode: null,
+      startedAt: null,
+      finishedAt: null,
+      stdout: '',
+      stderr: '',
+      policyVersion: SANDBOX_POLICY_VERSION,
+      toolCallId: 'call-in-flight',
+      createdAt: at,
+      updatedAt: at,
+    });
+    await platform.gateway.ensureTask({ taskId: 'task-2', sessionId: 'conv-2', userId: TASK.userId });
+
+    await expect(
+      platform.gateway.ensureSandbox({ taskId: 'task-2', userId: TASK.userId }),
+    ).rejects.toMatchObject({ code: 'quota_exceeded' });
+    expect(platform.runtime.destroyed).not.toContain(sandboxId);
   });
 
   it('checks task ownership', async () => {

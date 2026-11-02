@@ -130,6 +130,25 @@ describe('change_directory', () => {
     expect(await platform.gateway.currentDirectory(context())).toMatchObject({ cwd: '/workspace' });
   });
 
+  it('reports the current cwd and resolved target when a relative path is wrong', async () => {
+    const { platform } = await ready();
+    await platform.gateway.changeDirectory(context(), { path: 'src' });
+    // The user's reproduction: the task is already in /workspace/src, so
+    // "src/models" means /workspace/src/src/models, not /workspace/src/models.
+    const result = await platform.gateway.changeDirectory(context(), { path: 'src/models' });
+    expect(result).toMatchObject({
+      ok: false,
+      error: 'DIRECTORY_NOT_FOUND',
+      currentCwd: '/workspace/src',
+      resolvedPath: '/workspace/src/src/models',
+      workspaceRoot: '/workspace',
+    });
+    expect(await platform.gateway.currentDirectory(context())).toMatchObject({
+      cwd: '/workspace/src',
+      cwdVersion: 2,
+    });
+  });
+
   it('refuses a task that is no longer active', async () => {
     const { platform } = await ready();
     await platform.store.updateTask(TASK.taskId, { status: 'COMPLETED' });

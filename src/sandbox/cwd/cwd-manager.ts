@@ -137,6 +137,7 @@ export class CwdManager {
     });
 
     let taskContext: TaskExecutionContext | null = null;
+    let resolvedPath: string | null = null;
     try {
       const context = await this.contexts.get(input.taskId);
       taskContext = context;
@@ -153,6 +154,7 @@ export class CwdManager {
       // ---- lexical resolution and boundary --------------------------------
       const requested = assertPathInput(input.path);
       const target = resolveTaskPath(requested, context.cwd);
+      resolvedPath = target;
       const workspace = await this.store.getWorkspace(context.workspaceId);
       if (!workspace) {
         throw new CwdError('WORKSPACE_NOT_AVAILABLE', 'the task workspace no longer exists');
@@ -262,7 +264,13 @@ export class CwdManager {
           outcome: 'denied',
           detail: { path: input.path, code: error.code, reason: error.message, operation_id: operationId },
         });
-        return { success: false, error: error.code, message: error.message };
+        return {
+          success: false,
+          error: error.code,
+          message: error.message,
+          ...(taskContext ? { currentCwd: taskContext.cwd, workspaceRoot: taskContext.workspaceRoot } : {}),
+          ...(resolvedPath ? { resolvedPath } : {}),
+        };
       }
       const message = error instanceof Error ? error.message : String(error);
       await this.audit

@@ -273,7 +273,16 @@ export type ToolCwdChange =
       readonly cwdVersion: number;
       readonly workspaceRoot: string;
     }
-  | { readonly ok: false; readonly error: string; readonly message: string };
+  | {
+      readonly ok: false;
+      readonly error: string;
+      readonly message: string;
+      /** The directory the task was in when the request was made. */
+      readonly currentCwd?: string;
+      /** The absolute path the requested relative path resolved to. */
+      readonly resolvedPath?: string;
+      readonly workspaceRoot?: string;
+    };
 
 export interface ToolSandboxSession {
   readonly workspace: ToolWorkspacePort;

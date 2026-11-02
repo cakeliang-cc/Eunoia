@@ -24,7 +24,7 @@ export const changeDirectoryTool = defineTool({
 - 上一条命令里的 cd 没有生效，下一次又在原地。
 
 规则：
-- 相对路径基于当前任务目录解析，不是基于工作区根目录；
+- 相对路径基于当前任务目录解析，不是基于工作区根目录；例如当前已在 /workspace/src 时，进入 models 用 "models" 或 "/workspace/src/models"，不要用 "src/models"；
 - 绝对路径必须落在任务工作区内；
 - 成功之后后续 run_command 自动使用新目录，不需要每次再 cd；
 - 只改变任务的工作目录，不改变宿主机目录，也不扩大文件权限；
@@ -53,11 +53,25 @@ export const changeDirectoryTool = defineTool({
     });
 
     if (!result.ok) {
+      const details = [`${result.error}: ${result.message}`];
+      if (result.currentCwd) details.push(`当前目录：${result.currentCwd}`);
+      if (result.resolvedPath) details.push(`解析目标：${result.resolvedPath}`);
+      if (result.error === 'DIRECTORY_NOT_FOUND') {
+        details.push(
+          '相对路径基于当前目录解析，不是基于 /workspace。若要从工作区根开始，请改用 /workspace/... 开头的绝对路径。',
+        );
+      }
       return {
         ok: false,
         output: '',
-        error: `${result.error}: ${result.message}`,
-        meta: { summary: `切换目录失败 · ${result.error}`, error: result.error, cwdError: true },
+        error: details.join('\n'),
+        meta: {
+          summary: `切换目录失败 · ${result.error}`,
+          error: result.error,
+          cwdError: true,
+          ...(result.currentCwd ? { currentCwd: result.currentCwd } : {}),
+          ...(result.resolvedPath ? { resolvedPath: result.resolvedPath } : {}),
+        },
       };
     }
 

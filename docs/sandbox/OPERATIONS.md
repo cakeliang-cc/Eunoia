@@ -107,7 +107,7 @@ append-only。敏感字段在写入前被 `Redactor` 替换。
 | Controller 崩溃 | 重启后自动 `recoverAll`；数据库里的 sandbox 身份不会丢 |
 | workspace 不可读 | 恢复会把 task 标 `PAUSED`，不会重建覆盖 |
 | 代理不可用 | `proxy_only` 下网络操作失败关闭，不会直连 |
-| 沙箱创建后被并发上限挡住 | `SANDBOX_MAX_CONCURRENT_*`；先 `gc` 或用 `status` 看占用 |
+| 沙箱创建后被并发上限挡住 | 网关会先回收没有在途执行的空闲沙箱（workspace 保留）；仍被挡住时再调 `SANDBOX_MAX_CONCURRENT_*`、`status` 或 `gc` |
 
 **安全能力不可用时不要退回宿主机执行。** 代码里没有这条回退路径，
 `WORKSPACE_COMMANDS` 打开的只是沙箱内的命令。
@@ -128,6 +128,9 @@ npm run sandbox -- gc --idle-minutes 60 --checkpoint-days 7
 ```
 
 - 只处理 `READY` / `INTERRUPTED` / `FAILED` 且 heartbeat 超时的 sandbox；
+- `run_command` / `ensureSandbox` 遇到并发上限时也会按需回收 `READY` / `EXPIRED`
+  且没有未完成执行的 sandbox，审计动作为 `sandbox.reclaim`；这只是清容器，
+  workspace、checkpoint 和 task cwd 都保留；
 - `SANDBOX_DISK_MB` 是配置项，但 Docker 的 overlay2 不提供 per-container
   disk quota；需要硬配额时用独立 volume + 文件系统 quota，或在 copy 模式定期
   检查 `du`。CPU / memory / pids 由 cgroups 强制执行。

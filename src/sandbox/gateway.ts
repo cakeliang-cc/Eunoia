@@ -60,6 +60,7 @@ import type {
   ApprovalScopeLevel,
   EffectivePermissionPolicy,
   HumanApprovalRecord,
+  PermissionAction,
   PermissionEvaluationRequest,
   PermissionMode,
   PermissionPolicyRecord,
@@ -266,6 +267,12 @@ export class SandboxGateway {
     const task = await this.loadTask(context);
     const existing = await this.store.getSandboxForTask(task.taskId);
     if (existing && existing.status !== 'DESTROYED') return existing;
+    // A conversation that has been idle still owns a running container, and
+    // those idle containers count against the per-user/per-deployment quota. A
+    // third conversation would otherwise be refused before its command starts
+    // (the "sandbox limit reached" path). Reclaim only when actually blocked, so
+    // a normal create never touches another task's runtime.
+    await this.reclaimIdleSandboxesForCapacity(task);
     return this.create(
       {
         taskId: task.taskId,
@@ -447,7 +454,7 @@ export class SandboxGateway {
   async approve(
     context: SandboxContext,
     input: {
-      readonly action: 'fs.read' | 'fs.write' | 'fs.list' | 'process.exec' | 'network.connect';
+      readonly action: PermissionAction;
       readonly resourceScope?: readonly string[];
       readonly ttlMs?: number;
       readonly approvedBy?: string;
@@ -719,7 +726,14 @@ export class SandboxGateway {
     };
     const result = await this.cwdManager.changeDirectory(request);
     if (!result.success) {
-      return { ok: false, error: result.error, message: result.message };
+      return {
+        ok: false,
+        error: result.error,
+        message: result.message,
+        ...(result.currentCwd ? { currentCwd: result.currentCwd } : {}),
+        ...(result.resolvedPath ? { resolvedPath: result.resolvedPath } : {}),
+        ...(result.workspaceRoot ? { workspaceRoot: result.workspaceRoot } : {}),
+      };
     }
     return {
       ok: true,
@@ -1595,15 +1609,27 @@ export class SandboxGateway {
   }
 
   private async assertCapacity(task: Task): Promise<void> {
+    const blocked = await this.capacityError(task);
+    if (blocked) throw blocked;
+  }
+
+  /**
+   * Why a new sandbox cannot be created right now, or `null` when one can.
+   *
+   * Kept separate from {@link assertCapacity} because reclamation needs to ask
+   * the same question after every candidate it retires, and a thrown error is a
+   * poor control-flow token for that.
+   */
+  private async capacityError(task: Task): Promise<SandboxQuotaError | null> {
     const active = await this.store.listSandboxes(ACTIVE_SANDBOX_STATES);
     if (active.length >= this.settings.limits.maxConcurrentGlobal) {
-      throw new SandboxQuotaError(
+      return new SandboxQuotaError(
         `global sandbox limit reached (${this.settings.limits.maxConcurrentGlobal})`,
       );
     }
     const forTask = active.filter((sandbox) => sandbox.taskId === task.taskId);
     if (forTask.length >= this.settings.limits.maxConcurrentPerTask) {
-      throw new SandboxQuotaError(`task already has ${forTask.length} sandbox(es)`);
+      return new SandboxQuotaError(`task already has ${forTask.length} sandbox(es)`);
     }
     let forUser = 0;
     for (const sandbox of active) {
@@ -1611,10 +1637,92 @@ export class SandboxGateway {
       if (owner?.userId === task.userId) forUser += 1;
     }
     if (forUser >= this.settings.limits.maxConcurrentPerUser) {
-      throw new SandboxQuotaError(
+      return new SandboxQuotaError(
         `user sandbox limit reached (${this.settings.limits.maxConcurrentPerUser})`,
       );
     }
+    return null;
+  }
+
+  /**
+   * Retire idle containers until a new sandbox fits, or until none is left.
+   *
+   * An idle sandbox is a READY/EXPIRED container with no unfinished execution.
+   * Its workspace is durable and is never touched (ADR §9), so the task that
+   * owned it simply gets a fresh container on its next command. This is the
+   * same guarantee `gc` relies on; the difference is that it happens on demand
+   * instead of waiting for an operator to run the CLI.
+   *
+   * Sandboxes belonging to the same user are preferred, then the least recently
+   * used one. A sandbox with an execution in flight is never a candidate.
+   */
+  private async reclaimIdleSandboxesForCapacity(task: Task): Promise<number> {
+    if (!(await this.capacityError(task))) return 0;
+
+    const idleStates = ['READY', 'EXPIRED'] as const;
+    const active = await this.store.listSandboxes(idleStates);
+    const candidates: { sandbox: Sandbox; sameUser: boolean; lastUsed: number }[] = [];
+    for (const sandbox of active) {
+      if (sandbox.taskId === task.taskId) continue;
+      const owner = await this.store.getTask(sandbox.taskId);
+      candidates.push({
+        sandbox,
+        sameUser: owner?.userId === task.userId,
+        lastUsed: Date.parse(sandbox.lastHeartbeatAt ?? sandbox.updatedAt) || 0,
+      });
+    }
+    candidates.sort(
+      (left, right) => Number(right.sameUser) - Number(left.sameUser) || left.lastUsed - right.lastUsed,
+    );
+
+    let reclaimed = 0;
+    for (const candidate of candidates) {
+      // Re-read before acting: another capacity check may have retired it while
+      // this loop was sorting, and a stale row would make the audit misleading.
+      const fresh = await this.store.getSandbox(candidate.sandbox.sandboxId);
+      if (!fresh || (fresh.status !== 'READY' && fresh.status !== 'EXPIRED')) continue;
+      const unfinished = await this.store.listUnfinishedExecutions(fresh.sandboxId);
+      if (unfinished.length > 0) continue;
+
+      try {
+        await this.controller.destroy(fresh);
+        // The task keeps its workspace and cwd; only the container identity is
+        // cleared, so the next `ensureSandbox` builds a replacement.
+        await this.store.updateTask(fresh.taskId, { sandboxId: null });
+        await this.audit.record({
+          taskId: task.taskId,
+          sandboxId: fresh.sandboxId,
+          action: 'sandbox.reclaim',
+          outcome: 'succeeded',
+          detail: {
+            reason: 'capacity',
+            owner_task_id: fresh.taskId,
+            same_user: candidate.sameUser,
+            previous_status: fresh.status,
+            workspace: fresh.workspaceId,
+          },
+        });
+        reclaimed += 1;
+      } catch (error) {
+        await this.audit
+          .record({
+            taskId: task.taskId,
+            sandboxId: fresh.sandboxId,
+            action: 'sandbox.reclaim',
+            outcome: 'failed',
+            detail: {
+              reason: 'capacity',
+              owner_task_id: fresh.taskId,
+              error: error instanceof Error ? error.message.slice(0, 300) : String(error),
+            },
+          })
+          .catch(() => undefined);
+        continue;
+      }
+
+      if (!(await this.capacityError(task))) break;
+    }
+    return reclaimed;
   }
 }
 
