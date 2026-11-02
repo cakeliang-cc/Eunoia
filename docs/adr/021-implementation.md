@@ -233,6 +233,26 @@ npm run sandbox -- audit --task <id> --action task.cwd.change.succeeded
 5. **物理校验在宿主侧做一次**（决定 3），而不是每次纯在容器内：
    容器内的等价检查在启动器里，两者都在。
 
+## 验收矩阵（ADR §15.5）
+
+| # | 验收门槛 | 实现位置 | 证据 |
+|---|---|---|---|
+| 1 | 所有 one-shot Bash 默认使用 Task CWD | `tool-adapter.ts` 的 `run()` 读 `currentDirectory()` 再 `execute`；`gateway.execute` 只接受任务 CWD | `cwd.test.ts`「passes the task cwd…」；docker 用例「starts a task in the workspace root…」 |
+| 2 | `cd` 不会自动改变 Task CWD | 命令在独立 shell 中执行；没有任何从命令文本解析 `cd` 的代码 | `cwd.test.ts`「keeps a cd inside one command…」；docker 用例同名 |
+| 3 | `change_directory` 成功后后续 Bash 使用新目录 | `CwdManager.changeDirectory` → CAS；adapter 每次重新读取 | `cwd.test.ts`「resolves a relative path…」「increments the version…」 |
+| 4 | Agent 不需要自行维护绝对工作目录 | `change_directory` schema 只有 `path`；`run_command` 没有 `workdir` | `change-directory-tool.test.ts`「accepts only a path…」；`cwd.test.ts`「does not accept a workdir…」 |
+| 5 | Task CWD 可跨 Agent 重启恢复 | `sandbox_tasks` 列 + `cwd-sqlite.test.ts` 的 reopen 用例 | `cwd-sqlite.test.ts`「survives a reopen」 |
+| 6 | CWD 变更有原子版本控制 | `compareAndSetTaskCwd` 单事务；`cwd_version` CAS | `cwd-sqlite.test.ts`「changes the cwd and writes the audit row in one step」 |
+| 7 | 并发冲突可检测 | CAS 失败返回 `CWD_VERSION_CONFLICT`，不静默重放 | `cwd.test.ts`「serialises two concurrent changes」；`cwd-manager.test.ts`「refuses an expected version that is stale」 |
+| 8 | Gateway 不信任 Agent 提供的路径 | 二次读取上下文、核对 sandbox/workspace、version、路径 | `cwd.test.ts`「refuses a stale cwd version」「refuses a cwd that is not the task directory」 |
+| 9 | Symlink 与 TOCTOU 有执行层防护 | 宿主侧 `realpath` 校验 + 容器内启动器 `cd -P` 与 `pwd -P` 复查 | `cwd-validator.test.ts` 全部；`runtime-args.test.ts`「starts the container in the task cwd…」；docker 用例「refuses to start… once the directory is gone」 |
+| 10 | Sandbox 丢失后不会静默使用无效 CWD | `recover()` → `recoverDirectory()`；失效标记阻断执行 | `cwd.test.ts`「re-validates on recovery…」「refuses every execution until…」 |
+| 11 | 没有工具绕过 Permission Manager | 变更走 `fs.chdir` 判权；adapter 只调用 Gateway | `cwd-manager.test.ts`「asks the permission layer…」「maps a denied decision…」；`cwd.test.ts` 权限模式两例 |
+| 12 | 原有 Execution Marker 与 Recovery 不受破坏 | `WRAPPER` 仍是唯一的 marker 写入者，顺序不变；`transitionExecution` 未改 | 原 `gateway.test.ts` / `runtime-args.test.ts` 全部通过；`execution.cwd.snapshot.created` 是新增事件而非替换 |
+
+已知未覆盖：真实容器用例需要 `SANDBOX_INTEGRATION=1` 与镜像 digest；默认 CI 中跳过，
+与 ADR 018 的取舍一致。
+
 ## 已知边界
 
 - bind 模式下多个任务共享同一个项目目录：Task CWD 是任务私有的，但目录内容不是。
