@@ -544,6 +544,23 @@
     white-space: pre-wrap;
     font-size: 15px; line-height: 1.88;
   }
+  /* The model writes Markdown; the transcript is the place it becomes prose.
+     Only inline emphasis and code are rendered: no links, no HTML, no images. */
+  .text strong { font-weight: 600; }
+  .text code {
+    padding: 1px 4px; border: 1px solid var(--line); border-radius: 4px;
+    background: var(--surface-2);
+    font-family: var(--font-mono); font-size: 12.5px;
+  }
+  .text pre {
+    margin: 9px 0; padding: 10px 12px;
+    border: 1px solid var(--line); border-radius: var(--radius-sm);
+    background: var(--surface-2); overflow-x: auto;
+    white-space: pre; font-size: 12.5px; line-height: 1.6;
+  }
+  .text pre code {
+    padding: 0; border: 0; background: transparent; font-size: inherit;
+  }
   .text[data-streaming="true"]::after {
     content: ""; display: inline-block;
     width: 2px; height: 1em; margin-left: 2px; vertical-align: -2px;
@@ -1859,6 +1876,87 @@ function el(tag, className, text) {
   return node;
 }
 
+/**
+ * Render the assistant's Markdown subset into a container.
+ *
+ * The model writes `**bold**`, inline code and fenced blocks; without this they
+ * reach the page as literal asterisks and backticks. Everything here is built
+ * from DOM nodes — never innerHTML — so model output cannot become markup.
+ *
+ * Only the subset that reads well in a conversation is handled. Headings,
+ * links and tables stay text on purpose: a link is a click target the product
+ * has not decided to trust, and a table in a chat bubble is a reading tax.
+ */
+function renderText(container, text) {
+  container.textContent = '';
+  for (const block of splitFences(text)) {
+    if (block.code === null) {
+      appendInline(container, block.text);
+      continue;
+    }
+    const pre = el('pre');
+    pre.append(el('code', null, block.code));
+    container.append(pre);
+  }
+}
+
+/** Split fenced code blocks from prose. An unclosed fence stays text. */
+function splitFences(text) {
+  const blocks = [];
+  let prose = [];
+  let code = null;
+  const flushProse = () => {
+    if (prose.length === 0) return;
+    blocks.push({ code: null, text: prose.join('\n') });
+    prose = [];
+  };
+
+  for (const line of text.split('\n')) {
+    if (code === null) {
+      if (/^```/.test(line)) {
+        flushProse();
+        code = [];
+      } else {
+        prose.push(line);
+      }
+      continue;
+    }
+    if (/^```\s*$/.test(line)) {
+      blocks.push({ code: code.join('\n'), text: '' });
+      code = null;
+      continue;
+    }
+    code.push(line);
+  }
+  // Mid-stream: the closing fence has not arrived. Showing the opening marker
+  // as text is better than swallowing the rest of the reply.
+  if (code !== null) {
+    prose.push('```', ...code);
+    code = null;
+  }
+  flushProse();
+  return blocks;
+}
+
+/** Inline code and bold, in that order, so `**` inside code stays literal. */
+function appendInline(container, text) {
+  const pattern = /(`[^`\n]+`|\*\*[^*\n]+\*\*)/g;
+  let cursor = 0;
+  for (const match of text.matchAll(pattern)) {
+    if (match.index > cursor) {
+      container.append(el('span', null, text.slice(cursor, match.index)));
+    }
+    const token = match[0];
+    if (token.startsWith('`')) {
+      container.append(el('code', null, token.slice(1, -1)));
+    } else {
+      container.append(el('strong', null, token.slice(2, -2)));
+    }
+    cursor = match.index + token.length;
+  }
+  if (cursor < text.length) container.append(el('span', null, text.slice(cursor)));
+}
+
 /** The conversation title in the topbar. Empty means "nothing chosen yet". */
 function setThreadTitle(text) {
   if (titleEl) titleEl.textContent = text;
@@ -1917,7 +2015,13 @@ function addTurn(role, text = '') {
   transcript.classList.remove('empty');
   const turn = el('div', `turn ${role}`);
   const bubble = el('div', 'bubble');
-  const body = el('div', 'text', text);
+  const body = el('div', 'text');
+  // User text stays literal; only the assistant's prose is Markdown. A person
+  // who types ** on purpose should see exactly what they typed.
+  if (text) {
+    if (role === 'assistant') renderText(body, text);
+    else body.textContent = text;
+  }
   bubble.append(body);
   turn.append(bubble);
 
@@ -2604,7 +2708,7 @@ async function send(text) {
         // this only fires if that ever stops being true.
         thinking?.abort();
         reply += event.text;
-        body.textContent = reply;
+        renderText(body, reply);
         scrollToEnd();
       } else if (event.type === 'memory_retrieved') {
         note.textContent = event.count > 0 ? `参考了 ${event.count} 条记忆` : '';
@@ -2614,7 +2718,7 @@ async function send(text) {
       } else if (event.type === 'completed') {
         trace?.finish();
         reply = event.text;
-        body.textContent = reply;
+        renderText(body, reply);
         // Only when the server names one: a turn that was not persisted reports
         // null, and taking that at face value would forget a conversation that
         // is still perfectly good.

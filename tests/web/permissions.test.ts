@@ -104,7 +104,7 @@ describe('the permission pill', () => {
     );
     const current = options.find((node) => node.attributes['aria-current'] === 'true');
     expect(current?.querySelector('.name')?.textContent).toBe('自动');
-    expect(menu.textContent).toBe('');
+    expect(menu.textContent).toContain('只读');
   });
 
   it('shows the pending count and the queued request in the menu', async () => {

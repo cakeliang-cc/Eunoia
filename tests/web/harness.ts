@@ -59,7 +59,10 @@ export class El {
     this.children.length = 0;
   }
   get textContent(): string {
-    return this.text;
+    // Real DOM semantics: textContent includes descendants. The client now
+    // renders emphasis and code as child nodes, so reading only the element's
+    // own text would make a correctly rendered reply look empty here.
+    return this.text + this.children.map((child) => child.textContent).join('');
   }
 
   append(...nodes: El[]): void {
