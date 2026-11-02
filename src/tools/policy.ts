@@ -37,6 +37,10 @@ export function policyDenial(
       return policy.allowCommands
         ? null
         : '运行命令在当前服务中没有开启（WORKSPACE_COMMANDS）。不要重试；请告诉用户需要开启它才能执行命令。';
+    case 'workspace_state':
+      // Only a sandbox-backed run has a task working directory; without one the
+      // tool itself reports that there is nothing to change.
+      return null;
   }
 }
 

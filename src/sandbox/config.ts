@@ -23,6 +23,14 @@ import {
   type ResourceLimits,
   type SandboxLimits,
 } from './types.ts';
+import {
+  DEFAULT_PERMISSION_MODE,
+  PERMISSION_MODES,
+  RISK_LEVELS,
+  type PermissionMode,
+  type RestrictedAllowlist,
+  type RiskLevel,
+} from './permissions/types.ts';
 
 export interface SandboxRuntimeSettings {
   readonly kind: 'docker' | 'nerdctl';
@@ -51,6 +59,40 @@ export interface SandboxNetworkSettings {
   readonly proxyUrl: string | null;
 }
 
+/**
+ * Deployment-level permission settings (ADR 020 §3, §11).
+ *
+ * This is the top of the permission stack: the organization layer in the ADR's
+ * vocabulary. Session, task and sandbox policies are persisted in
+ * `permission_policies` and can only narrow this layer or request an extension
+ * through auto-review / a human.
+ */
+export interface SandboxPermissionSettings {
+  readonly organizationId: string;
+  readonly projectId: string;
+  /** The mode for scopes that have no override. */
+  readonly mode: PermissionMode;
+  /** Modes a trusted control-plane command may switch to. */
+  readonly allowedModes: readonly PermissionMode[];
+  readonly autoReview: {
+    readonly enabled: boolean;
+    readonly allowedRiskLevels: readonly RiskLevel[];
+    readonly maxTtlMs: number;
+  };
+  readonly approval: {
+    readonly allowed: boolean;
+    readonly requireHumanForRiskLevels: readonly RiskLevel[];
+    readonly maxTtlMs: number;
+  };
+  /** How long a pending permission request lives before it expires. */
+  readonly requestTtlMs: number;
+  /** How long a human approval decision is expected to take. */
+  readonly approvalTtlMs: number;
+  /** Identity recorded as the approver when a human decision lands. */
+  readonly operatorId: string;
+  readonly restricted: RestrictedAllowlist;
+}
+
 export interface SandboxSettings {
   readonly enabled: boolean;
   readonly imageDigest: string;
@@ -63,6 +105,7 @@ export interface SandboxSettings {
   readonly allowWrites: boolean;
   readonly allowCommands: boolean;
   readonly deniedTools: readonly string[];
+  readonly permission: SandboxPermissionSettings;
   readonly heartbeatMs: number;
   /** True when the operator explicitly accepted a non-gVisor runtime. */
   readonly nonGvisorAcknowledged: boolean;
@@ -199,6 +242,8 @@ export function sandboxSettings(env: NodeJS.ProcessEnv = process.env): SandboxSe
     env.SANDBOX_WORKSPACE_ROOT?.trim() || join(process.cwd(), 'data', 'sandboxes'),
   );
 
+  const permission = permissionSettings(env, workspace.writes, workspace.commands);
+
   return {
     enabled: true,
     imageDigest,
@@ -240,9 +285,128 @@ export function sandboxSettings(env: NodeJS.ProcessEnv = process.env): SandboxSe
     allowWrites: workspace.writes,
     allowCommands: workspace.commands,
     deniedTools: listEnv(env.SANDBOX_DENIED_TOOLS),
+    permission,
     heartbeatMs: intEnv(env, 'SANDBOX_HEARTBEAT_MS', 30_000, 1_000, 10 * 60_000),
     nonGvisorAcknowledged,
   };
+}
+
+function permissionSettings(
+  env: NodeJS.ProcessEnv,
+  writes: boolean,
+  commands: boolean,
+): SandboxPermissionSettings {
+  const explicitMode = parsePermissionMode(env.SANDBOX_PERMISSION_MODE);
+  // The deployment switch is the baseline: no writes and no commands *is*
+  // read-only, and saying so is more honest than deriving it per request.
+  const mode = explicitMode ?? defaultPermissionMode(writes, commands);
+
+  const configuredAllowed = parseModeList(env.SANDBOX_PERMISSION_ALLOWED_MODES);
+  const allowedModes = configuredAllowed.length > 0 ? configuredAllowed : [...PERMISSION_MODES];
+
+  const autoReviewFlag = env.SANDBOX_AUTO_REVIEW?.trim().toLowerCase();
+  const autoReviewEnabled =
+    autoReviewFlag === undefined || autoReviewFlag === ''
+      ? mode === 'auto'
+      : !isFlagOff(autoReviewFlag);
+  const autoApproveRisk = parseRiskList(env.SANDBOX_AUTO_APPROVE_RISK);
+  const humanRisk = parseRiskList(env.SANDBOX_REQUIRE_HUMAN_RISK);
+
+  const restricted: RestrictedAllowlist = {
+    allowedTools: listEnv(env.SANDBOX_RESTRICTED_TOOLS).length > 0
+      ? listEnv(env.SANDBOX_RESTRICTED_TOOLS)
+      : ['read_file', 'list_dir', 'glob', 'grep', 'run_command'],
+    filesystem: {
+      read: listEnv(env.SANDBOX_RESTRICTED_READ).length > 0
+        ? listEnv(env.SANDBOX_RESTRICTED_READ)
+        : ['/workspace'],
+      write: listEnv(env.SANDBOX_RESTRICTED_WRITE),
+    },
+    network: {
+      mode: parseNetworkMode(env.SANDBOX_RESTRICTED_NETWORK_MODE),
+      allowedDomains: listEnv(env.SANDBOX_RESTRICTED_DOMAINS),
+      allowedPorts: listEnv(env.SANDBOX_RESTRICTED_PORTS)
+        .map((entry) => Number.parseInt(entry, 10))
+        .filter((port) => Number.isFinite(port) && port > 0 && port <= 65_535),
+    },
+  };
+
+  return {
+    organizationId: env.SANDBOX_ORGANIZATION_ID?.trim() || 'default',
+    projectId: env.SANDBOX_PROJECT_ID?.trim() || 'default',
+    mode,
+    allowedModes,
+    autoReview: {
+      enabled: autoReviewEnabled,
+      allowedRiskLevels: autoApproveRisk.length > 0 ? autoApproveRisk : ['low', 'medium'],
+      maxTtlMs: intEnv(env, 'SANDBOX_AUTO_REVIEW_TTL_MS', 10 * 60_000, 1_000, 24 * 60 * 60_000),
+    },
+    approval: {
+      allowed: true,
+      requireHumanForRiskLevels: humanRisk.length > 0 ? humanRisk : ['high', 'critical'],
+      maxTtlMs: intEnv(env, 'SANDBOX_APPROVAL_TTL_MS', 15 * 60_000, 1_000, 24 * 60 * 60_000),
+    },
+    requestTtlMs: intEnv(env, 'SANDBOX_PERMISSION_REQUEST_TTL_MS', 30 * 60_000, 1_000, 24 * 60 * 60_000),
+    approvalTtlMs: intEnv(env, 'SANDBOX_APPROVAL_TTL_MS', 15 * 60_000, 1_000, 24 * 60 * 60_000),
+    operatorId: env.SANDBOX_OPERATOR_ID?.trim() || 'operator',
+    restricted,
+  };
+}
+
+/**
+ * Without an explicit mode, the deployment's write/command switches describe
+ * the baseline:
+ *
+ *   writes + commands → auto (ordinary work runs; extensions go to auto-review)
+ *   one of them       → on-request (the missing capability needs a decision)
+ *   neither           → read-only
+ */
+function defaultPermissionMode(writes: boolean, commands: boolean): PermissionMode {
+  if (writes && commands) return DEFAULT_PERMISSION_MODE;
+  if (!writes && !commands) return 'read-only';
+  return 'on-request';
+}
+
+function parsePermissionMode(value: string | undefined): PermissionMode | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return null;
+  if ((PERMISSION_MODES as readonly string[]).includes(normalized)) {
+    return normalized as PermissionMode;
+  }
+  throw new SandboxError(
+    'invalid_input',
+    `unsupported SANDBOX_PERMISSION_MODE: ${normalized} (expected ${PERMISSION_MODES.join(', ')})`,
+  );
+}
+
+function parseModeList(value: string | undefined): PermissionMode[] {
+  const modes: PermissionMode[] = [];
+  for (const entry of listEnv(value)) {
+    const normalized = entry.toLowerCase();
+    if (!(PERMISSION_MODES as readonly string[]).includes(normalized)) {
+      throw new SandboxError(
+        'invalid_input',
+        `unsupported permission mode in SANDBOX_PERMISSION_ALLOWED_MODES: ${entry}`,
+      );
+    }
+    modes.push(normalized as PermissionMode);
+  }
+  return modes;
+}
+
+function parseRiskList(value: string | undefined): RiskLevel[] {
+  const levels: RiskLevel[] = [];
+  for (const entry of listEnv(value)) {
+    const normalized = entry.toLowerCase();
+    if (!RISK_LEVELS.includes(normalized as RiskLevel)) {
+      throw new SandboxError(
+        'invalid_input',
+        `unsupported risk level in permission settings: ${entry} (expected ${RISK_LEVELS.join(', ')})`,
+      );
+    }
+    levels.push(normalized as RiskLevel);
+  }
+  return levels;
 }
 
 /** A settings-shaped summary safe to log and to show in `/health`. */
@@ -261,6 +425,10 @@ export function describeSandboxSettings(settings: SandboxSettings): Record<strin
     network_domains: settings.network.allowedDomains,
     writes: settings.allowWrites,
     commands: settings.allowCommands,
+    permission_mode: settings.permission.mode,
+    permission_allowed_modes: settings.permission.allowedModes,
+    auto_review: settings.permission.autoReview.enabled,
+    auto_approve_risk: settings.permission.autoReview.allowedRiskLevels,
     cpu: settings.resources.cpuQuota,
     memory_mb: settings.resources.memoryLimitMB,
     timeout_ms: settings.resources.executionTimeoutMs,

@@ -13,6 +13,7 @@ import {
   buildCreateArgs,
   buildExecArgs,
   runtimeNameFor,
+  WRAPPER,
   sandboxContainerName,
 } from '../../src/sandbox/runtime/oci-args.ts';
 import type { RuntimeSandboxConfig } from '../../src/sandbox/types.ts';
@@ -24,6 +25,7 @@ const config: RuntimeSandboxConfig = {
   imageDigest: `sha256:${'c'.repeat(64)}`,
   workspaceHostPath: '/tmp/eunoia/workspace',
   workspaceWritable: true,
+  configDigest: `sha256:${'d'.repeat(64)}`,
   runtimeClass: 'gvisor',
   resources: {
     cpuQuota: 2,
@@ -188,12 +190,19 @@ describe('exec argv', () => {
       command: ['echo', 'hello; rm -rf /'],
       shell: false,
       cwd: '/workspace',
+      workspaceRoot: '/workspace',
       executionId: 'exec_1',
       envFile: null,
     });
     const commandIndex = args.indexOf('eunoia');
     expect(commandIndex).toBeGreaterThan(0);
-    expect(args.slice(commandIndex + 1)).toEqual(['exec_1', 'echo', 'hello; rm -rf /']);
+    expect(args.slice(commandIndex + 1)).toEqual([
+      'exec_1',
+      '/workspace',
+      '/workspace',
+      'echo',
+      'hello; rm -rf /',
+    ]);
   });
 
   it('runs a shell command through a single sh -c argument', () => {
@@ -202,11 +211,19 @@ describe('exec argv', () => {
       command: ['npm test'],
       shell: true,
       cwd: '/workspace',
+      workspaceRoot: '/workspace',
       executionId: 'exec_1',
       envFile: '/tmp/env',
     });
     const commandIndex = args.indexOf('eunoia');
-    expect(args.slice(commandIndex + 1)).toEqual(['exec_1', '/bin/sh', '-c', 'npm test']);
+    expect(args.slice(commandIndex + 1)).toEqual([
+      'exec_1',
+      '/workspace',
+      '/workspace',
+      '/bin/sh',
+      '-c',
+      'npm test',
+    ]);
     expect(args).toContain('--env-file');
     expect(args).not.toContain('--env');
   });
@@ -218,7 +235,63 @@ describe('exec argv', () => {
         command: ['echo'],
         shell: false,
         cwd: '/workspace',
+        workspaceRoot: '/workspace',
         executionId: '../../etc/passwd',
+        envFile: null,
+      }),
+    ).toThrow(SandboxPolicyError);
+  });
+
+  it('starts the container in the task cwd and describes it to the launcher', () => {
+    const args = buildExecArgs({
+      containerName: 'eunoia-sbx-abc',
+      command: ['pwd'],
+      shell: false,
+      cwd: '/workspace/project/src',
+      workspaceRoot: '/workspace',
+      executionId: 'exec_2',
+      envFile: null,
+    });
+    const workdir = args.indexOf('--workdir');
+    expect(args[workdir + 1]).toBe('/workspace/project/src');
+    expect(args).toContain(WRAPPER);
+    // The boundary is enforced inside the launcher, in the same process that
+    // then runs the command (ADR 021 §4.4).
+    expect(WRAPPER).toContain('cd -P "$dir"');
+    expect(WRAPPER).toContain('eunoia:cwd_rejected:escape');
+  });
+
+  it('refuses a cwd outside the workspace or one containing a control character', () => {
+    expect(() =>
+      buildExecArgs({
+        containerName: 'c',
+        command: ['pwd'],
+        shell: false,
+        cwd: '/etc',
+        workspaceRoot: '/workspace',
+        executionId: 'exec_3',
+        envFile: null,
+      }),
+    ).toThrow(SandboxPolicyError);
+    expect(() =>
+      buildExecArgs({
+        containerName: 'c',
+        command: ['pwd'],
+        shell: false,
+        cwd: 'relative/dir',
+        workspaceRoot: '/workspace',
+        executionId: 'exec_3',
+        envFile: null,
+      }),
+    ).toThrow(SandboxPolicyError);
+    expect(() =>
+      buildExecArgs({
+        containerName: 'c',
+        command: ['pwd'],
+        shell: false,
+        cwd: '/workspace/a\nb',
+        workspaceRoot: '/workspace',
+        executionId: 'exec_3',
         envFile: null,
       }),
     ).toThrow(SandboxPolicyError);

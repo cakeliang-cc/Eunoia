@@ -111,7 +111,16 @@ export type MetricName =
   | 'resource_limit_triggered'
   | 'network_blocked'
   | 'reconciliation_succeeded'
-  | 'reconciliation_failed';
+  | 'reconciliation_failed'
+  | 'permission_allowed'
+  | 'permission_denied'
+  | 'permission_escalated'
+  | 'permission_auto_approved'
+  | 'permission_auto_denied'
+  | 'permission_human_approved'
+  | 'permission_human_denied'
+  | 'permission_grant_revoked'
+  | 'permission_fail_closed';
 
 export class SandboxMetrics {
   private readonly counters = new Map<MetricName, number>();
@@ -160,6 +169,14 @@ export class SandboxMetrics {
               ).toFixed(4),
             ),
       resource_limit_triggered: get('resource_limit_triggered'),
+      permission_allowed: get('permission_allowed'),
+      permission_denied: get('permission_denied'),
+      permission_escalated: get('permission_escalated'),
+      permission_auto_approved: get('permission_auto_approved'),
+      permission_auto_denied: get('permission_auto_denied'),
+      permission_human_approved: get('permission_human_approved'),
+      permission_human_denied: get('permission_human_denied'),
+      permission_fail_closed: get('permission_fail_closed'),
     };
   }
 }

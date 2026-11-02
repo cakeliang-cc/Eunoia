@@ -125,7 +125,88 @@ interface ToolWorkspacePort {
 工具输入/输出格式保持不变：`ToolResult { ok, output, error?, meta? }`。
 `run_command` 的 `meta` 增加 `status`、`executionId`；`read_file` 的 ledger 行为不变。
 
-## 6. HTTP 面
+## 6. 权限 API（ADR 020）
+
+Gateway 是权限模块唯一的应用入口；没有绕过它的 HTTP 面。
+
+```ts
+gateway.setPermissionPolicy({
+  scopeType: 'session' | 'task' | 'sandbox',
+  scopeId: string,
+  mode?: 'read-only' | 'auto' | 'on-request' | 'restricted',
+  ttlMs?: number,
+  actor: string,
+  overrides?: { rules?, autoReview?, approval?, restricted?, expiresAt? },
+}): Promise<PermissionPolicyRecord>
+
+gateway.permissionStatus(context): Promise<{
+  mode: PermissionMode,
+  permission_policy_version: string,
+  scopes: EffectivePolicyScope[],
+  auto_review: AutoReviewSettings,
+  approval: ApprovalSettings,
+  restricted: RestrictedAllowlist,
+  requests: PermissionRequestRecord[],
+  approvals: HumanApprovalRecord[],
+  grants: ApprovalGrant[],
+}>
+
+gateway.listPermissionRequests(context): Promise<PermissionRequestRecord[]>
+gateway.listPermissionApprovals(context): Promise<HumanApprovalRecord[]>
+gateway.listPermissionGrants(context): Promise<ApprovalGrant[]>
+
+gateway.approvePermissionRequest(context, {
+  approvalRequestId: string,
+  decidedBy: string,              // 不能是 agent:*，不能是请求者本人
+  scope?: 'once' | 'task' | 'session',
+  ttlSeconds?: number,
+  reason?: string,
+}): Promise<{ approval: HumanApprovalRecord, grantId: string | null }>
+
+gateway.denyPermissionRequest(context, {
+  approvalRequestId: string,
+  decidedBy: string,
+  reason?: string,
+}): Promise<HumanApprovalRecord>
+
+gateway.sweepPermissions(): Promise<{
+  requests: number, approvals: number, expiredGrants: number, staleGrants: number,
+}>
+```
+
+`ExecuteInput` / 文件工具没有 `permissionMode` 字段。模式只由部署配置和持久化
+作用域策略决定；Agent 不能给自己改模式。
+
+`approval_required` 错误额外携带 `requestId` 和 `approvalRequestId`，便于操作员
+在 CLI 里定位：
+
+```ts
+catch (error) {
+  if (error instanceof SandboxApprovalRequiredError) {
+    error.approvalRequestId; // npm run sandbox -- approve-request --approval <id> --by <person>
+  }
+}
+```
+
+详细语义、风险等级和与 ADR 的偏差见 [PERMISSIONS.md](PERMISSIONS.md)。
+
+## 7. 权限 CLI
+
+```text
+npm run sandbox -- permissions --task <id>
+npm run sandbox -- mode --task <id> --mode read-only [--minutes 30] [--by alice]
+npm run sandbox -- requests --task <id>
+npm run sandbox -- approvals --task <id>
+npm run sandbox -- approve-request --approval <id> --by alice [--scope once|task|session]
+npm run sandbox -- deny-request --approval <id> --by alice --reason "not needed"
+npm run sandbox -- grants --task <id>
+npm run sandbox -- revoke --task <id> --approval <id>
+npm run sandbox -- sweep
+```
+
+`mode` / `approve-request` / `deny-request` 是可信控制面操作，不经过 HTTP。
+
+## 8. HTTP 面
 
 沙箱目前**没有**对外 HTTP API；它从聊天工具路径进入，运维用 CLI。这是有意的：
 一个可以创建容器、执行命令的 HTTP 端点会需要一个认证层，而这个服务现在只有
@@ -149,14 +230,14 @@ interface ToolWorkspacePort {
 }
 ```
 
-## 7. 错误
+## 9. 错误
 
 | code | 含义 | 模型应该怎么处理 |
 |---|---|---|
 | `invalid_input` | 参数/配置不合法 | 修正参数或告诉用户配置 |
 | `not_found` | task/sandbox/workspace 不存在 | 不要重试，报告 |
 | `forbidden` | 策略 DENY（含 system deny） | 换一个在授权范围内的操作 |
-| `approval_required` | 需要 approval grant | 停下来告诉用户 |
+| `approval_required` | 需要审批；错误带 `requestId` / `approvalRequestId` | 停下来告诉用户，由人用 CLI 批准 |
 | `conflict` | 幂等键/状态冲突 | 不要重试同一个执行 |
 | `runtime_unavailable` | runtime 或 gVisor 不可用 | 不要退回宿主机，报告 |
 | `quota_exceeded` | 并发上限 | 等待或让用户清理 |

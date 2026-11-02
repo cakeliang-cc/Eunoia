@@ -10,6 +10,77 @@
 
 ### Added
 
+- **Permission Modes 与权限生命周期（ADR 020）。** Sandbox 之上的授权层从
+  “写/命令开关 + operator grant”扩展为四种模式、统一 Permission Manager、
+  auto-review、人工审批和带策略版本的 Grant。实现与偏差见
+  [docs/sandbox/PERMISSIONS.md](docs/sandbox/PERMISSIONS.md)。
+  - **四种模式**：`read-only`（写权限清空，`/workspace` 只读 mount）、
+    `auto`（授权范围内自动，扩展走 auto-review）、`on-request`（扩展找人）、
+    `restricted`（工具/路径/网络显式白名单，auto-review 不能扩大）。
+  - **统一入口**：命令和文件工具都先调用 `PermissionManager.evaluate()`；
+    判定顺序是 system deny → policy rules → grant → mode → auto/human approval，
+    任何一层都不能提升 system deny。执行前还会 `revalidate()` grant 与 policy version。
+  - **Request / Approval / Grant**：一个 (principal, action, resource, policy version)
+    只有一个打开的请求；重复工具调用复用请求，重复审批只有一个赢家；
+    `once` grant 在执行授权点消费；TTL、撤销、跨 task/session/sandbox 绑定都持久化。
+  - **auto-review 是确定性评估器**：风险分级、私网/metadata/提权命令直接 forbidden；
+    不可信文本（reason、命令、metadata）只扫描指令式内容，命中即 escalate；
+    自定义 reviewer 的返回值仍会被策略二次校验。它只在 `auto` 模式运行。
+  - **人工审批**：CLI `approve-request` / `deny-request`；审批者不能是 `agent:*`
+    或请求者本人；审批记录带 scope、TTL、decided_by、reason 和审计事件。
+  - **模式切换**：写新的 policy version、过期旧 grant、把受影响 sandbox 标记
+    `INTERRUPTED`；Controller 比较 `config_digest` 后销毁旧容器并按新策略重建，
+    避免 read-only 模式继续跑在可写 mount 上。
+  - **Recovery / fail closed**：PENDING 不会在恢复时变 APPROVED；APPROVED 但无
+    grant 的请求直接 DENIED；权限层不可用、策略读不出来、执行前版本变化一律
+    拒绝执行。
+  - **持久化**：SQLite schema v4，新增 `permission_policies` /
+    `permission_requests` / `permission_approval_requests` /
+    `permission_decisions`，并给 grants、executions、sandboxes 增加权限列；
+    迁移支持 1/2/3 → 4 且可从中途失败的迁移继续。
+  - **配置**：`SANDBOX_PERMISSION_MODE`、`SANDBOX_PERMISSION_ALLOWED_MODES`、
+    `SANDBOX_AUTO_REVIEW`、`SANDBOX_AUTO_APPROVE_RISK`、
+    `SANDBOX_REQUIRE_HUMAN_RISK`、`SANDBOX_*_TTL_MS`、
+    `SANDBOX_RESTRICTED_*`；默认模式由写入/命令开关推导。
+  - **测试**：新增 `tests/sandbox/permission-policy.test.ts`（模式/规则/auto-review/
+    注入）与 `tests/sandbox/permission-flow.test.ts`（四种模式、审批、grant 过期、
+    模式切换重建、跨 task、审批身份、fail closed、recovery）；schema 迁移测试
+    覆盖 1/2/3 → 4。
+  - **明确偏差**：审批通过 CLI 而不是回合中弹窗；auto-review 不调用模型；
+    运行中新增网络域名/工作区外路径需要改部署策略，记录为 DENY；restricted 的
+    工作区子路径由权限层而非 mount 执行。原因见 PERMISSIONS.md §12。
+
+- **Task-scoped CWD（ADR 021）。** `run_command` 保持无状态，工作目录变成任务的
+  显式状态：每次 Execution 从 Task Context 冻结一个 CWD Snapshot，Gateway 二次
+  校验，OCI Runtime 用 `--workdir` 启动。实现与偏差见
+  [docs/adr/021-implementation.md](docs/adr/021-implementation.md)。
+  - **模型侧**：新增 `change_directory(path)`，`run_command` 的输入**没有** `workdir`；
+    相对路径基于当前任务目录，`cd` 只影响当前进程。工具描述明确“后续命令从新目录
+    开始”，并保持 one-shot shell 语义。
+  - **状态与 CAS**：`sandbox_tasks` 增加 `workspace_root` / `current_cwd` /
+    `cwd_version` / `cwd_invalidated_at` / `cwd_invalid_reason`；CWD 变更只走
+    `compareAndSetTaskCwd()`，版本不匹配返回 `CWD_VERSION_CONFLICT`，普通
+    Task 更新路径写不了这三个字段。
+  - **持久化事务**：CWD 更新与 `task.cwd.change.succeeded` 审计行在同一个
+    SQLite 事务里；`task_cwd_operations` 以 tool call id 做幂等，重放返回原始结果，
+    同 id 不同路径返回 `IDEMPOTENCY_CONFLICT`。
+  - **安全**：先做词法边界（`path.relative`，不是字符串前缀），再做物理校验
+    （宿主侧 `realpath` + `stat`，拒绝符号链接逃逸）；容器内启动器在同一个 shell
+    进程里 `cd -P` 并复查边界，`docker exec` 无法传目录 fd 时由它兜住 TOCTOU。
+  - **Gateway 不信任 adapter**：重新读取任务上下文，核对 sandbox/workspace、cwd
+    version 与路径，不一致返回 `CWD_VERSION_MISMATCH` / `EXECUTION_CONTEXT_INVALID`；
+    失效目录不会回退 `/workspace`，而是 `CWD_INVALID` 直到显式恢复。
+  - **权限**：新增 `fs.chdir` 动作，四种模式按 ADR §9.2 处理；改目录不扩大文件
+    权限，文件操作仍逐路径判权。
+  - **恢复**：`recover` / sandbox 重建后重新校验 CWD；目录不存在则标记失效，
+    保留原路径，测试覆盖删除后拒绝执行、重建后恢复。
+  - **观测**：`task.cwd.*` 与 `execution.cwd.*` 事件；`listAudit()` 支持按
+    task/sandbox/execution/action 过滤；CLI 增加 `cwd` / `cd` / `audit`。
+  - **测试**：新增 `tests/sandbox/cwd-path.test.ts`、`cwd-validator.test.ts`、
+    `cwd-manager.test.ts`、`cwd.test.ts`、`cwd-sqlite.test.ts`、
+    `tests/tools/change-directory-tool.test.ts`；真实容器用例在
+    `integration.docker.test.ts` 中按 `SANDBOX_INTEGRATION=1` 运行。
+
 - **`npm run sandbox:smoke`：真实 SQLite + Docker 的端到端冒烟。** 走聊天工具适配器
   （task → workspace → sandbox → list → command），用临时数据库，不碰生产
   `data/eunoia.sqlite`；用于捕捉内存 store 看不到的外键/迁移问题。

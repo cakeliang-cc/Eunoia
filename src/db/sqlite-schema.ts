@@ -21,11 +21,14 @@ import { SANDBOX_SCHEMA } from '../sandbox/schema.ts';
 
 /**
  * Version 2 adds the sandbox platform's tables (ADR 017); version 3 records the
- * resource profile on each sandbox so recovery rebuilds with the same limits.
+ * resource profile on each sandbox so recovery rebuilds with the same limits;
+ * version 4 adds the permission layer (ADR 020) and `sandboxes.config_digest`;
+ * version 5 adds the task-scoped working directory (ADR 021): cwd columns on
+ * `sandbox_tasks`, `cwd_version` on `executions` and `task_cwd_operations`.
  * The base schema is idempotent, so a version-1 file gets the tables by executing
- * the full schema; a version-2 file gets the new column by `ALTER TABLE`.
+ * the full schema; later files get the new columns by `ALTER TABLE`.
  */
-export const SQLITE_SCHEMA_VERSION = 3;
+export const SQLITE_SCHEMA_VERSION = 5;
 
 export const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;

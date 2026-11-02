@@ -25,7 +25,20 @@ import type { z } from 'zod';
  * them would either make memory require a write approval every turn or make
  * file writes silently approved with it.
  */
-export type ToolSideEffect = 'none' | 'memory_write' | 'workspace_write' | 'command';
+export type ToolSideEffect =
+  | 'none'
+  | 'memory_write'
+  | 'workspace_write'
+  | 'command'
+  /**
+   * A change to the task's execution state rather than to a file (ADR 021).
+   *
+   * `change_directory` is the only member: it moves where later commands start
+   * without touching the filesystem, so it needs its own class rather than being
+   * either "read-only" (it changes ordering) or "workspace_write" (it does not
+   * write anything).
+   */
+  | 'workspace_state';
 
 /** What a tool returns to the loop. Always serialisable: it goes back to the model. */
 export interface ToolResult {
@@ -130,6 +143,11 @@ export interface ToolContext {
   readonly workspace: ToolWorkspacePort | null;
   /** The command port. Null means "no sandbox configured"; commands refuse. */
   readonly executor?: ToolExecutor | null;
+  /**
+   * The task working-directory port (ADR 021). Null means the run has no
+   * sandbox-backed cwd, so `change_directory` refuses rather than pretending.
+   */
+  readonly cwd?: ToolCwdPort | null;
   /** The model's call id, used as the execution idempotency key. */
   readonly toolCallId?: string;
   /** True when the ports come from the Sandbox Gateway and enforce policy. */
@@ -229,9 +247,39 @@ export interface ToolExecutor {
   }): Promise<ToolExecutionResult>;
 }
 
+/**
+ * The task working-directory boundary (ADR 021 §5).
+ *
+ * The model supplies a path and nothing else. `taskId`, `workspaceRoot` and the
+ * current version are runtime state: a tool that accepted them would let the
+ * agent name its own context, which is exactly what the ADR forbids.
+ */
+export interface ToolCwdPort {
+  change(input: { readonly path: string; readonly operationId?: string }): Promise<ToolCwdChange>;
+  current(): Promise<ToolCwdSnapshot>;
+}
+
+export interface ToolCwdSnapshot {
+  readonly cwd: string;
+  readonly workspaceRoot: string;
+  readonly cwdVersion: number;
+}
+
+export type ToolCwdChange =
+  | {
+      readonly ok: true;
+      readonly previousCwd: string;
+      readonly cwd: string;
+      readonly cwdVersion: number;
+      readonly workspaceRoot: string;
+    }
+  | { readonly ok: false; readonly error: string; readonly message: string };
+
 export interface ToolSandboxSession {
   readonly workspace: ToolWorkspacePort;
   readonly executor: ToolExecutor;
+  /** The task's working directory (ADR 021); `change_directory` acts on it. */
+  readonly cwd: ToolCwdPort;
   /** The path shown to the model; always the container mount, never a host path. */
   readonly displayPath: string;
 }

@@ -210,6 +210,27 @@ export interface ApprovalGrant {
   readonly policyVersion: string;
   readonly createdAt: string;
   readonly revokedAt: string | null;
+
+  // ---- permission-layer fields (ADR 020) -----------------------------------
+  //
+  // They are optional so a grant written before the permission layer existed
+  // still parses. New grants always populate them; `grantId` mirrors
+  // `approvalId` for the ADR's vocabulary, and `status`/`usedAt` are the parts a
+  // bare `{ approved: true }` could never express.
+  readonly grantId?: string;
+  readonly organizationId?: string;
+  readonly projectId?: string;
+  readonly sessionId?: string | null;
+  readonly sandboxId?: string | null;
+  readonly principalId?: string;
+  /** Where the grant came from: a policy, auto-review or a human decision. */
+  readonly source?: 'policy' | 'auto_review' | 'human_approval';
+  readonly status?: 'active' | 'revoked' | 'expired';
+  /** Approval granularity; `once` is consumed by the next authorized action. */
+  readonly scope?: 'once' | 'task' | 'session';
+  readonly requestId?: string | null;
+  readonly approvalRequestId?: string | null;
+  readonly usedAt?: string | null;
 }
 
 // ------------------------------------------------------------------ entities ---
@@ -225,6 +246,20 @@ export interface Task {
   readonly sandboxId: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+
+  // ---- task-scoped working directory (ADR 021) ------------------------------
+  //
+  // Optional so a `Task` value written before the column existed still parses.
+  // The authoritative accessor is `TaskContextStore`, not these fields: a caller
+  // must not be able to write `currentCwd` through `updateTask`.
+  /** Container path the workspace is mounted at; never agent-supplied. */
+  readonly workspaceRoot?: string | null;
+  readonly currentCwd?: string | null;
+  /** Compare-and-set token; increments on every successful cwd change. */
+  readonly cwdVersion?: number;
+  /** Set when validation found the recorded cwd unusable (ADR 021 §11.3). */
+  readonly cwdInvalidatedAt?: string | null;
+  readonly cwdInvalidReason?: string | null;
 }
 
 export type WorkspaceMode = 'bind' | 'copy';
@@ -270,6 +305,15 @@ export interface Sandbox {
   readonly policyVersion: string;
   /** Effective profile at creation; resource limits are derived from it. */
   readonly resourceProfile: string;
+  /**
+   * Digest of the compiled runtime config (mount writability, limits, network).
+   *
+   * A mode change can make `/workspace` read-only; a live container with a
+   * read-write mount would silently defeat it. The Controller compares this
+   * digest and rebuilds instead of reconnecting (ADR 020 §12.2). Empty on rows
+   * created before the field existed, which are treated as "matches once".
+   */
+  readonly configDigest?: string;
   readonly status: SandboxStatus;
   readonly createdAt: string;
   readonly lastHeartbeatAt: string | null;
@@ -308,6 +352,8 @@ export interface Execution {
   readonly commandDigest: string;
   readonly command: readonly string[];
   readonly cwd: string;
+  /** The task cwd version this execution froze at creation (ADR 021 §6.3). */
+  readonly cwdVersion?: number;
   readonly status: ExecutionState;
   readonly exitCode: number | null;
   readonly startedAt: string | null;
@@ -316,6 +362,10 @@ export interface Execution {
   readonly stderr: string;
   readonly policyVersion: string;
   readonly toolCallId: string | null;
+  /** Permission decision that authorized this execution (ADR 020 §14.2). */
+  readonly decisionId?: string | null;
+  readonly permissionMode?: string | null;
+  readonly permissionPolicyVersion?: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -382,6 +432,11 @@ export interface ExecuteInput {
   readonly idempotencyKey: string;
   readonly command: readonly string[];
   readonly cwd: string;
+  /**
+   * The task cwd version the caller read. The Gateway refuses a mismatch instead
+   * of running in a directory the caller did not see (ADR 021 §6.4).
+   */
+  readonly cwdVersion?: number;
   readonly timeoutMs: number;
   /** `true` runs the single `command[0]` through `/bin/sh -c`. */
   readonly shell?: boolean;
@@ -410,6 +465,11 @@ export interface RuntimeSandboxConfig {
   readonly imageDigest: string;
   readonly workspaceHostPath: string;
   readonly workspaceWritable: boolean;
+  /**
+   * Hash of the structured config, used by the Controller to detect a policy or
+   * mode change that a live container does not reflect.
+   */
+  readonly configDigest: string;
   readonly runtimeClass: 'gvisor' | 'runc' | 'default';
   readonly resources: ResourceLimits;
   readonly network: SandboxPolicy['network'];
@@ -444,6 +504,8 @@ export interface RuntimeExecutionRequest {
   readonly command: readonly string[];
   readonly shell: boolean;
   readonly cwd: string;
+  /** Container workspace root, so the launcher can re-check the cwd boundary. */
+  readonly workspaceRoot: string;
   readonly timeoutMs: number;
   readonly maxOutputBytes: number;
   readonly env: Readonly<Record<string, string>>;

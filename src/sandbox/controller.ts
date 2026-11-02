@@ -100,6 +100,7 @@ export class SandboxController {
         status: 'READY',
         runtimeId: handle.runtimeId,
         runtimeType: handle.runtimeType,
+        configDigest: config.configDigest,
         lastHeartbeatAt: this.now().toISOString(),
       });
       this.metrics.increment('sandbox_created');
@@ -155,6 +156,16 @@ export class SandboxController {
       const handle = this.handleOf(sandbox);
       const status = await this.runtime.inspect(handle);
       if (status.exists && status.running) {
+        if (sandbox.configDigest && sandbox.configDigest !== config.configDigest) {
+          // The policy changed while this container was alive (for example a
+          // switch to read-only). Reconnecting would keep the old, wider mount;
+          // destroy and rebuild under the current config (ADR 020 §12.2).
+          await this.runtime.destroy(handle).catch(() => undefined);
+          const marked = await this.store.updateSandbox(sandbox.sandboxId, {
+            status: 'INTERRUPTED',
+          });
+          return this.recoverUnlocked(marked ?? { ...sandbox, status: 'INTERRUPTED' }, config);
+        }
         if (sandbox.status === 'RUNNING') {
           await this.store.updateSandbox(sandbox.sandboxId, { status: 'READY' });
         }
@@ -204,19 +215,26 @@ export class SandboxController {
       exitCode: null,
     }));
     if (status.exists && status.running) {
-      const updated = await this.store.updateSandbox(sandbox.sandboxId, {
-        status: 'READY',
-        lastHeartbeatAt: this.now().toISOString(),
-      });
-      this.metrics.increment('sandbox_recovered');
-      await this.audit.record({
-        taskId: sandbox.taskId,
-        sandboxId: sandbox.sandboxId,
-        action: 'sandbox.recover',
-        outcome: 'succeeded',
-        detail: { mode: 'reconnect', runtime_id: existing.runtimeId },
-      });
-      return this.handleOf(updated as Sandbox);
+      if (sandbox.configDigest && sandbox.configDigest !== config.configDigest) {
+        // Same rule as `ensureRunning`: a container that does not match the
+        // current policy is not a valid recovery target.
+        await this.runtime.destroy(existing).catch(() => undefined);
+      } else {
+        const updated = await this.store.updateSandbox(sandbox.sandboxId, {
+          status: 'READY',
+          configDigest: config.configDigest,
+          lastHeartbeatAt: this.now().toISOString(),
+        });
+        this.metrics.increment('sandbox_recovered');
+        await this.audit.record({
+          taskId: sandbox.taskId,
+          sandboxId: sandbox.sandboxId,
+          action: 'sandbox.recover',
+          outcome: 'succeeded',
+          detail: { mode: 'reconnect', runtime_id: existing.runtimeId },
+        });
+        return this.handleOf(updated as Sandbox);
+      }
     }
 
     // Missing or stopped: the workspace is intact, so the runtime can be rebuilt
@@ -233,6 +251,7 @@ export class SandboxController {
         status: 'READY',
         runtimeId: handle.runtimeId,
         runtimeType: handle.runtimeType,
+        configDigest: config.configDigest,
         lastHeartbeatAt: this.now().toISOString(),
       });
       this.metrics.increment('sandbox_recovered');

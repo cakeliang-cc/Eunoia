@@ -167,6 +167,7 @@ describe('execution', () => {
     const events = await platform.store.listEvents('exec_test_1');
     expect(events.map((event) => event.eventType)).toEqual([
       'execution/created',
+      'execution.cwd.snapshot.created',
       'execution/authorized',
       'execution/submitted',
       'execution/started',

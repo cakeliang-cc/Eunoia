@@ -30,6 +30,7 @@ import { ToolRegistry } from '../tools/registry.ts';
 import { DEFAULT_TOOL_POLICY } from '../tools/types.ts';
 import type {
   ReadLedger,
+  ToolCwdPort,
   ToolDefinition,
   ToolExecutor,
   ToolPolicy,
@@ -60,6 +61,8 @@ export interface CompanionOptions {
   readonly maxSteps?: number;
   readonly workspace?: ToolWorkspacePort | null;
   readonly executor?: ToolExecutor | null;
+  /** Task working-directory port (ADR 021); null when no sandbox is configured. */
+  readonly cwd?: ToolCwdPort | null;
   readonly ledger?: ReadLedger;
   readonly now?: Date;
 }
@@ -81,6 +84,7 @@ export interface CompanionRun {
   readonly maxSteps: number;
   readonly workspace: ToolWorkspacePort | null;
   readonly executor: ToolExecutor | null;
+  readonly cwd: ToolCwdPort | null;
   readonly ledger: ReadLedger;
   readonly model: string;
   readonly modelTurn?: ModelTurn;
@@ -110,6 +114,7 @@ export function createCompanionAgent(options: CompanionOptions = {}): CompanionR
     maxSteps: options.maxSteps ?? DEFAULT_MAX_STEPS,
     workspace: options.workspace ?? null,
     executor: options.executor ?? null,
+    cwd: options.cwd ?? null,
     ledger: options.ledger ?? new TurnReadLedger(),
     model: options.model ?? COMPANION_MODEL,
     ...(options.modelTurn ? { modelTurn: options.modelTurn } : {}),
@@ -216,6 +221,7 @@ export async function* streamReply(
     toolContext: {
       workspace: agent.workspace,
       executor: agent.executor,
+      cwd: agent.cwd,
       policy: agent.policy,
       ledger: agent.ledger,
       now: agent.now,

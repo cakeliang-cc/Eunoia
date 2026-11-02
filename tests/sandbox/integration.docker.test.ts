@@ -28,6 +28,7 @@ import { MemorySandboxStore } from '../../src/sandbox/store-memory.ts';
 import { RESOURCE_PROFILES, SANDBOX_POLICY_VERSION } from '../../src/sandbox/types.ts';
 import type { SandboxSettings } from '../../src/sandbox/config.ts';
 import { sandboxContainerName } from '../../src/sandbox/runtime/oci-args.ts';
+import { testPermissionSettings } from './helpers.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -93,6 +94,7 @@ async function startHarness(mode: 'bind' | 'copy' = 'bind'): Promise<Harness> {
     allowWrites: true,
     allowCommands: true,
     deniedTools: [],
+    permission: testPermissionSettings({ mode: 'auto' }),
     heartbeatMs: 30_000,
     nonGvisorAcknowledged: RUNTIME_CLASS !== 'gvisor',
   };
@@ -109,23 +111,31 @@ async function startHarness(mode: 'bind' | 'copy' = 'bind'): Promise<Harness> {
   return { base, platform, task, sandboxId: sandbox.sandboxId };
 }
 
+/**
+ * Execute in the task's current directory, exactly as `run_command` does.
+ *
+ * ADR 021 makes `/workspace` no longer an implicit assumption: an execution is
+ * created with the cwd the task currently has, and the Gateway refuses a
+ * mismatch. Reading it here keeps every existing assertion honest and lets the
+ * cwd tests below assert on real container output.
+ */
 async function run(
   h: Harness,
   command: readonly string[],
-  options: { idempotencyKey?: string; timeoutMs?: number; shell?: boolean } = {},
+  options: { idempotencyKey?: string; timeoutMs?: number; shell?: boolean; cwd?: string } = {},
 ) {
-  return h.platform.gateway.execute(
-    { taskId: h.task.taskId, userId: h.task.userId, sessionId: h.task.sessionId },
-    {
-      sandboxId: h.sandboxId,
-      executionId: `exec_${Math.random().toString(16).slice(2)}`,
-      idempotencyKey: options.idempotencyKey ?? `call-${Math.random().toString(16).slice(2)}`,
-      command,
-      cwd: '/workspace',
-      timeoutMs: options.timeoutMs ?? 20_000,
-      shell: options.shell ?? false,
-    },
-  );
+  const context = { taskId: h.task.taskId, userId: h.task.userId, sessionId: h.task.sessionId };
+  const current = await h.platform.gateway.currentDirectory(context);
+  return h.platform.gateway.execute(context, {
+    sandboxId: h.sandboxId,
+    executionId: `exec_${Math.random().toString(16).slice(2)}`,
+    idempotencyKey: options.idempotencyKey ?? `call-${Math.random().toString(16).slice(2)}`,
+    command,
+    cwd: options.cwd ?? current.cwd,
+    cwdVersion: current.cwdVersion,
+    timeoutMs: options.timeoutMs ?? 20_000,
+    shell: options.shell ?? false,
+  });
 }
 
 describe.skipIf(!enabled)('real container integration', () => {
@@ -357,6 +367,53 @@ describe.skipIf(!enabled)('real container integration', () => {
     await h.platform.gateway
       .recover({ taskId: h.task.taskId, userId: h.task.userId }, h.sandboxId)
       .catch(() => undefined);
+  }, 60_000);
+
+  it('starts a task in the workspace root and moves it with change_directory', async () => {
+    const h = harness as Harness;
+    const context = { taskId: h.task.taskId, userId: h.task.userId, sessionId: h.task.sessionId };
+
+    const first = await run(h, ['/bin/sh', '-c', 'pwd'], { idempotencyKey: 'cwd-default' });
+    expect(first.status).toBe('SUCCEEDED');
+    expect(first.stdout.trim()).toBe('/workspace');
+
+    const changed = await h.platform.gateway.changeDirectory(context, { path: 'src' });
+    expect(changed).toMatchObject({ ok: true, cwd: '/workspace/src', cwdVersion: 2 });
+
+    const second = await run(h, ['/bin/sh', '-c', 'pwd'], { idempotencyKey: 'cwd-src' });
+    expect(second.stdout.trim()).toBe('/workspace/src');
+  }, 60_000);
+
+  it('keeps a cd inside one execution from changing the task directory', async () => {
+    const h = harness as Harness;
+    const context = { taskId: h.task.taskId, userId: h.task.userId, sessionId: h.task.sessionId };
+    await h.platform.gateway.changeDirectory(context, { path: '/workspace' });
+
+    const inside = await run(h, ['/bin/sh', '-c', 'cd /tmp && pwd'], { idempotencyKey: 'cwd-cd' });
+    expect(inside.stdout.trim()).toBe('/tmp');
+
+    const after = await run(h, ['/bin/sh', '-c', 'pwd'], { idempotencyKey: 'cwd-after-cd' });
+    expect(after.stdout.trim()).toBe('/workspace');
+    expect(await h.platform.gateway.currentDirectory(context)).toMatchObject({ cwd: '/workspace' });
+  }, 60_000);
+
+  it('refuses to start a command once the task directory is gone', async () => {
+    const h = harness as Harness;
+    const context = { taskId: h.task.taskId, userId: h.task.userId, sessionId: h.task.sessionId };
+    await mkdir(join(h.base, 'repo', 'gone'), { recursive: true });
+    const changed = await h.platform.gateway.changeDirectory(context, { path: 'gone' });
+    expect(changed).toMatchObject({ ok: true, cwd: '/workspace/gone' });
+
+    await rm(join(h.base, 'repo', 'gone'), { recursive: true, force: true });
+    await expect(run(h, ['/bin/sh', '-c', 'pwd'])).rejects.toMatchObject({
+      code: 'DIRECTORY_NOT_FOUND',
+    });
+
+    // The task is left at the directory that vanished; it never falls back to /.
+    const task = await h.platform.gateway.taskContext(context);
+    expect(task.cwd).toBe('/workspace/gone');
+    expect(task.invalidatedAt).not.toBeNull();
+    await h.platform.gateway.changeDirectory(context, { path: '/workspace' });
   }, 60_000);
 
   it('isolates two tasks in copy mode', async () => {

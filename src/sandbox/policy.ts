@@ -19,6 +19,7 @@
  * policy, never widen it.
  */
 
+import { createHash } from 'node:crypto';
 import { isAbsolute, posix } from 'node:path';
 import {
   RESOURCE_PROFILES,
@@ -39,7 +40,14 @@ import {
   SandboxRuntimeUnavailableError,
 } from './errors.ts';
 
-export type PolicyAction = 'fs.read' | 'fs.write' | 'fs.list' | 'process.exec' | 'network.connect' | 'tool';
+export type PolicyAction =
+  | 'fs.read'
+  | 'fs.write'
+  | 'fs.list'
+  | 'fs.chdir'
+  | 'process.exec'
+  | 'network.connect'
+  | 'tool';
 
 export interface PolicyRequest {
   readonly action: PolicyAction;
@@ -591,12 +599,17 @@ export function compileRuntimeConfig(
   });
   if (maskedPaths.length > 256) throw new SandboxPolicyError('too many masked credential files');
 
-  return {
+  const structural = {
     sandboxId: input.sandboxId,
     taskId: input.taskId,
     imageDigest: input.imageDigest,
     workspaceHostPath: input.workspaceHostPath,
-    workspaceWritable: underAny(WORKSPACE_MOUNT_PATH, policy.filesystem.write),
+    // A policy that allows *any* prefix under /workspace needs a writable
+    // mount. Which sub-prefix is allowed is enforced by the permission layer;
+    // a bind mount cannot express a suffix of the workspace.
+    workspaceWritable: policy.filesystem.write.some((prefix) =>
+      underAny(prefix, [WORKSPACE_MOUNT_PATH]),
+    ),
     runtimeClass: policy.runtime.class,
     resources: input.resources ?? policy.resources,
     network: policy.network,
@@ -604,6 +617,40 @@ export function compileRuntimeConfig(
     labels: { ...input.labels },
     maskedPaths,
   };
+  return {
+    ...structural,
+    configDigest: runtimeConfigDigest(structural),
+  };
+}
+
+/**
+ * A stable hash of the structured runtime config.
+ *
+ * The Controller compares it with the digest stored on the sandbox: a mode
+ * change that makes the workspace read-only must rebuild the container instead
+ * of reconnecting to one whose mount is still read-write. Key order is
+ * normalised so an equivalent config does not look like a change.
+ */
+export function runtimeConfigDigest(
+  config: Omit<RuntimeSandboxConfig, 'configDigest'>,
+): string {
+  const normalised = {
+    image: config.imageDigest,
+    workspace: config.workspaceHostPath,
+    writable: config.workspaceWritable,
+    runtimeClass: config.runtimeClass,
+    resources: config.resources,
+    network: {
+      mode: config.network.mode,
+      allowedDomains: [...config.network.allowedDomains].sort(),
+      allowedPorts: [...config.network.allowedPorts].sort((a, b) => a - b),
+    },
+    env: Object.fromEntries(Object.entries(config.env).sort(([a], [b]) => a.localeCompare(b))),
+    maskedPaths: [...(config.maskedPaths ?? [])]
+      .map((entry) => `${entry.source}:${entry.target}`)
+      .sort(),
+  };
+  return `sha256:${createHash('sha256').update(JSON.stringify(normalised)).digest('hex')}`;
 }
 
 /** Convenience for the Gateway: a decision that is not `ALLOW` is an error. */

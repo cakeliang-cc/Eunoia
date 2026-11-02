@@ -29,6 +29,9 @@ import { WorkspaceManager } from './workspace-manager.ts';
 import { SandboxController } from './controller.ts';
 import { SandboxGateway } from './gateway.ts';
 import { RecoveryManager } from './recovery.ts';
+import { GrantManager } from './permissions/grant-manager.ts';
+import { PermissionRequestService } from './permissions/request-service.ts';
+import { PermissionRecovery } from './permissions/recovery.ts';
 import { createSandboxToolProvider, type SandboxToolProvider } from './tool-adapter.ts';
 import { SandboxRuntimeUnavailableError } from './errors.ts';
 import { describeSandboxSettings } from './config.ts';
@@ -38,6 +41,7 @@ export interface SandboxPlatform {
   readonly gateway: SandboxGateway;
   readonly provider: SandboxToolProvider;
   readonly recovery: RecoveryManager;
+  readonly permissionRecovery: PermissionRecovery;
   readonly metrics: SandboxMetrics;
   readonly credentials: CredentialBroker;
   readonly settings: SandboxSettings;
@@ -109,6 +113,27 @@ export async function createSandboxPlatform(
     now,
     redactor,
   });
+  // The recovery sweep needs the same store-facing services the Gateway uses;
+  // they are stateless wrappers, so constructing them here keeps the Gateway's
+  // permission manager private.
+  const permissionGrants = new GrantManager({ store: input.store, audit, now });
+  const permissionRequests = new PermissionRequestService({
+    store: input.store,
+    audit,
+    now,
+    requestTtlMs: input.settings.permission.requestTtlMs,
+    approvalTtlMs: input.settings.permission.approvalTtlMs,
+  });
+  const permissionRecovery = new PermissionRecovery({
+    store: input.store,
+    audit,
+    metrics,
+    requests: permissionRequests,
+    grants: permissionGrants,
+    now,
+    effectiveFor: ({ taskId, sessionId, sandboxId }) =>
+      gateway.effectivePermissionPolicy(taskId, sessionId, sandboxId),
+  });
   const recovery = new RecoveryManager({
     store: input.store,
     controller,
@@ -148,6 +173,7 @@ export async function createSandboxPlatform(
     gateway,
     provider: createSandboxToolProvider(gateway),
     recovery,
+    permissionRecovery,
     metrics,
     credentials,
     settings: input.settings,
@@ -162,6 +188,21 @@ export async function createSandboxPlatform(
         });
         return null;
       });
+      const permissionReport = await permissionRecovery.recoverAll().catch((error: unknown) => {
+        log.error('sandbox.permission_recovery_failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      });
+      if (permissionReport) {
+        log.info('sandbox.permission_recovered', {
+          approvals: permissionReport.approvalsChecked,
+          denied: permissionReport.requestsDenied,
+          restored: permissionReport.requestsRestored,
+          expired_grants: permissionReport.grantsExpired,
+          stale_grants: permissionReport.grantsStale,
+        });
+      }
       if (report) {
         log.info('sandbox.recovered', {
           sandboxes: report.sandboxesChecked,
@@ -208,6 +249,9 @@ export async function createSandboxPlatform(
         network_mode: input.settings.network.mode,
         writes: input.settings.allowWrites,
         commands: input.settings.allowCommands,
+        permission_mode: input.settings.permission.mode,
+        permission_allowed_modes: input.settings.permission.allowedModes,
+        auto_review: input.settings.permission.autoReview.enabled,
         metrics: metrics.snapshot(),
       };
     },
@@ -217,7 +261,6 @@ export async function createSandboxPlatform(
 export * from './types.ts';
 export * from './errors.ts';
 export {
-  PermissionManager,
   compileRuntimeConfig,
   evaluatePolicy,
   taskPolicy,
@@ -226,6 +269,77 @@ export {
   intersectPolicies,
   normalizeContainerPath,
 } from './policy.ts';
+export { PermissionManager } from './permissions/permission-manager.ts';
+export { PermissionRecovery } from './permissions/recovery.ts';
+export { GrantManager, validateGrant, covers } from './permissions/grant-manager.ts';
+export { PermissionRequestService } from './permissions/request-service.ts';
+export { HumanApprovalService } from './permissions/approval-service.ts';
+export { AutoReviewService, DeterministicAutoReviewer, assessPermissionRequest } from './permissions/auto-review.ts';
+export {
+  deploymentPermissionPolicy,
+  resolveEffectivePermissionPolicy,
+  evaluatePermissionRules,
+  narrowPolicyForMode,
+  nextScopePolicy,
+} from './permissions/policy.ts';
+export type {
+  ApprovalScopeLevel,
+  AutoReviewDecision,
+  AutoReviewer,
+  EffectivePermissionPolicy,
+  HumanApprovalRecord,
+  PermissionDecision,
+  PermissionEvaluationRequest,
+  PermissionGrant,
+  PermissionMode,
+  PermissionPolicyRecord,
+  PermissionRequestRecord,
+  PermissionRequestStatus,
+  PermissionScope,
+  PermissionScopeLevel,
+  RiskLevel,
+} from './permissions/types.ts';
+// ---------------------------------------------------- task cwd (ADR 021) ---
+export { CwdManager } from './cwd/cwd-manager.ts';
+export type { CwdPermissionPort, ValidatedCwd } from './cwd/cwd-manager.ts';
+export { TaskContextStore, toContext } from './cwd/task-context-store.ts';
+export {
+  FilesystemCwdValidator,
+  nodeCwdFilesystem,
+} from './cwd/cwd-validator.ts';
+export type {
+  CwdFilesystem,
+  CwdValidationInput,
+  CwdValidationResult,
+  CwdValidator,
+} from './cwd/cwd-validator.ts';
+export {
+  assertPathInput,
+  isWithinRoot,
+  resolveTaskPath,
+  toContainerPath,
+  toHostPath,
+  workspaceRelative,
+} from './cwd/cwd-path.ts';
+export { authorizeCwdChange } from './cwd/cwd-policy.ts';
+export type { CwdPolicyDecision, CwdPolicyInput } from './cwd/cwd-policy.ts';
+export { CwdError, CwdVersionConflictError, TASK_CWD_ROOT } from './cwd/cwd-types.ts';
+export type {
+  ChangeDirectoryFailure,
+  ChangeDirectoryInput,
+  ChangeDirectoryResult,
+  ChangeDirectorySuccess,
+  CwdAuditAction,
+  CwdErrorCode,
+  CwdOperationRecord,
+  CwdResult,
+  ExecutionContextSnapshot,
+  InitializeTaskContextInput,
+  TaskCwdStatus,
+  TaskExecutionContext,
+  UpdateTaskCwdInput,
+} from './cwd/cwd-types.ts';
+
 export { SandboxGateway } from './gateway.ts';
 export type { SandboxContext, ExecuteOptions } from './gateway.ts';
 export { SandboxController } from './controller.ts';

@@ -54,7 +54,12 @@ import type {
   Message,
 } from '../session/types.ts';
 import type { Store } from '../store.ts';
-import { SQLITE_MIGRATION_3, SQLITE_SCHEMA, SQLITE_SCHEMA_VERSION } from './sqlite-schema.ts';
+import {
+  SQLITE_MIGRATION_3,
+  SQLITE_SCHEMA,
+  SQLITE_SCHEMA_VERSION,
+} from './sqlite-schema.ts';
+import { CWD_SCHEMA, PERMISSION_SCHEMA } from '../sandbox/schema.ts';
 
 type SqlValue = string | number | null;
 
@@ -812,13 +817,18 @@ export function openSqliteStore(path: string): SqliteStore {
   }
   if (version < 2) {
     // Version 1 has no sandbox tables; the full schema creates them (including
-    // the version-3 column) without touching existing rows.
+    // the version-3/4 columns and tables) without touching existing rows.
     db.exec(SQLITE_SCHEMA);
-  } else if (version === 2) {
-    // Idempotent: a partially-migrated file may already have the column.
-    const columns = db.prepare('PRAGMA table_info(sandboxes)').all() as { name: string }[];
-    if (!columns.some((column) => column.name === 'resource_profile')) {
+  } else {
+    const sandboxColumns = db.prepare('PRAGMA table_info(sandboxes)').all() as { name: string }[];
+    if (version < 3 && !sandboxColumns.some((column) => column.name === 'resource_profile')) {
       db.exec(SQLITE_MIGRATION_3);
+    }
+    if (version < 4) {
+      migrateToVersion4(db);
+    }
+    if (version < 5) {
+      migrateToVersion5(db);
     }
   }
   if (version < SQLITE_SCHEMA_VERSION) {
@@ -910,4 +920,78 @@ function placeholders(count: number): string {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+
+/**
+ * Version 3 → 4.
+ *
+ * Written as code rather than one SQL string because `ALTER TABLE … ADD COLUMN`
+ * is not idempotent in SQLite: a file that crashed halfway through the migration
+ * would fail on the second run with "duplicate column name". Each column is
+ * checked before it is added, so a partially migrated database converges.
+ */
+function migrateToVersion4(db: DatabaseSync): void {
+  db.exec(PERMISSION_SCHEMA);
+  const columns: readonly { table: string; column: string; ddl: string }[] = [
+    { table: 'sandboxes', column: 'config_digest', ddl: "TEXT NOT NULL DEFAULT ''" },
+    { table: 'sandbox_approvals', column: 'grant_id', ddl: 'TEXT' },
+    { table: 'sandbox_approvals', column: 'organization_id', ddl: 'TEXT' },
+    { table: 'sandbox_approvals', column: 'project_id', ddl: 'TEXT' },
+    { table: 'sandbox_approvals', column: 'session_id', ddl: 'TEXT' },
+    { table: 'sandbox_approvals', column: 'sandbox_id', ddl: 'TEXT' },
+    { table: 'sandbox_approvals', column: 'principal_id', ddl: 'TEXT' },
+    { table: 'sandbox_approvals', column: 'source', ddl: "TEXT NOT NULL DEFAULT 'human_approval'" },
+    { table: 'sandbox_approvals', column: 'status', ddl: "TEXT NOT NULL DEFAULT 'active'" },
+    { table: 'sandbox_approvals', column: 'scope_level', ddl: "TEXT NOT NULL DEFAULT 'task'" },
+    { table: 'sandbox_approvals', column: 'request_id', ddl: 'TEXT' },
+    { table: 'sandbox_approvals', column: 'approval_request_id', ddl: 'TEXT' },
+    { table: 'sandbox_approvals', column: 'used_at', ddl: 'TEXT' },
+    { table: 'executions', column: 'decision_id', ddl: 'TEXT' },
+    { table: 'executions', column: 'permission_mode', ddl: 'TEXT' },
+    { table: 'executions', column: 'permission_policy_version', ddl: 'TEXT' },
+  ];
+  for (const entry of columns) {
+    if (hasColumn(db, entry.table, entry.column)) continue;
+    db.exec(`ALTER TABLE ${entry.table} ADD COLUMN ${entry.column} ${entry.ddl}`);
+  }
+}
+
+/**
+ * Version 4 → 5.
+ *
+ * Same reason as version 4: `ALTER TABLE … ADD COLUMN` is not idempotent in
+ * SQLite, so each column is checked first and a partially migrated file
+ * converges on the next open.
+ *
+ * Existing tasks get `workspace_root = '/workspace'` and
+ * `current_cwd = workspace_root` rather than a best guess: the ADR is explicit
+ * that a historical `cd` cannot be recovered from command text, and inventing a
+ * directory is worse than starting at the workspace root.
+ */
+function migrateToVersion5(db: DatabaseSync): void {
+  db.exec(CWD_SCHEMA);
+  const columns: readonly { table: string; column: string; ddl: string }[] = [
+    { table: 'sandbox_tasks', column: 'workspace_root', ddl: 'TEXT' },
+    { table: 'sandbox_tasks', column: 'current_cwd', ddl: 'TEXT' },
+    { table: 'sandbox_tasks', column: 'cwd_version', ddl: 'INTEGER NOT NULL DEFAULT 1' },
+    { table: 'sandbox_tasks', column: 'cwd_invalidated_at', ddl: 'TEXT' },
+    { table: 'sandbox_tasks', column: 'cwd_invalid_reason', ddl: 'TEXT' },
+    { table: 'executions', column: 'cwd_version', ddl: 'INTEGER NOT NULL DEFAULT 1' },
+  ];
+  for (const entry of columns) {
+    if (hasColumn(db, entry.table, entry.column)) continue;
+    db.exec(`ALTER TABLE ${entry.table} ADD COLUMN ${entry.column} ${entry.ddl}`);
+  }
+  db.exec(
+    `UPDATE sandbox_tasks
+        SET workspace_root = COALESCE(workspace_root, '/workspace'),
+            current_cwd = COALESCE(current_cwd, workspace_root, '/workspace'),
+            cwd_version = COALESCE(cwd_version, 1)`,
+  );
+}
+
+function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return rows.some((row) => row.name === column);
 }

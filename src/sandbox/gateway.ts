@@ -50,15 +50,26 @@ import type { AuditLog, SandboxMetrics } from './audit.ts';
 import type { CredentialBroker } from './credentials.ts';
 import type { SandboxSettings } from './config.ts';
 import {
-  PermissionManager,
   compileRuntimeConfig,
   minResourceLimits,
   normalizeContainerPath,
   taskPolicy,
-  type PermissionSettings,
 } from './policy.ts';
+import { PermissionManager } from './permissions/permission-manager.ts';
+import type {
+  ApprovalScopeLevel,
+  EffectivePermissionPolicy,
+  HumanApprovalRecord,
+  PermissionEvaluationRequest,
+  PermissionMode,
+  PermissionPolicyRecord,
+  PermissionRequestRecord,
+  PermissionScopeLevel,
+} from './permissions/types.ts';
+import type { ScopePolicyOverrides } from './permissions/policy.ts';
 import { Redactor } from './redact.ts';
 import {
+  SandboxApprovalRequiredError,
   SandboxConflictError,
   SandboxNotFoundError,
   SandboxPolicyError,
@@ -66,6 +77,11 @@ import {
   SandboxError,
 } from './errors.ts';
 import { sandboxContainerName } from './runtime/oci-args.ts';
+import { CwdManager } from './cwd/cwd-manager.ts';
+import { FilesystemCwdValidator } from './cwd/cwd-validator.ts';
+import { TaskContextStore } from './cwd/task-context-store.ts';
+import { CwdError, type ChangeDirectoryInput } from './cwd/cwd-types.ts';
+import type { ToolCwdChange, ToolCwdSnapshot } from '../tools/types.ts';
 
 export interface SandboxGatewayDeps {
   readonly store: SandboxStore;
@@ -112,8 +128,12 @@ export class SandboxGateway {
   private readonly credentials: CredentialBroker;
   private readonly settings: SandboxSettings;
   private readonly now: () => Date;
+  /** The deployment's structural policy; the permission layer narrows it. */
   private readonly policy: ReturnType<typeof taskPolicy>;
-  private readonly permission: PermissionManager;
+  private readonly permissions: PermissionManager;
+  /** ADR 021: the single reader/writer of the task working directory. */
+  private readonly taskContexts: TaskContextStore;
+  private readonly cwdManager: CwdManager;
   private readonly redactor: Redactor;
   /** Executions currently inside the runtime, per sandbox. */
   private readonly inFlight = new Map<string, number>();
@@ -137,11 +157,29 @@ export class SandboxGateway {
       requireGvisor: deps.settings.runtime.requireGvisor,
       resources: deps.settings.resources,
     });
-    const permissionSettings: PermissionSettings = {
-      allowWorkspaceWrites: deps.settings.allowWrites,
-      allowCommands: deps.settings.allowCommands,
-    };
-    this.permission = new PermissionManager(this.policy, permissionSettings);
+    this.permissions = new PermissionManager({
+      store: deps.store,
+      audit: deps.audit,
+      metrics: deps.metrics,
+      settings: deps.settings,
+      deploymentPolicy: this.policy,
+      now: this.now,
+      onPolicyChanged: (input) => this.onPermissionPolicyChanged(input),
+    });
+    this.taskContexts = new TaskContextStore({
+      store: deps.store,
+      now: this.now,
+      audit: deps.audit,
+    });
+    this.cwdManager = new CwdManager({
+      store: deps.store,
+      contexts: this.taskContexts,
+      validator: new FilesystemCwdValidator(),
+      permissions: this.permissions,
+      audit: deps.audit,
+      metrics: deps.metrics,
+      now: this.now,
+    });
     this.redactor = deps.redactor ?? new Redactor();
     // Credential values are known only after issuance; the audit log has its own
     // redactor, and new values are registered there by the broker's caller.
@@ -169,10 +207,18 @@ export class SandboxGateway {
         throw new SandboxPolicyError('task belongs to a different user');
       }
       const workspace = await this.workspaces.ensureForTask(input.taskId);
-      if (existing.workspaceId !== workspace.workspaceId) {
-        return (await this.store.updateTask(existing.taskId, { workspaceId: workspace.workspaceId })) as Task;
-      }
-      return existing;
+      const refreshed = existing.workspaceId !== workspace.workspaceId
+        ? await this.store.updateTask(existing.taskId, { workspaceId: workspace.workspaceId })
+        : existing;
+      // Backfill a task that predates ADR 021, without moving an existing cwd.
+      await this.taskContexts.initialize({
+        taskId: existing.taskId,
+        workspaceId: workspace.workspaceId,
+        sandboxId: refreshed?.sandboxId ?? existing.sandboxId,
+        workspaceRoot: refreshed?.workspaceRoot ?? WORKSPACE_MOUNT_PATH,
+        now: this.now().toISOString(),
+      });
+      return (await this.store.getTask(existing.taskId)) ?? refreshed ?? existing;
     }
 
     // `sandbox_workspaces.task_id` is a foreign key to `sandbox_tasks`, so the
@@ -195,6 +241,16 @@ export class SandboxGateway {
       workspaceId: workspace.workspaceId,
     });
     if (!ready) throw new SandboxError('not_found', `task ${input.taskId} disappeared during creation`);
+    // ADR 021 §8.1: the context exists before any tool is registered. The store
+    // write inside `initialize` is what sets the cwd columns, so the returned
+    // task is re-read rather than the placeholder row.
+    await this.taskContexts.initialize({
+      taskId: ready.taskId,
+      workspaceId: workspace.workspaceId,
+      sandboxId: ready.sandboxId,
+      workspaceRoot: ready.workspaceRoot ?? WORKSPACE_MOUNT_PATH,
+      now: this.now().toISOString(),
+    });
     await this.audit.record({
       taskId: ready.taskId,
       sessionId: input.sessionId,
@@ -202,7 +258,7 @@ export class SandboxGateway {
       outcome: 'succeeded',
       detail: { workspace: workspace.workspaceId, mode: workspace.mode },
     });
-    return ready;
+    return (await this.store.getTask(ready.taskId)) ?? ready;
   }
 
   /** Get (or create) the task's sandbox with the deployment's defaults. */
@@ -341,9 +397,13 @@ export class SandboxGateway {
     if (!workspace) throw new SandboxNotFoundError('workspace is missing');
     const config = await this.runtimeConfig(sandbox, workspace, true);
     await this.controller.recover(sandbox, config);
+    // The runtime is back, so "does the directory still exist" is a real
+    // question again (ADR 021 §11.4). This never repairs by substituting `/`.
+    await this.recoverDirectory({ taskId: task.taskId, userId: context.userId });
     for (const execution of await this.store.listUnfinishedExecutions(sandbox.sandboxId)) {
       await this.reconcileExecution(sandbox.sandboxId, execution.executionId);
     }
+    await this.permissions.sweep().catch(() => undefined);
     return this.inspect(sandbox.sandboxId);
   }
 
@@ -372,6 +432,9 @@ export class SandboxGateway {
     }
     await this.controller.destroy(sandbox);
     await this.store.updateTask(task.taskId, { sandboxId: null });
+    // Pending requests, approvals and grants die with the task. A grant that
+    // outlived its task would be a permission nobody can see the reason for.
+    await this.permissions.cancelTask(task.taskId, 'task destroyed').catch(() => undefined);
   }
 
   /**
@@ -396,19 +459,15 @@ export class SandboxGateway {
       normalizeContainerPath(entry),
     );
     if (scope.length === 0) throw new SandboxPolicyError('approval scope must not be empty');
-    const at = this.now().toISOString();
-    const grant: ApprovalGrant = {
-      approvalId: `apr_${randomUUID()}`,
+    const grant = await this.permissions.createOperatorGrant({
       taskId: task.taskId,
+      sessionId: task.sessionId,
+      sandboxId: task.sandboxId,
       action: input.action,
       resourceScope: scope,
-      expiresAt: new Date(this.now().getTime() + ttl).toISOString(),
-      approvedBy: input.approvedBy?.trim() || 'operator',
-      policyVersion: this.settings.policyVersion,
-      createdAt: at,
-      revokedAt: null,
-    };
-    await this.store.saveApproval(grant);
+      ttlMs: ttl,
+      approvedBy: input.approvedBy?.trim() || this.settings.permission.operatorId,
+    });
     await this.audit.record({
       taskId: task.taskId,
       sessionId: context.sessionId ?? null,
@@ -428,7 +487,10 @@ export class SandboxGateway {
     if (!grant || grant.taskId !== task.taskId) {
       throw new SandboxNotFoundError(`approval ${approvalId} does not exist for this task`);
     }
-    const revoked = await this.store.revokeApproval(approvalId, this.now().toISOString());
+    const revoked = await this.permissions.revokeGrant(
+      approvalId,
+      context.userId ?? this.settings.permission.operatorId,
+    );
     if (revoked) {
       await this.audit.record({
         taskId: task.taskId,
@@ -441,6 +503,110 @@ export class SandboxGateway {
       });
     }
     return revoked;
+  }
+
+  // -------------------------------------------------------------- permission ---
+
+  /**
+   * Change a permission mode (or extend a restricted allow-list) at a scope.
+   *
+   * This is a trusted control-plane operation: the CLI calls it, no tool and no
+   * HTTP route does. The policy version bump invalidates grants from the old
+   * policy and marks affected containers for rebuild.
+   */
+  async setPermissionPolicy(input: {
+    readonly scopeType: 'session' | 'task' | 'sandbox';
+    readonly scopeId: string;
+    readonly mode?: PermissionMode;
+    readonly ttlMs?: number;
+    readonly actor: string;
+    readonly overrides?: ScopePolicyOverrides;
+  }): Promise<PermissionPolicyRecord> {
+    return this.permissions.setMode(input);
+  }
+
+  async effectivePermissionPolicy(
+    taskId: string,
+    sessionId: string,
+    sandboxId: string | null = null,
+  ): Promise<EffectivePermissionPolicy> {
+    return this.permissions.effectivePolicy(taskId, sessionId, sandboxId);
+  }
+
+  async permissionStatus(context: SandboxContext): Promise<Record<string, unknown>> {
+    const task = await this.loadTask(context);
+    return this.permissions.status({
+      taskId: task.taskId,
+      sessionId: task.sessionId,
+      sandboxId: task.sandboxId,
+    });
+  }
+
+  async listPermissionRequests(context: SandboxContext): Promise<readonly PermissionRequestRecord[]> {
+    const task = await this.loadTask(context);
+    return this.permissions.listRequests(task.taskId);
+  }
+
+  async listPermissionApprovals(context: SandboxContext): Promise<readonly HumanApprovalRecord[]> {
+    const task = await this.loadTask(context);
+    return this.permissions.listApprovals(task.taskId);
+  }
+
+  async listPermissionGrants(context: SandboxContext): Promise<readonly ApprovalGrant[]> {
+    const task = await this.loadTask(context);
+    return this.permissions.listGrants(task.taskId, task.sessionId);
+  }
+
+  /** Approve one queued permission request. The approver must not be the agent. */
+  async approvePermissionRequest(
+    context: SandboxContext,
+    input: {
+      readonly approvalRequestId: string;
+      readonly decidedBy: string;
+      readonly scope?: ApprovalScopeLevel;
+      readonly ttlSeconds?: number;
+      readonly reason?: string;
+    },
+  ): Promise<{ approval: HumanApprovalRecord; grantId: string | null }> {
+    const task = await this.loadTask(context);
+    const approval = await this.store.getHumanApproval(input.approvalRequestId);
+    if (!approval || approval.taskId !== task.taskId) {
+      throw new SandboxNotFoundError(`approval ${input.approvalRequestId} does not exist for this task`);
+    }
+    return this.permissions.approve({
+      approvalRequestId: input.approvalRequestId,
+      decision: 'approve',
+      decidedBy: input.decidedBy,
+      ...(input.scope ? { scope: input.scope } : {}),
+      ...(input.ttlSeconds ? { ttlSeconds: input.ttlSeconds } : {}),
+      ...(input.reason ? { reason: input.reason } : {}),
+    });
+  }
+
+  async denyPermissionRequest(
+    context: SandboxContext,
+    input: {
+      readonly approvalRequestId: string;
+      readonly decidedBy: string;
+      readonly reason?: string;
+    },
+  ): Promise<HumanApprovalRecord> {
+    const task = await this.loadTask(context);
+    const approval = await this.store.getHumanApproval(input.approvalRequestId);
+    if (!approval || approval.taskId !== task.taskId) {
+      throw new SandboxNotFoundError(`approval ${input.approvalRequestId} does not exist for this task`);
+    }
+    return this.permissions.deny({
+      approvalRequestId: input.approvalRequestId,
+      decision: 'deny',
+      decidedBy: input.decidedBy,
+      ...(input.reason ? { reason: input.reason } : {}),
+    });
+  }
+
+  /** Expire stale requests, approvals and grants. Called by `gc` and recovery. */
+  async sweepPermissions(): Promise<Awaited<ReturnType<PermissionManager['sweep']>>> {
+    return this.permissions.sweep();
   }
 
   /** Create a workspace checkpoint independent of the sandbox lifecycle. */
@@ -476,7 +642,11 @@ export class SandboxGateway {
   async gc(input: {
     readonly idleMs?: number;
     readonly checkpointRetentionMs?: number;
-  } = {}): Promise<{ expired: number; checkpointsRemoved: number }> {
+  } = {}): Promise<{
+    expired: number;
+    checkpointsRemoved: number;
+    permission: Awaited<ReturnType<PermissionManager['sweep']>>;
+  }> {
     const idleMs = input.idleMs ?? 60 * 60_000;
     const cutoff = this.now().getTime() - idleMs;
     let expired = 0;
@@ -492,12 +662,94 @@ export class SandboxGateway {
     const checkpointsRemoved = await this.workspaces.pruneCheckpoints(
       input.checkpointRetentionMs ?? 7 * 24 * 60 * 60_000,
     );
+    const permission = await this.permissions.sweep();
     await this.audit.record({
       action: 'sandbox.gc',
       outcome: 'succeeded',
-      detail: { expired, checkpoints_removed: checkpointsRemoved, idle_ms: idleMs },
+      detail: {
+        expired,
+        checkpoints_removed: checkpointsRemoved,
+        idle_ms: idleMs,
+        permission,
+      },
     });
-    return { expired, checkpointsRemoved };
+    return { expired, checkpointsRemoved, permission };
+  }
+
+  // ------------------------------------------------------- task cwd (ADR 021) ---
+
+  /** The task's current directory, as the runtime sees it. */
+  async currentDirectory(context: SandboxContext): Promise<ToolCwdSnapshot> {
+    const task = await this.loadTask(context);
+    const taskContext = await this.taskContexts.get(task.taskId);
+    return {
+      cwd: taskContext.cwd,
+      workspaceRoot: taskContext.workspaceRoot,
+      cwdVersion: taskContext.cwdVersion,
+    };
+  }
+
+  /** Full context, for the ops CLI and for tests that assert on versioning. */
+  async taskContext(context: SandboxContext): Promise<Awaited<ReturnType<TaskContextStore['get']>>> {
+    const task = await this.loadTask(context);
+    return this.taskContexts.get(task.taskId);
+  }
+
+  /**
+   * Move the task's directory for subsequent executions.
+   *
+   * The tool supplies a path; the task, the sandbox and the expected version come
+   * from the runtime's own context. A model that could name a task id would be
+   * able to move another conversation's directory, which is why no tool argument
+   * exists for it.
+   */
+  async changeDirectory(
+    context: SandboxContext,
+    input: { readonly path: string; readonly operationId?: string },
+  ): Promise<ToolCwdChange> {
+    const task = await this.loadTask(context);
+    const request: ChangeDirectoryInput = {
+      taskId: task.taskId,
+      path: input.path,
+      sessionId: task.sessionId,
+      actorType: 'agent',
+      actorId: `agent:${task.taskId}`,
+      ...(input.operationId ? { operationId: input.operationId } : {}),
+      ...(context.toolCallId ? { toolCallId: context.toolCallId } : {}),
+    };
+    const result = await this.cwdManager.changeDirectory(request);
+    if (!result.success) {
+      return { ok: false, error: result.error, message: result.message };
+    }
+    return {
+      ok: true,
+      previousCwd: result.previousCwd,
+      cwd: result.cwd,
+      cwdVersion: result.cwdVersion,
+      workspaceRoot: result.workspaceRoot,
+    };
+  }
+
+  /**
+   * Re-validate the task cwd after a sandbox rebuild (ADR 021 §11.4).
+   *
+   * Runs after the runtime is back, because "the directory exists" is only
+   * meaningful once the workspace is mounted again. It never repairs by guessing.
+   */
+  async recoverDirectory(context: SandboxContext): Promise<void> {
+    const task = await this.loadTask(context);
+    try {
+      await this.cwdManager.recover(task.taskId);
+    } catch (error) {
+      const code = error instanceof CwdError ? error.code : 'CWD_INVALID';
+      await this.audit.record({
+        taskId: task.taskId,
+        sandboxId: task.sandboxId,
+        action: 'task.cwd.invalidated',
+        outcome: 'failed',
+        detail: { code, reason: error instanceof Error ? error.message.slice(0, 200) : String(error) },
+      });
+    }
   }
 
   // --------------------------------------------------------------- execution ---
@@ -515,15 +767,44 @@ export class SandboxGateway {
 
     validateExecuteInput(input);
 
-    const cwd = normalizeContainerPath(input.cwd || WORKSPACE_MOUNT_PATH);
-    if (cwd !== WORKSPACE_MOUNT_PATH && !cwd.startsWith(`${WORKSPACE_MOUNT_PATH}/`)) {
-      throw new SandboxPolicyError(`cwd must be inside ${WORKSPACE_MOUNT_PATH}`);
+    // ADR 021 §6.4: the Gateway does not trust the cwd the adapter sends. It
+    // re-reads the task context, confirms the sandbox and workspace still match,
+    // and checks the version it was handed against the version on record. A
+    // mismatch is reported, never repaired by guessing a directory.
+    if (sandbox.workspaceId !== task.workspaceId) {
+      throw new CwdError('EXECUTION_CONTEXT_INVALID', 'the sandbox is bound to a different workspace');
+    }
+    const taskContext = await this.taskContexts.get(task.taskId);
+    if (taskContext.invalidatedAt !== null) {
+      throw new CwdError(
+        'CWD_INVALID',
+        `the task working directory is invalid: ${taskContext.invalidReason ?? 'unknown reason'}`,
+      );
+    }
+    const requestedCwd = normalizeContainerPath(input.cwd || WORKSPACE_MOUNT_PATH);
+    if (input.cwdVersion !== undefined && input.cwdVersion !== taskContext.cwdVersion) {
+      throw new CwdError(
+        'CWD_VERSION_MISMATCH',
+        'the execution was prepared against a different task working directory version',
+      );
+    }
+    if (requestedCwd !== taskContext.cwd) {
+      throw new CwdError(
+        'EXECUTION_CONTEXT_INVALID',
+        'the requested working directory is not the task working directory',
+      );
+    }
+    const contextCwd = taskContext.cwd;
+    if (contextCwd !== WORKSPACE_MOUNT_PATH && !contextCwd.startsWith(`${WORKSPACE_MOUNT_PATH}/`)) {
+      throw new CwdError('PATH_OUTSIDE_WORKSPACE', `cwd must be inside ${WORKSPACE_MOUNT_PATH}`);
     }
     const timeoutMs = Math.min(
       Math.max(input.timeoutMs, 1_000),
       this.settings.limits.maxExecutionTimeoutMs,
     );
-    const commandDigest = digestCommand(input.command, cwd, input.shell === true);
+    // The digest names the logical cwd, so a retry of the same tool call still
+    // matches even if the physical path was canonicalised identically.
+    const commandDigest = digestCommand(input.command, contextCwd, input.shell === true);
 
     // An execution id is a client-supplied idempotency handle too. Without this
     // check a second call with a fresh key and the same id would overwrite the
@@ -558,35 +839,72 @@ export class SandboxGateway {
       );
     }
 
-    const approvals = await this.store.listApprovals(task.taskId, this.now().toISOString());
-    const authorization = this.permission.evaluate(
-      {
-        action: 'process.exec',
-        resources: [cwd],
+    // §6.4 step 5: the directory must still exist and still be inside the
+    // workspace. This is the last point where refusing is free — after this the
+    // command becomes a container process.
+    const validated = await this.cwdManager.validateCurrent(task.taskId);
+    const cwd = validated.cwd;
+    if (validated.canonicalChanged) {
+      await this.audit.record({
+        taskId: task.taskId,
+        sessionId: context.sessionId ?? null,
+        sandboxId: sandbox.sandboxId,
+        toolCallId: input.toolCallId ?? null,
+        action: 'task.cwd.recovered',
+        outcome: 'succeeded',
+        detail: {
+          cwd: taskContext.cwd,
+          canonical_cwd: cwd,
+          cwd_version: taskContext.cwdVersion,
+          note: 'the physical path resolves differently from the recorded one; the execution uses the canonical path',
+        },
+      });
+    }
+
+    const permissionRequest: PermissionEvaluationRequest = {
+      requestId: `eval_${randomUUID()}`,
+      organizationId: this.settings.permission.organizationId,
+      projectId: this.settings.permission.projectId,
+      sessionId: task.sessionId,
+      taskId: task.taskId,
+      sandboxId: sandbox.sandboxId,
+      executionId: input.executionId ?? null,
+      principal: { type: 'agent', id: `agent:${task.taskId}` },
+      action: { tool: 'run_command', operation: 'process.exec' },
+      resource: { type: 'command', identifier: cwd, scope: [cwd] },
+      context: {
         command: input.shell ? (input.command[0] ?? '') : input.command.join(' '),
         cwd,
-        toolName: 'run_command',
+        metadata: { tool_call_id: input.toolCallId ?? null },
       },
-      approvals,
-      this.now(),
-    );
-    if (authorization.decision !== 'ALLOW') {
-      const outcome = authorization.decision === 'DENY' ? 'denied' : 'approval_required';
+    };
+    const authorization = await this.permissions.evaluate(permissionRequest);
+    if (authorization.effect !== 'allow') {
+      const outcome = authorization.effect === 'deny' ? 'denied' : 'approval_required';
       this.metrics.increment(outcome === 'denied' ? 'policy_denied' : 'approval_required');
       await this.audit.record({
         taskId: task.taskId,
         sessionId: context.sessionId ?? null,
         sandboxId: sandbox.sandboxId,
         toolCallId: input.toolCallId ?? null,
-        policyVersion: sandbox.policyVersion,
+        policyVersion: authorization.permissionPolicyVersion,
         action: 'execution.authorize',
         outcome,
-        detail: { reason: authorization.reason, cwd, command_digest: commandDigest },
+        detail: {
+          reason: authorization.reason,
+          decision_id: authorization.decisionId,
+          request_id: authorization.requestId,
+          cwd,
+          command_digest: commandDigest,
+        },
       });
-      if (authorization.decision === 'DENY') {
+      if (authorization.effect === 'deny') {
         throw new SandboxPolicyError(authorization.reason);
       }
-      throw new SandboxError('approval_required', authorization.reason);
+      throw new SandboxApprovalRequiredError(authorization.reason, {
+        requestId: authorization.requestId,
+        approvalRequestId: authorization.approvalRequestId ?? null,
+      });
     }
 
     const at = this.now().toISOString();
@@ -600,6 +918,7 @@ export class SandboxGateway {
       // so a one-off token in an argv does not land in the execution table.
       command: input.command.map((part) => this.redactor.redact(part)),
       cwd,
+      cwdVersion: taskContext.cwdVersion,
       status: 'CREATED',
       exitCode: null,
       startedAt: null,
@@ -608,6 +927,9 @@ export class SandboxGateway {
       stderr: '',
       policyVersion: sandbox.policyVersion,
       toolCallId: input.toolCallId ?? null,
+      decisionId: authorization.decisionId,
+      permissionMode: authorization.mode,
+      permissionPolicyVersion: authorization.permissionPolicyVersion,
       createdAt: at,
       updatedAt: at,
     };
@@ -621,6 +943,16 @@ export class SandboxGateway {
     }
 
     await this.appendEvent(stored, 'execution/created', { command_digest: commandDigest, cwd });
+    // ADR 021 §6.3/§12.2: the frozen context is recorded on the execution, so
+    // "where did this run?" is answerable after the task has moved on.
+    await this.appendEvent(stored, 'execution.cwd.snapshot.created', {
+      cwd,
+      cwd_version: taskContext.cwdVersion,
+      workspace_id: task.workspaceId,
+      workspace_root: taskContext.workspaceRoot,
+      sandbox_id: sandbox.sandboxId,
+      policy_version: sandbox.policyVersion,
+    });
     await this.transition(stored, ['CREATED'], 'AUTHORIZED');
     await this.appendEvent(stored, 'execution/authorized', { layer: authorization.layer });
     await this.transition(stored, ['AUTHORIZED'], 'SUBMITTED');
@@ -633,6 +965,49 @@ export class SandboxGateway {
       const needsRecovery = sandbox.status !== 'READY' && sandbox.status !== 'RUNNING';
       const config = await this.runtimeConfig(sandbox, workspace, needsRecovery);
       const handle = await this.controller.ensureRunning(sandbox, config);
+
+      // Re-check the permission side immediately before the command may run:
+      // the policy may have changed and a grant may have expired or been
+      // revoked between the decision and this point (ADR 020 §10.2).
+      const revalidated = await this.permissions.revalidate(authorization, permissionRequest);
+      if (revalidated.effect !== 'allow') {
+        const failed = await this.store.transitionExecution(
+          stored.executionId,
+          ['SUBMITTED'],
+          'FAILED',
+          { finishedAt: this.now().toISOString() },
+        );
+        if (failed) {
+          await this.appendEvent(failed, 'execution/reconciled', {
+            method: 'permission-revalidation',
+            reason: revalidated.reason,
+          });
+        }
+        await this.audit.record({
+          taskId: task.taskId,
+          sessionId: context.sessionId ?? null,
+          sandboxId: sandbox.sandboxId,
+          executionId: stored.executionId,
+          toolCallId: input.toolCallId ?? null,
+          policyVersion: revalidated.permissionPolicyVersion,
+          action: 'permission.execution.blocked',
+          outcome: 'denied',
+          detail: { reason: revalidated.reason, decision_id: revalidated.decisionId },
+        });
+        if (revalidated.effect === 'deny') {
+          throw new SandboxPolicyError(revalidated.reason);
+        }
+        throw new SandboxApprovalRequiredError(revalidated.reason, {
+          requestId: revalidated.requestId,
+        });
+      }
+      if (!(await this.permissions.consume(revalidated))) {
+        await this.store.transitionExecution(stored.executionId, ['SUBMITTED'], 'FAILED', {
+          finishedAt: this.now().toISOString(),
+        });
+        throw new SandboxApprovalRequiredError('the one-time grant was already consumed');
+      }
+
       await this.store.updateSandbox(sandbox.sandboxId, { status: 'RUNNING' });
 
       const startedAt = this.now().toISOString();
@@ -668,6 +1043,7 @@ export class SandboxGateway {
         command: input.command,
         shell: input.shell === true,
         cwd,
+        workspaceRoot: taskContext.workspaceRoot,
         timeoutMs,
         maxOutputBytes: this.settings.limits.maxOutputBytes,
           env,
@@ -697,6 +1073,13 @@ export class SandboxGateway {
         throw new SandboxConflictError('execution was concurrently modified');
       }
 
+      if (result.detail === 'cwd-rejected') {
+        // The pre-flight check passed and the launcher still refused: a symlink
+        // changed or the directory vanished between the two. Fail closed and mark
+        // the context, so the next call reports `cwd_invalid` instead of running
+        // somewhere else (ADR §4.4, §11.3).
+        await this.cwdManager.markInvalidFromRuntime(task.taskId).catch(() => undefined);
+      }
       if (stdout.length > 0) {
         await this.appendEvent(terminal, 'execution/stdout', {
           bytes: Buffer.byteLength(result.stdout, 'utf8'),
@@ -897,7 +1280,7 @@ export class SandboxGateway {
   // -------------------------------------------------------------- file tools ---
 
   async readFile(context: SandboxContext, path: string, start = 1, end = 0): Promise<Awaited<ReturnType<WorkspaceFilesPort['readLines']>>> {
-    const { task, files } = await this.fileContext(context, path, 'fs.read');
+    const { task, files } = await this.fileContext(context, path, 'fs.read', 'read_file');
     const slice = await files.readLines(path, start, end);
     await this.audit.record({
       taskId: task.taskId,
@@ -911,7 +1294,7 @@ export class SandboxGateway {
   }
 
   async listDir(context: SandboxContext, path = '.', depth = 2): Promise<Awaited<ReturnType<WorkspaceFilesPort['listDir']>>> {
-    const { task, files } = await this.fileContext(context, path, 'fs.list');
+    const { task, files } = await this.fileContext(context, path, 'fs.list', 'list_dir');
     const listing = await files.listDir(path, depth);
     await this.audit.record({
       taskId: task.taskId,
@@ -925,7 +1308,7 @@ export class SandboxGateway {
   }
 
   async glob(context: SandboxContext, pattern: string, maxResults = 200): Promise<Awaited<ReturnType<WorkspaceFilesPort['glob']>>> {
-    const { task, files } = await this.fileContext(context, '.', 'fs.read');
+    const { task, files } = await this.fileContext(context, '.', 'fs.read', 'glob');
     const found = await files.glob(pattern, maxResults);
     await this.audit.record({
       taskId: task.taskId,
@@ -942,7 +1325,7 @@ export class SandboxGateway {
     context: SandboxContext,
     options: Parameters<WorkspaceFilesPort['grep']>[0],
   ): Promise<Awaited<ReturnType<WorkspaceFilesPort['grep']>>> {
-    const { task, files } = await this.fileContext(context, options.path ?? '.', 'fs.read');
+    const { task, files } = await this.fileContext(context, options.path ?? '.', 'fs.read', 'grep');
     const result = await files.grep(options);
     await this.audit.record({
       taskId: task.taskId,
@@ -956,7 +1339,7 @@ export class SandboxGateway {
   }
 
   async writeFile(context: SandboxContext, path: string, content: string): Promise<Awaited<ReturnType<WorkspaceFilesPort['writeText']>>> {
-    const { task, workspace, files } = await this.fileContext(context, path, 'fs.write');
+    const { task, workspace, files } = await this.fileContext(context, path, 'fs.write', 'write_file');
     const result = await files.writeText(path, content);
     await this.workspaces.refreshVersion(workspace);
     await this.audit.record({
@@ -974,7 +1357,7 @@ export class SandboxGateway {
     context: SandboxContext,
     options: Parameters<WorkspaceFilesPort['editText']>[0],
   ): Promise<Awaited<ReturnType<WorkspaceFilesPort['editText']>>> {
-    const { task, workspace, files } = await this.fileContext(context, options.path, 'fs.write');
+    const { task, workspace, files } = await this.fileContext(context, options.path, 'fs.write', 'edit_file');
     const result = await files.editText(options);
     await this.workspaces.refreshVersion(workspace);
     await this.audit.record({
@@ -990,7 +1373,7 @@ export class SandboxGateway {
 
   /** Ask the policy layer whether a file action would be allowed, without doing it. */
   async authorizeFile(context: SandboxContext, action: 'fs.read' | 'fs.write', path: string): Promise<void> {
-    await this.fileContext(context, path, action);
+    await this.fileContext(context, path, action, action === 'fs.write' ? 'write_file' : 'read_file');
   }
 
   /** The canonical workspace directory, for tool adapters that need to map paths. */
@@ -1015,31 +1398,60 @@ export class SandboxGateway {
     context: SandboxContext,
     path: string,
     action: 'fs.read' | 'fs.write' | 'fs.list',
+    toolName: string,
   ): Promise<{ task: Task; workspace: Workspace; files: ReturnType<WorkspaceManager['files']> }> {
     const task = await this.loadTask(context);
     const workspace = await this.store.getWorkspace(task.workspaceId);
     if (!workspace) throw new SandboxNotFoundError('workspace is missing');
     const files = this.workspaces.files(workspace.storageLocation);
     const resolved = files.resolve(path);
-    const approvals = await this.store.listApprovals(task.taskId, this.now().toISOString());
-    const decision = this.permission.evaluate(
-      { action, resources: [resolved.container] },
-      approvals,
-      this.now(),
-    );
-    if (decision.decision !== 'ALLOW') {
-      this.metrics.increment(decision.decision === 'DENY' ? 'policy_denied' : 'approval_required');
+    const permissionRequest: PermissionEvaluationRequest = {
+      requestId: `eval_${randomUUID()}`,
+      organizationId: this.settings.permission.organizationId,
+      projectId: this.settings.permission.projectId,
+      sessionId: task.sessionId,
+      taskId: task.taskId,
+      sandboxId: task.sandboxId,
+      executionId: null,
+      principal: { type: 'agent', id: `agent:${task.taskId}` },
+      action: { tool: toolName, operation: action },
+      resource: {
+        type: 'path',
+        identifier: resolved.container,
+        scope: [resolved.container],
+      },
+      context: {
+        metadata: { relative_path: resolved.relative, tool_call_id: context.toolCallId ?? null },
+      },
+    };
+    const decision = await this.permissions.evaluate(permissionRequest);
+    if (decision.effect !== 'allow') {
+      this.metrics.increment(decision.effect === 'deny' ? 'policy_denied' : 'approval_required');
       await this.audit.record({
         taskId: task.taskId,
         sessionId: context.sessionId ?? null,
         toolCallId: context.toolCallId ?? null,
-        policyVersion: this.settings.policyVersion,
+        policyVersion: decision.permissionPolicyVersion,
         action: `execution.authorize:${action}`,
-        outcome: decision.decision === 'DENY' ? 'denied' : 'approval_required',
-        detail: { reason: decision.reason, path: resolved.relative },
+        outcome: decision.effect === 'deny' ? 'denied' : 'approval_required',
+        detail: { reason: decision.reason, path: resolved.relative, decision_id: decision.decisionId },
       });
-      if (decision.decision === 'DENY') throw new SandboxPolicyError(decision.reason);
-      throw new SandboxError('approval_required', decision.reason);
+      if (decision.effect === 'deny') throw new SandboxPolicyError(decision.reason);
+      throw new SandboxApprovalRequiredError(decision.reason, {
+        requestId: decision.requestId,
+        approvalRequestId: decision.approvalRequestId ?? null,
+      });
+    }
+    const revalidated = await this.permissions.revalidate(decision, permissionRequest);
+    if (revalidated.effect !== 'allow') {
+      if (revalidated.effect === 'deny') throw new SandboxPolicyError(revalidated.reason);
+      throw new SandboxApprovalRequiredError(revalidated.reason, {
+        requestId: revalidated.requestId,
+        approvalRequestId: revalidated.approvalRequestId ?? null,
+      });
+    }
+    if (!(await this.permissions.consume(revalidated))) {
+      throw new SandboxApprovalRequiredError('the one-time grant was already consumed');
     }
     return { task, workspace, files };
   }
@@ -1072,7 +1484,13 @@ export class SandboxGateway {
       env.HTTPS_PROXY = this.settings.network.proxyUrl;
     }
     Object.assign(env, await this.credentials.resolveForTask(sandbox.taskId));
-    return compileRuntimeConfig(this.policy, {
+    const task = await this.store.getTask(sandbox.taskId);
+    const effective = await this.permissions.effectivePolicy(
+      sandbox.taskId,
+      task?.sessionId ?? sandbox.taskId,
+      sandbox.sandboxId,
+    );
+    return compileRuntimeConfig(effective.sandboxPolicy, {
       sandboxId: sandbox.sandboxId,
       taskId: sandbox.taskId,
       imageDigest: sandbox.imageDigest,
@@ -1082,11 +1500,40 @@ export class SandboxGateway {
         resourceProfile(sandbox.resourceProfile).limits,
         this.settings.resources,
       ),
-      labels: { 'eunoia.workspace': workspace.workspaceId },
+      labels: {
+        'eunoia.workspace': workspace.workspaceId,
+        'eunoia.permission_mode': effective.mode,
+      },
       // Bind mode exposes the real project; credential files are overlaid with
       // empty read-only mounts so a shell command cannot read them either.
       maskedPaths: await this.workspaces.maskedCredentials(workspace, refreshMasks),
     });
+  }
+
+  /**
+   * A control-plane permission change reached this Gateway.
+   *
+   * Running containers are marked INTERRUPTED so the Controller does not
+   * reconnect to one whose mount/network was compiled under the old mode
+   * (ADR 020 §12.2). Grants issued under the old policy version are expired by
+   * the sweep; they would fail revalidation anyway, but marking them makes the
+   * state visible to an operator.
+   */
+  private async onPermissionPolicyChanged(input: {
+    readonly scopeType: PermissionScopeLevel;
+    readonly scopeId: string;
+  }): Promise<void> {
+    const sandboxes = await this.store.listSandboxes(ACTIVE_SANDBOX_STATES);
+    for (const sandbox of sandboxes) {
+      if (input.scopeType === 'sandbox' && sandbox.sandboxId !== input.scopeId) continue;
+      if (input.scopeType === 'task' && sandbox.taskId !== input.scopeId) continue;
+      if (input.scopeType === 'session') {
+        const owner = await this.store.getTask(sandbox.taskId);
+        if (owner?.sessionId !== input.scopeId) continue;
+      }
+      await this.store.updateSandbox(sandbox.sandboxId, { status: 'INTERRUPTED' });
+    }
+    await this.permissions.sweep().catch(() => undefined);
   }
 
   private async executionEnv(taskId: string): Promise<Record<string, string>> {

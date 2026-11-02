@@ -186,6 +186,7 @@ export class OciRuntime implements SandboxRuntime {
         command: request.command,
         shell: request.shell,
         cwd: request.cwd,
+        workspaceRoot: request.workspaceRoot,
         executionId: request.executionId,
         envFile,
       });
@@ -249,6 +250,10 @@ export class OciRuntime implements SandboxRuntime {
     }
 
     const exitCode = result.code;
+    // The launcher refuses a directory it cannot resolve safely. That is not the
+    // command failing; it is the execution context failing, and the Gateway needs
+    // to tell the two apart so it can mark the task's cwd invalid.
+    const cwdRejected = exitCode === 126 && /eunoia:cwd_rejected:/.test(result.stderr);
     return {
       status: exitCode === 0 ? 'SUCCEEDED' : exitCode === null ? 'UNKNOWN' : 'FAILED',
       exitCode,
@@ -257,6 +262,7 @@ export class OciRuntime implements SandboxRuntime {
       startedAt,
       finishedAt,
       timedOut: false,
+      ...(cwdRejected ? { detail: 'cwd-rejected' } : {}),
     };
   }
 

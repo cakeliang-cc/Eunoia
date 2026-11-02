@@ -48,5 +48,15 @@ export type {
 export { createMemoryTools } from './memory.ts';
 export { createSkillTools } from './skill.ts';
 export type { SkillToolOptions } from './skill.ts';
-export { codingTools, editFileTool, globTool, grepTool, listDirTool, readFileTool, runCommandTool, writeFileTool } from './coding/index.ts';
+export {
+  changeDirectoryTool,
+  codingTools,
+  editFileTool,
+  globTool,
+  grepTool,
+  listDirTool,
+  readFileTool,
+  runCommandTool,
+  writeFileTool,
+} from './coding/index.ts';
 export { summarizeToolCall, summarizeToolResult } from './summary.ts';

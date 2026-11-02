@@ -21,11 +21,29 @@ import type {
   WorkspaceCheckpoint,
 } from './types.ts';
 import { UNFINISHED_EXECUTION_STATES } from './state.ts';
+import { isPendingPermissionRequest } from './permissions/state.ts';
 import type {
+  HumanApprovalRecord,
+  HumanApprovalStatus,
+  PermissionDecision,
+  PermissionPolicyRecord,
+  PermissionRequestRecord,
+  PermissionRequestStatus,
+  PermissionScopeLevel,
+} from './permissions/types.ts';
+import type {
+  AuditQuery,
   CreateExecutionResult,
+  CreatePermissionRequestResult,
   ExecutionTransitionPatch,
+  GrantFilter,
+  HumanApprovalPatch,
+  PermissionRequestPatch,
   SandboxStore,
+  TaskCwdUpdateInput,
+  TaskCwdUpdateResult,
 } from './store.ts';
+import type { CwdOperationRecord } from './cwd/cwd-types.ts';
 
 export class MemorySandboxStore implements SandboxStore {
   private readonly tasks = new Map<string, Task>();
@@ -37,6 +55,11 @@ export class MemorySandboxStore implements SandboxStore {
   private readonly events = new Map<string, ExecutionEvent[]>();
   private readonly approvals = new Map<string, ApprovalGrant>();
   private readonly policies = new Map<string, unknown>();
+  private readonly permissionPolicies = new Map<string, PermissionPolicyRecord[]>();
+  private readonly permissionRequests = new Map<string, PermissionRequestRecord>();
+  private readonly humanApprovals = new Map<string, HumanApprovalRecord>();
+  private readonly permissionDecisions = new Map<string, PermissionDecision>();
+  private readonly cwdOperations = new Map<string, CwdOperationRecord>();
   private readonly audit: AuditEvent[] = [];
 
   async ensureTask(task: Task): Promise<Task> {
@@ -73,6 +96,81 @@ export class MemorySandboxStore implements SandboxStore {
     };
     this.tasks.set(taskId, updated);
     return { ...updated };
+  }
+
+  // ------------------------------------------------------- task cwd (ADR 021) ---
+
+  async initializeTaskCwd(input: {
+    readonly taskId: string;
+    readonly workspaceRoot: string;
+    readonly at: string;
+  }): Promise<Task | null> {
+    const task = this.tasks.get(input.taskId);
+    if (!task) return null;
+    // A repair, never a reset: an already-initialised cwd keeps its value.
+    const updated: Task = {
+      ...task,
+      workspaceRoot: task.workspaceRoot ?? input.workspaceRoot,
+      currentCwd: task.currentCwd ?? task.workspaceRoot ?? input.workspaceRoot,
+      cwdVersion: task.cwdVersion ?? 1,
+      cwdInvalidatedAt: task.cwdInvalidatedAt ?? null,
+      cwdInvalidReason: task.cwdInvalidReason ?? null,
+      updatedAt: input.at,
+    };
+    this.tasks.set(input.taskId, updated);
+    return { ...updated };
+  }
+
+  async compareAndSetTaskCwd(input: TaskCwdUpdateInput): Promise<TaskCwdUpdateResult> {
+    const task = this.tasks.get(input.taskId);
+    if (!task) return { updated: false, reason: 'not_found', task: null };
+    // Everything below is synchronous, so in a single-threaded runtime the check
+    // and the write cannot interleave with another async change.
+    if (task.status !== 'ACTIVE') return { updated: false, reason: 'not_active', task: { ...task } };
+    const version = task.cwdVersion ?? 1;
+    if (version !== input.expectedVersion) {
+      return { updated: false, reason: 'version_conflict', task: { ...task } };
+    }
+    const updated: Task = {
+      ...task,
+      currentCwd: input.cwd,
+      cwdVersion: version + 1,
+      cwdInvalidatedAt: null,
+      cwdInvalidReason: null,
+      updatedAt: input.at,
+    };
+    this.tasks.set(input.taskId, updated);
+    // The audit row is part of the same synchronous change, mirroring the
+    // single-transaction semantics of the SQLite store.
+    this.audit.push({ ...input.audit, detail: structuredClone(input.audit.detail) });
+    return { updated: true, task: { ...updated } };
+  }
+
+  async setTaskCwdInvalidation(input: {
+    readonly taskId: string;
+    readonly reason: string | null;
+    readonly at: string | null;
+  }): Promise<Task | null> {
+    const task = this.tasks.get(input.taskId);
+    if (!task) return null;
+    const updated: Task = {
+      ...task,
+      cwdInvalidatedAt: input.at,
+      cwdInvalidReason: input.reason,
+      updatedAt: input.at ?? task.updatedAt,
+    };
+    this.tasks.set(input.taskId, updated);
+    return { ...updated };
+  }
+
+  async saveCwdOperation(record: CwdOperationRecord): Promise<void> {
+    if (this.cwdOperations.has(record.operationId)) return;
+    this.cwdOperations.set(record.operationId, structuredClone(record));
+  }
+
+  async findCwdOperation(operationId: string): Promise<CwdOperationRecord | null> {
+    const record = this.cwdOperations.get(operationId);
+    return record ? structuredClone(record) : null;
   }
 
   async saveWorkspace(workspace: Workspace): Promise<void> {
@@ -144,7 +242,9 @@ export class MemorySandboxStore implements SandboxStore {
 
   async updateSandbox(
     sandboxId: string,
-    patch: Partial<Pick<Sandbox, 'status' | 'runtimeId' | 'runtimeType' | 'lastHeartbeatAt'>>,
+    patch: Partial<
+      Pick<Sandbox, 'status' | 'runtimeId' | 'runtimeType' | 'lastHeartbeatAt' | 'configDigest'>
+    >,
   ): Promise<Sandbox | null> {
     const sandbox = this.sandboxes.get(sandboxId);
     if (!sandbox) return null;
@@ -154,6 +254,7 @@ export class MemorySandboxStore implements SandboxStore {
       ...(patch.runtimeId === undefined ? {} : { runtimeId: patch.runtimeId }),
       ...(patch.runtimeType === undefined ? {} : { runtimeType: patch.runtimeType }),
       ...(patch.lastHeartbeatAt === undefined ? {} : { lastHeartbeatAt: patch.lastHeartbeatAt }),
+      ...(patch.configDigest === undefined ? {} : { configDigest: patch.configDigest }),
       updatedAt: new Date().toISOString(),
     };
     this.sandboxes.set(sandboxId, updated);
@@ -253,8 +354,231 @@ export class MemorySandboxStore implements SandboxStore {
   async revokeApproval(approvalId: string, at: string): Promise<boolean> {
     const grant = this.approvals.get(approvalId);
     if (!grant || grant.revokedAt !== null) return false;
-    this.approvals.set(approvalId, { ...grant, revokedAt: at });
+    this.approvals.set(approvalId, { ...grant, revokedAt: at, status: 'revoked' });
     return true;
+  }
+
+  async listGrants(filter: GrantFilter): Promise<ApprovalGrant[]> {
+    return [...this.approvals.values()]
+      .filter((grant) => {
+        if (filter.taskId !== undefined && grant.taskId !== filter.taskId) return false;
+        if (filter.sessionId !== undefined && grant.sessionId !== filter.sessionId) return false;
+        if (filter.requestId !== undefined && grant.requestId !== filter.requestId) return false;
+        if (
+          filter.approvalRequestId !== undefined &&
+          grant.approvalRequestId !== filter.approvalRequestId
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .map((grant) => ({ ...grant }));
+  }
+
+  async markGrantUsed(grantId: string, at: string): Promise<boolean> {
+    const grant = this.approvals.get(grantId);
+    if (!grant || grant.usedAt) return false;
+    this.approvals.set(grantId, { ...grant, usedAt: at });
+    return true;
+  }
+
+  async setGrantStatus(
+    grantId: string,
+    status: 'active' | 'revoked' | 'expired',
+    at: string,
+  ): Promise<boolean> {
+    const grant = this.approvals.get(grantId);
+    if (!grant) return false;
+    this.approvals.set(grantId, {
+      ...grant,
+      status,
+      ...(status === 'revoked' ? { revokedAt: at } : {}),
+    });
+    return true;
+  }
+
+  // ---------------------------------------------------- permission policies ---
+
+  async savePermissionPolicy(record: PermissionPolicyRecord): Promise<void> {
+    const key = `${record.scopeType}\u0000${record.scopeId}`;
+    const list = this.permissionPolicies.get(key) ?? [];
+    const index = list.findIndex((entry) => entry.version === record.version);
+    const copy = {
+      ...record,
+      rules: record.rules.map((rule) => ({ ...rule })),
+      autoReview: { ...record.autoReview },
+      approval: { ...record.approval },
+      restricted: {
+        ...record.restricted,
+        filesystem: { ...record.restricted.filesystem },
+        network: { ...record.restricted.network },
+      },
+    };
+    if (index >= 0) list[index] = copy;
+    else list.push(copy);
+    this.permissionPolicies.set(key, list);
+  }
+
+  async getPermissionPolicy(
+    scopeType: PermissionScopeLevel,
+    scopeId: string,
+    version: number,
+  ): Promise<PermissionPolicyRecord | null> {
+    const list = this.permissionPolicies.get(`${scopeType}\u0000${scopeId}`) ?? [];
+    const found = list.find((entry) => entry.version === version);
+    return found ? clonePermissionPolicy(found) : null;
+  }
+
+  async latestPermissionPolicy(
+    scopeType: PermissionScopeLevel,
+    scopeId: string,
+  ): Promise<PermissionPolicyRecord | null> {
+    const list = this.permissionPolicies.get(`${scopeType}\u0000${scopeId}`) ?? [];
+    const latest = [...list].sort((left, right) => right.version - left.version)[0];
+    return latest ? clonePermissionPolicy(latest) : null;
+  }
+
+  async listPermissionPolicies(
+    scopeType: PermissionScopeLevel,
+    scopeId: string,
+  ): Promise<PermissionPolicyRecord[]> {
+    return (this.permissionPolicies.get(`${scopeType}\u0000${scopeId}`) ?? [])
+      .slice()
+      .sort((left, right) => right.version - left.version)
+      .map(clonePermissionPolicy);
+  }
+
+  // ----------------------------------------------------- permission requests ---
+
+  async createPermissionRequest(
+    request: PermissionRequestRecord,
+  ): Promise<CreatePermissionRequestResult> {
+    const existing = this.permissionRequests.get(request.requestId);
+    if (existing) return { request: cloneRequest(existing), created: false };
+    this.permissionRequests.set(request.requestId, cloneRequest(request));
+    return { request: cloneRequest(request), created: true };
+  }
+
+  async getPermissionRequest(requestId: string): Promise<PermissionRequestRecord | null> {
+    const request = this.permissionRequests.get(requestId);
+    return request ? cloneRequest(request) : null;
+  }
+
+  async findOpenPermissionRequest(requestKey: string): Promise<PermissionRequestRecord | null> {
+    const open = [...this.permissionRequests.values()]
+      .filter((request) => request.requestKey === requestKey && isPendingPermissionRequest(request.status))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    return open[0] ? cloneRequest(open[0]) : null;
+  }
+
+  async updatePermissionRequest(
+    requestId: string,
+    from: readonly PermissionRequestStatus[],
+    to: PermissionRequestStatus,
+    patch: PermissionRequestPatch = {},
+  ): Promise<PermissionRequestRecord | null> {
+    const current = this.permissionRequests.get(requestId);
+    if (!current || !from.includes(current.status)) return null;
+    const updated: PermissionRequestRecord = {
+      ...current,
+      status: to,
+      ...(patch.reason === undefined ? {} : { reason: patch.reason }),
+      ...(patch.riskLevel === undefined ? {} : { riskLevel: patch.riskLevel }),
+      ...(patch.decisionId === undefined ? {} : { decisionId: patch.decisionId }),
+      ...(patch.grantId === undefined ? {} : { grantId: patch.grantId }),
+      ...(patch.approvalRequestId === undefined ? {} : { approvalRequestId: patch.approvalRequestId }),
+      ...(patch.autoReview === undefined ? {} : { autoReview: patch.autoReview }),
+      ...(patch.executionId === undefined ? {} : { executionId: patch.executionId }),
+      updatedAt: new Date().toISOString(),
+    };
+    this.permissionRequests.set(requestId, updated);
+    return cloneRequest(updated);
+  }
+
+  async listPermissionRequests(filter: {
+    readonly taskId?: string;
+    readonly sessionId?: string;
+    readonly statuses?: readonly PermissionRequestStatus[];
+    readonly limit?: number;
+  } = {}): Promise<PermissionRequestRecord[]> {
+    const limit = filter.limit ?? 200;
+    return [...this.permissionRequests.values()]
+      .filter((request) => {
+        if (filter.taskId !== undefined && request.taskId !== filter.taskId) return false;
+        if (filter.sessionId !== undefined && request.sessionId !== filter.sessionId) return false;
+        if (filter.statuses && !filter.statuses.includes(request.status)) return false;
+        return true;
+      })
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, Math.max(1, limit))
+      .map(cloneRequest);
+  }
+
+  // --------------------------------------------------------- human approvals ---
+
+  async createHumanApproval(record: HumanApprovalRecord): Promise<HumanApprovalRecord> {
+    const existing = this.humanApprovals.get(record.approvalRequestId);
+    if (existing) return { ...existing };
+    this.humanApprovals.set(record.approvalRequestId, { ...record });
+    return { ...record };
+  }
+
+  async getHumanApproval(approvalRequestId: string): Promise<HumanApprovalRecord | null> {
+    const record = this.humanApprovals.get(approvalRequestId);
+    return record ? { ...record } : null;
+  }
+
+  async listHumanApprovals(filter: {
+    readonly taskId?: string;
+    readonly requestId?: string;
+    readonly statuses?: readonly HumanApprovalStatus[];
+    readonly limit?: number;
+  } = {}): Promise<HumanApprovalRecord[]> {
+    const limit = filter.limit ?? 200;
+    return [...this.humanApprovals.values()]
+      .filter((approval) => {
+        if (filter.taskId !== undefined && approval.taskId !== filter.taskId) return false;
+        if (filter.requestId !== undefined && approval.requestId !== filter.requestId) return false;
+        if (filter.statuses && !filter.statuses.includes(approval.status)) return false;
+        return true;
+      })
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, Math.max(1, limit))
+      .map((approval) => ({ ...approval }));
+  }
+
+  async decideHumanApproval(
+    approvalRequestId: string,
+    from: readonly HumanApprovalStatus[],
+    to: HumanApprovalStatus,
+    patch: HumanApprovalPatch = {},
+  ): Promise<HumanApprovalRecord | null> {
+    const current = this.humanApprovals.get(approvalRequestId);
+    if (!current || !from.includes(current.status)) return null;
+    const updated: HumanApprovalRecord = {
+      ...current,
+      status: to,
+      ...(patch.decidedBy === undefined ? {} : { decidedBy: patch.decidedBy }),
+      ...(patch.decisionReason === undefined ? {} : { decisionReason: patch.decisionReason }),
+      ...(patch.decidedAt === undefined ? {} : { decidedAt: patch.decidedAt }),
+      ...(patch.scope === undefined ? {} : { scope: patch.scope }),
+    };
+    this.humanApprovals.set(approvalRequestId, updated);
+    return { ...updated };
+  }
+
+  // ---------------------------------------------------- permission decisions ---
+
+  async savePermissionDecision(decision: PermissionDecision): Promise<void> {
+    if (!this.permissionDecisions.has(decision.decisionId)) {
+      this.permissionDecisions.set(decision.decisionId, { ...decision });
+    }
+  }
+
+  async getPermissionDecision(decisionId: string): Promise<PermissionDecision | null> {
+    const decision = this.permissionDecisions.get(decisionId);
+    return decision ? { ...decision } : null;
   }
 
   async savePolicy(version: string, _scope: string, configuration: unknown, _at: string): Promise<void> {
@@ -272,10 +596,68 @@ export class MemorySandboxStore implements SandboxStore {
     this.audit.push({ ...event, detail: structuredClone(event.detail) });
   }
 
-  async listAudit(limit = 100): Promise<AuditEvent[]> {
+  async listAudit(query: number | AuditQuery = 100): Promise<AuditEvent[]> {
+    const filter: AuditQuery = typeof query === 'number' ? { limit: query } : query;
+    const limit = Math.min(Math.max(filter.limit ?? 100, 1), 1_000);
     return this.audit
-      .slice(-Math.min(Math.max(limit, 1), 1_000))
+      .filter(
+        (event) =>
+          (filter.taskId === undefined || event.taskId === filter.taskId) &&
+          (filter.sandboxId === undefined || event.sandboxId === filter.sandboxId) &&
+          (filter.executionId === undefined || event.executionId === filter.executionId) &&
+          (filter.action === undefined || event.action === filter.action),
+      )
+      .slice(-limit)
       .reverse()
       .map((event) => ({ ...event, detail: structuredClone(event.detail) }));
   }
+}
+
+function cloneRequest(request: PermissionRequestRecord): PermissionRequestRecord {
+  return {
+    ...request,
+    resourceScope: [...request.resourceScope],
+    autoReview: request.autoReview ? { ...request.autoReview } : null,
+  };
+}
+
+function clonePermissionPolicy(record: PermissionPolicyRecord): PermissionPolicyRecord {
+  return {
+    ...record,
+    rules: record.rules.map((rule) => ({
+      ...rule,
+      action: [...rule.action],
+      resource: { ...rule.resource, patterns: [...rule.resource.patterns] },
+      ...(rule.conditions
+        ? {
+            conditions: {
+              ...rule.conditions,
+              ...(rule.conditions.riskLevel ? { riskLevel: [...rule.conditions.riskLevel] } : {}),
+              ...(rule.conditions.environment ? { environment: [...rule.conditions.environment] } : {}),
+              ...(rule.conditions.taskType ? { taskType: [...rule.conditions.taskType] } : {}),
+            },
+          }
+        : {}),
+    })),
+    autoReview: {
+      ...record.autoReview,
+      allowedRiskLevels: [...record.autoReview.allowedRiskLevels],
+    },
+    approval: {
+      ...record.approval,
+      requireHumanForRiskLevels: [...record.approval.requireHumanForRiskLevels],
+    },
+    restricted: {
+      allowedTools: [...record.restricted.allowedTools],
+      filesystem: {
+        read: [...record.restricted.filesystem.read],
+        write: [...record.restricted.filesystem.write],
+      },
+      network: {
+        ...record.restricted.network,
+        allowedDomains: [...record.restricted.network.allowedDomains],
+        allowedPorts: [...record.restricted.network.allowedPorts],
+      },
+    },
+  };
 }

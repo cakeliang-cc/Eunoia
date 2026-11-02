@@ -58,9 +58,24 @@ export class WorkspaceError extends SandboxPolicyError {
 
 export class SandboxApprovalRequiredError extends SandboxError {
   override readonly name: string = 'SandboxApprovalRequiredError';
+  /** The persisted permission request, so an operator can find it. */
+  readonly requestId: string | null;
+  /** The human approval queue entry, when one was opened. */
+  readonly approvalRequestId: string | null;
 
-  constructor(message: string) {
-    super('approval_required', message, false);
+  constructor(
+    message: string,
+    details: { readonly requestId?: string | null; readonly approvalRequestId?: string | null } = {},
+  ) {
+    super(
+      'approval_required',
+      details.approvalRequestId
+        ? `${message} (approval ${details.approvalRequestId})`
+        : message,
+      false,
+    );
+    this.requestId = details.requestId ?? null;
+    this.approvalRequestId = details.approvalRequestId ?? null;
   }
 }
 
