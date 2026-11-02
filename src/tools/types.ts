@@ -312,6 +312,14 @@ export interface ToolExecutionResult {
   readonly timedOut: boolean;
   readonly durationMs: number;
   readonly executionId?: string;
+  /**
+   * The task directory the command ran in (ADR 021).
+   *
+   * Relative paths inside a shell command resolve against this, not against the
+   * workspace root the file tools use. The tool puts it in the result so the
+   * model — and the trace — can see which base a relative path had.
+   */
+  readonly cwd?: string;
 }
 
 /**

@@ -22,7 +22,7 @@ const MAX_STREAM_CHARS = 30_000;
 
 export const runCommandTool = defineTool({
   name: 'run_command',
-  description: `在沙箱里的工作目录运行一条 shell 命令，返回退出码、stdout 和 stderr。
+  description: `在沙箱里的当前任务目录运行一条 shell 命令，返回当前目录、退出码、stdout 和 stderr。
 
 什么时候调用：
 - 跑测试、类型检查、lint、构建；
@@ -31,6 +31,10 @@ export const runCommandTool = defineTool({
 
 规则：
 - 命令在隔离的沙箱容器里执行，挂载的只有当前任务的工作目录；
+- 结果第一行是执行时的当前目录。它可能已经不是工作区根目录，而 shell 里的相对路径正是从它算起——所以在命令里用相对路径之前，先看这一行；
+- 删除、覆盖、移动这类不可逆操作，用 /workspace/... 的绝对路径，并在同一条命令里确认目标本身：执行前它存在，执行后它消失；
+- 不要用自己打印的成功信息当作证据。退出码 0 只说明命令没有报错，不说明目标达成了；
+- 需要让后续命令换目录，用 change_directory；一次性命令里的 cd 只影响这一次，不会改变任务的当前目录；
 - 不要用它读文件（用 read_file）或搜索（用 grep）；
 - 不要运行会等待交互输入的命令（vim、less、需要确认的安装）；
 - 长输出会保留结尾，因为失败信息通常在最后；
@@ -49,7 +53,8 @@ export const runCommandTool = defineTool({
   }),
   sideEffect: 'command',
   readOnly: false,
-  guidelines: 'run_command：在沙箱里跑测试/构建/脚本；长输出保留结尾；危险命令先问用户。',
+  guidelines:
+    'run_command：结果第一行是当前目录；不可逆操作用绝对路径并确认目标；长输出保留结尾。',
   execute: async ({ command, timeout_ms }, context) => {
     return guardToolResult(async () => {
       const executor = context.executor;
@@ -70,6 +75,10 @@ export const runCommandTool = defineTool({
       const stdout = truncateTail(result.stdout.split('\n'), 800, MAX_STREAM_CHARS);
       const stderr = truncateTail(result.stderr.split('\n'), 800, MAX_STREAM_CHARS);
       const parts = [
+        // First, not last: a relative path in the command above is resolved
+        // against this, and a wrong base is exactly how a delete of a
+        // non-existent relative path can exit 0 while removing nothing.
+        ...(result.cwd ? [`cwd: ${result.cwd}`] : []),
         `status: ${result.status}`,
         `exit code: ${result.exitCode ?? 'signal'}`,
         `duration: ${(result.durationMs / 1000).toFixed(1)}s`,
@@ -92,7 +101,10 @@ export const runCommandTool = defineTool({
         output: parts.join('\n'),
         ...(ok ? {} : { error }),
         meta: {
-          summary: `${result.status} · 退出码 ${result.exitCode ?? 'signal'} · ${(result.durationMs / 1000).toFixed(1)}s`,
+          // The trace replaces the command with this summary, so the directory
+          // leads: it is the thing a person needs to judge the command's scope.
+          summary: `${result.cwd ? `${result.cwd} · ` : ''}${result.status} · 退出码 ${result.exitCode ?? 'signal'} · ${(result.durationMs / 1000).toFixed(1)}s`,
+          ...(result.cwd ? { cwd: result.cwd } : {}),
           status: result.status,
           exitCode: result.exitCode,
           durationMs: result.durationMs,

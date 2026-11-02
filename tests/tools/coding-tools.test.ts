@@ -45,6 +45,7 @@ beforeEach(async () => {
           timedOut: false,
           durationMs: 12,
           executionId: 'exec_test',
+          cwd: '/workspace/src/models',
         };
       }
       return {
@@ -55,6 +56,7 @@ beforeEach(async () => {
         timedOut: false,
         durationMs: 8,
         executionId: 'exec_test',
+        cwd: '/workspace/src/models',
       };
     },
   };
@@ -168,16 +170,23 @@ describe('write_file and edit_file', () => {
 });
 
 describe('run_command', () => {
-  it('formats exit code and output', async () => {
+  it('formats exit code and output, and leads with the directory it ran in', async () => {
     const result = await runCommandTool.execute({ command: 'printf hello' }, context);
     expect(result.ok).toBe(true);
+    // The first line is the base every relative path in the command had; a
+    // wrong base is how `rm -rf <relative>` can exit 0 and delete nothing.
+    expect(result.output.split('\n')[0]).toBe('cwd: /workspace/src/models');
     expect(result.output).toContain('status: SUCCEEDED');
     expect(result.output).toContain('exit code: 0');
     expect(result.output).toContain('hello');
     expect(result.meta?.executionId).toBe('exec_test');
+    expect(result.meta?.cwd).toBe('/workspace/src/models');
+    // The trace replaces the command with the result summary, so the directory
+    // has to survive there too.
+    expect(summarizeToolResult('run_command', result)).toContain('/workspace/src/models');
   });
 
-  it('keeps output on a non-zero exit and marks the result failed', async () => {
+  it('keeps output on a non-zero exit and still reports the directory', async () => {
     const result = await runCommandTool.execute(
       { command: 'printf "the assertion failed"; exit 1' },
       context,
@@ -186,6 +195,7 @@ describe('run_command', () => {
     expect(result.error).toContain('code 1');
     expect(result.output).toContain('the assertion failed');
     expect(result.output).toContain('status: FAILED');
+    expect(result.output.split('\n')[0]).toBe('cwd: /workspace/src/models');
   });
 });
 

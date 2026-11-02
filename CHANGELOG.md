@@ -518,6 +518,18 @@
 
 ### Fixed
 
+- **命令结果以当前目录开头，别再让相对路径"删了个寂寞"。** `run_command` 返回的
+  第一行现在是 `cwd: /workspace/...`，并进入工具 trace 的摘要；此前 cwd 只冻结在
+  执行里，模型和人都看不到，于是 `/workspace/src/models` 下的 `rm -rf snake` 可以
+  对不存在的路径退出 0，模型据此报告"已删除"，而 `/workspace/snake` 分毫未动。
+  - **提示词**：删掉"所有路径都相对于工作目录；不要用绝对路径"这条会误导的规则，
+    改为区分两个基准——文件工具从工作区根解析且拒绝绝对路径，`run_command` 从当前
+    任务目录解析；不可逆操作在 `run_command` 里一律用 `/workspace/...` 绝对路径，
+    并在同一条命令里确认目标存在/消失；退出码 0 不再当作"做完了"。
+  - **工具描述**同步说明结果首行、`cd` 只影响一次性命令、以及不能拿自己打印的成功
+    信息当证据。
+  - **测试**：`coding-tools.test.ts` 断言成功与失败的结果首行都是 cwd，并保留在
+    trace 摘要里。
 - **Sandbox 第一次工具调用的 `FOREIGN KEY constraint failed`。** `sandbox_workspaces.task_id`
   指向 `sandbox_tasks`，但 `ensureTask()` 先写 workspace、后写 task；内存 store 不检查
   外键，所以单元测试一直是绿的，真实 SQLite 在第一次 `read_file` / `run_command`

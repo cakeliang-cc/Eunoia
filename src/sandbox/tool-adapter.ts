@@ -196,6 +196,9 @@ class GatewayToolSession implements ToolWorkspacePort, ToolExecutor, ToolCwdPort
       timedOut: result.status === 'TIMEOUT',
       durationMs: Date.now() - started,
       executionId: result.executionId,
+      // The same value that was frozen into the execution, so the model sees
+      // the base its relative paths actually had.
+      cwd: cwd.cwd,
     };
   }
 
