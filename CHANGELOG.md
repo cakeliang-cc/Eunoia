@@ -337,10 +337,11 @@
 
 ### Changed
 
-- **回复里的 Markdown 现在会被渲染。** 模型写的 `**加粗**`、行内代码和围栏代码块
-  以前会原样显示成星号和反引号；聊天页现在把它们渲染成 `<strong>`、`<code>` 和
-  `<pre>`，用户自己发的文本保持字面。渲染只用 DOM 节点（不用 innerHTML），并且只
-  支持这个子集：链接、标题和表格仍是纯文本。新增 `tests/web/markdown.test.ts`。
+- **回复里的 Markdown 现在会被渲染。** 模型写的 `**加粗**`、行内代码、围栏代码块
+  和无序/有序列表以前会原样显示成星号、反引号和短横线；聊天页现在把它们渲染成
+  `<strong>`、`<code>`、`<pre>` 和 `<ul>`/`<ol>`（有序列表保留起始编号），用户自己
+  发的文本保持字面。渲染只用 DOM 节点（不用 innerHTML），并且只支持这个子集：
+  链接、标题和表格仍是纯文本。新增 `tests/web/markdown.test.ts`。
 - **工具层完全对齐 DSH（ADR 023）。** 工具名改为 `read` / `write` / `edit` / `bash`，
   `load_skill` 改为 `skill`；描述改成英文契约（DSH 原文，仅在语义不同处改写），参数名
   对齐为 `file_path` / `offset` / `limit` / `timeout`。`list_dir`、`change_directory`

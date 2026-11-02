@@ -561,6 +561,12 @@
   .text pre code {
     padding: 0; border: 0; background: transparent; font-size: inherit;
   }
+  .text .para { white-space: pre-wrap; }
+  .text ul, .text ol {
+    margin: 8px 0 8px 1.35em; padding: 0;
+  }
+  .text li { margin: 2px 0; }
+  .text li::marker { color: var(--muted); }
   .text[data-streaming="true"]::after {
     content: ""; display: inline-block;
     width: 2px; height: 1em; margin-left: 2px; vertical-align: -2px;
@@ -1891,13 +1897,65 @@ function renderText(container, text) {
   container.textContent = '';
   for (const block of splitFences(text)) {
     if (block.code === null) {
-      appendInline(container, block.text);
+      renderProse(container, block.text);
       continue;
     }
     const pre = el('pre');
     pre.append(el('code', null, block.code));
     container.append(pre);
   }
+}
+
+/**
+ * Render one prose run: paragraphs, bullet lists and numbered lists.
+ *
+ * Lists are the other half of what the model writes — a bullet whose dash shows
+ * as text is the same bug as a literal `**`. Nesting is flattened on purpose:
+ * one level reads fine in a chat bubble, and indentation-dependent rendering is
+ * where a small renderer starts growing bugs.
+ */
+function renderProse(container, text) {
+  let paragraph = [];
+  let list = null;
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    const block = el('div', 'para');
+    appendInline(block, paragraph.join('\n'));
+    container.append(block);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (list === null) return;
+    container.append(list.node);
+    list = null;
+  };
+
+  for (const line of text.split('\n')) {
+    const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
+    const numbered = /^\s*(\d+)[.)]\s+(.*)$/.exec(line);
+    if (bullet === null && numbered === null) {
+      flushList();
+      paragraph.push(line);
+      continue;
+    }
+    flushParagraph();
+    const type = bullet === null ? 'ol' : 'ul';
+    if (list === null || list.type !== type) {
+      flushList();
+      const node = el(type);
+      const start = numbered === null ? 1 : Number.parseInt(numbered[1], 10);
+      if (type === 'ol' && Number.isFinite(start) && start !== 1) {
+        node.setAttribute('start', String(start));
+      }
+      list = { type, node };
+    }
+    const item = el('li');
+    appendInline(item, (bullet === null ? numbered[2] : bullet[1]) ?? '');
+    list.node.append(item);
+  }
+  flushParagraph();
+  flushList();
 }
 
 /** Split fenced code blocks from prose. An unclosed fence stays text. */

@@ -68,6 +68,49 @@ describe('markdown in the transcript', () => {
     expect(body.find((node) => node.tagName === 'strong')).toHaveLength(0);
   });
 
+  it('renders bullet lists instead of literal dashes', async () => {
+    const body = await reply([
+      {
+        type: 'text_delta',
+        text: '可以：\n\n- **写代码**：用 `read`\n- **记住你**：偏好\n\n结束。',
+      },
+      {
+        type: 'completed',
+        text: '可以：\n\n- **写代码**：用 `read`\n- **记住你**：偏好\n\n结束。',
+      },
+    ]);
+
+    const lists = body.find((node) => node.tagName === 'ul');
+    expect(lists).toHaveLength(1);
+    expect(lists[0]?.find((node) => node.tagName === 'li')).toHaveLength(2);
+    expect(body.textContent).toContain('写代码');
+    expect(body.textContent).not.toContain('- 写代码');
+    expect(lists[0]?.find((node) => node.tagName === 'strong')).toHaveLength(2);
+  });
+
+  it('renders numbered lists with their starting number', async () => {
+    const body = await reply([
+      { type: 'text_delta', text: '步骤：\n\n3. 先读\n4. 再改' },
+      { type: 'completed', text: '步骤：\n\n3. 先读\n4. 再改' },
+    ]);
+
+    const lists = body.find((node) => node.tagName === 'ol');
+    expect(lists).toHaveLength(1);
+    expect(lists[0]?.attributes.start).toBe('3');
+    expect(lists[0]?.find((node) => node.tagName === 'li')).toHaveLength(2);
+    expect(body.textContent).toContain('先读');
+  });
+
+  it('keeps a user’s own bullet list literal', async () => {
+    const harness = await boot({ frames: [] });
+    await harness.send('步骤：\n- 先读\n- 再改');
+
+    const user = harness.transcript.find((node) => node.classList.contains('user')).at(-1);
+    const body = user?.child('bubble')?.child('text') as El;
+    expect(body.textContent).toContain('- 先读');
+    expect(body.find((node) => node.tagName === 'ul')).toHaveLength(0);
+  });
+
   it('never turns model text into markup', async () => {
     const body = await reply([
       { type: 'text_delta', text: '<img src=x onerror=alert(1)> **ok**' },
