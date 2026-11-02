@@ -16,9 +16,24 @@ export {
 } from './read-tools.ts';
 export { editFileTool, writeFileTool } from './edit-tools.ts';
 export { runCommandTool } from './command-tool.ts';
+export { changeDirectoryTool } from './change-directory-tool.ts';
 
 import { editFileTool, writeFileTool } from './edit-tools.ts';
 import { runCommandTool } from './command-tool.ts';
+import { changeDirectoryTool } from './change-directory-tool.ts';
 import { globTool, grepTool, listDirTool, readFileTool } from './read-tools.ts';
 
-export const codingTools = [readFileTool, listDirTool, globTool, grepTool, editFileTool, writeFileTool, runCommandTool] as const;
+/**
+ * The coding tool set. `change_directory` sits next to `run_command` because the
+ * two are one workflow: the command is stateless, the directory is not.
+ */
+export const codingTools = [
+  readFileTool,
+  listDirTool,
+  globTool,
+  grepTool,
+  editFileTool,
+  writeFileTool,
+  runCommandTool,
+  changeDirectoryTool,
+] as const;

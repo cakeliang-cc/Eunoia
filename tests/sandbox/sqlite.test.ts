@@ -102,12 +102,12 @@ async function seeded(): Promise<{ db: DatabaseSync; store: SqliteSandboxStore; 
 }
 
 describe('schema and migration', () => {
-  it('is on schema version 4 and creates every sandbox and permission table', () => {
+  it('is on the current schema version and creates every sandbox, permission and cwd table', () => {
     const sqlite = openSqliteStore(':memory:');
     open.push(sqlite);
     const version = sqlite.database.prepare('PRAGMA user_version').get() as { user_version: number };
     expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
-    expect(SQLITE_SCHEMA_VERSION).toBe(4);
+    expect(SQLITE_SCHEMA_VERSION).toBe(5);
     const tables = (
       sqlite.database
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -127,12 +127,29 @@ describe('schema and migration', () => {
       'permission_requests',
       'permission_approval_requests',
       'permission_decisions',
+      'task_cwd_operations',
     ]) {
       expect(tables).toContain(table);
     }
+    const taskColumns = (
+      sqlite.database.prepare('PRAGMA table_info(sandbox_tasks)').all() as { name: string }[]
+    ).map((row) => row.name);
+    for (const column of [
+      'workspace_root',
+      'current_cwd',
+      'cwd_version',
+      'cwd_invalidated_at',
+      'cwd_invalid_reason',
+    ]) {
+      expect(taskColumns).toContain(column);
+    }
+    const executionColumns = (
+      sqlite.database.prepare('PRAGMA table_info(executions)').all() as { name: string }[]
+    ).map((row) => row.name);
+    expect(executionColumns).toContain('cwd_version');
   });
 
-  it('migrates a version-2 database to version 4', async () => {
+  it('migrates a version-2 database to the current version', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'eunoia-migrate3-'));
     dirs.push(dir);
     const path = join(dir, 'eunoia.sqlite');
@@ -145,7 +162,8 @@ describe('schema and migration', () => {
     const opened = openSqliteStore(path);
     open.push(opened);
     const version = opened.database.prepare('PRAGMA user_version').get() as { user_version: number };
-    expect(Number(version.user_version)).toBe(4);
+    expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
+    expect(SQLITE_SCHEMA_VERSION).toBe(5);
     const columns = opened.database
       .prepare('PRAGMA table_info(sandboxes)')
       .all() as { name: string }[];
@@ -153,7 +171,7 @@ describe('schema and migration', () => {
     expect(columns.map((column) => column.name)).toContain('config_digest');
   });
 
-  it('upgrades an existing version-1 file to version 4 without touching its rows', async () => {
+  it('upgrades an existing version-1 file to the current version without touching its rows', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'eunoia-migrate-'));
     dirs.push(dir);
     const path = join(dir, 'eunoia.sqlite');
@@ -187,7 +205,8 @@ describe('schema and migration', () => {
     const opened = openSqliteStore(path);
     open.push(opened);
     const version = opened.database.prepare('PRAGMA user_version').get() as { user_version: number };
-    expect(Number(version.user_version)).toBe(4);
+    expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
+    expect(SQLITE_SCHEMA_VERSION).toBe(5);
     const user = opened.database.prepare("SELECT id FROM users WHERE id = 'user-1'").get() as
       | { id: string }
       | undefined;
@@ -198,7 +217,7 @@ describe('schema and migration', () => {
     expect(table?.name).toBe('sandboxes');
   });
 
-  it('migrates a version-3 database to version 4 and adds the permission columns', async () => {
+  it('migrates a version-3 database to the current version and adds the permission and cwd columns', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'eunoia-migrate4-'));
     dirs.push(dir);
     const path = join(dir, 'eunoia.sqlite');
@@ -221,7 +240,8 @@ describe('schema and migration', () => {
     const opened = openSqliteStore(path);
     open.push(opened);
     const version = opened.database.prepare('PRAGMA user_version').get() as { user_version: number };
-    expect(Number(version.user_version)).toBe(4);
+    expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
+    expect(SQLITE_SCHEMA_VERSION).toBe(5);
     const sandboxColumns = (
       opened.database.prepare('PRAGMA table_info(sandboxes)').all() as { name: string }[]
     ).map((column) => column.name);

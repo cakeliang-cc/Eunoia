@@ -13,6 +13,9 @@
  *   npm run sandbox -- recover
  *   npm run sandbox -- approve --task <id> --action fs.write --scope /workspace --minutes 10
  *   npm run sandbox -- mode --task <id> --mode read-only
+ *   npm run sandbox -- cwd --task <id>
+ *   npm run sandbox -- cd --task <id> --path src
+ *   npm run sandbox -- audit --task <id> --action task.cwd.change.succeeded
  *   npm run sandbox -- requests --task <id>
  *   npm run sandbox -- approve-request --approval <id> --by alice
  *   npm run sandbox -- checkpoint --task <id>
@@ -100,7 +103,7 @@ async function main(): Promise<void> {
   const { command, flags } = parseArgs(process.argv.slice(2));
   if (command === 'help' || command === '--help') {
     process.stdout.write(
-      'usage: sandbox <status|recover|mode|permissions|requests|approvals|grants|approve|approve-request|deny-request|revoke|sweep|checkpoint|gc|proxy> [--flags]\n',
+      'usage: sandbox <status|recover|mode|cwd|cd|audit|permissions|requests|approvals|grants|approve|approve-request|deny-request|revoke|sweep|checkpoint|gc|proxy> [--flags]\n',
     );
     return;
   }
@@ -157,6 +160,7 @@ async function main(): Promise<void> {
           | 'fs.read'
           | 'fs.write'
           | 'fs.list'
+          | 'fs.chdir'
           | 'process.exec'
           | 'network.connect';
         const scope = (flags.scope ?? '/workspace')
@@ -173,6 +177,46 @@ async function main(): Promise<void> {
           },
         );
         output(grant);
+        return;
+      }
+      case 'cwd': {
+        // ADR 021: the operator view of one task's execution context. It is the
+        // same state the Gateway injects into a command, not a copy.
+        const taskId = requireFlag(flags, 'task');
+        const task = await selection.sandboxStore.getTask(taskId);
+        if (!task) throw new SandboxError('not_found', `task ${taskId} does not exist`);
+        const context = { taskId, userId: task.userId, sessionId: task.sessionId };
+        output({
+          current: await platform.gateway.currentDirectory(context),
+          context: await platform.gateway.taskContext(context),
+        });
+        return;
+      }
+      case 'cd': {
+        // A trusted control-plane change. It goes through the same CwdManager as
+        // the tool, so the boundary, permission and CAS checks are identical.
+        const taskId = requireFlag(flags, 'task');
+        const task = await selection.sandboxStore.getTask(taskId);
+        if (!task) throw new SandboxError('not_found', `task ${taskId} does not exist`);
+        const result = await platform.gateway.changeDirectory(
+          { taskId, userId: task.userId, sessionId: task.sessionId },
+          { path: requireFlag(flags, 'path') },
+        );
+        output(result);
+        if (!result.ok) throw new SandboxError('invalid_input', result.message);
+        return;
+      }
+      case 'audit': {
+        // ADR 021 §14: the cwd trail is queryable by task, sandbox or execution.
+        output(
+          await selection.sandboxStore.listAudit({
+            ...(flags.task ? { taskId: flags.task } : {}),
+            ...(flags.sandbox ? { sandboxId: flags.sandbox } : {}),
+            ...(flags.execution ? { executionId: flags.execution } : {}),
+            ...(flags.action ? { action: flags.action } : {}),
+            limit: Number(flags.limit ?? 50),
+          }),
+        );
         return;
       }
       case 'permissions': {

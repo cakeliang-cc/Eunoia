@@ -246,6 +246,20 @@ export interface Task {
   readonly sandboxId: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+
+  // ---- task-scoped working directory (ADR 021) ------------------------------
+  //
+  // Optional so a `Task` value written before the column existed still parses.
+  // The authoritative accessor is `TaskContextStore`, not these fields: a caller
+  // must not be able to write `currentCwd` through `updateTask`.
+  /** Container path the workspace is mounted at; never agent-supplied. */
+  readonly workspaceRoot?: string | null;
+  readonly currentCwd?: string | null;
+  /** Compare-and-set token; increments on every successful cwd change. */
+  readonly cwdVersion?: number;
+  /** Set when validation found the recorded cwd unusable (ADR 021 §11.3). */
+  readonly cwdInvalidatedAt?: string | null;
+  readonly cwdInvalidReason?: string | null;
 }
 
 export type WorkspaceMode = 'bind' | 'copy';
@@ -338,6 +352,8 @@ export interface Execution {
   readonly commandDigest: string;
   readonly command: readonly string[];
   readonly cwd: string;
+  /** The task cwd version this execution froze at creation (ADR 021 §6.3). */
+  readonly cwdVersion?: number;
   readonly status: ExecutionState;
   readonly exitCode: number | null;
   readonly startedAt: string | null;
@@ -416,6 +432,11 @@ export interface ExecuteInput {
   readonly idempotencyKey: string;
   readonly command: readonly string[];
   readonly cwd: string;
+  /**
+   * The task cwd version the caller read. The Gateway refuses a mismatch instead
+   * of running in a directory the caller did not see (ADR 021 §6.4).
+   */
+  readonly cwdVersion?: number;
   readonly timeoutMs: number;
   /** `true` runs the single `command[0]` through `/bin/sh -c`. */
   readonly shell?: boolean;
@@ -483,6 +504,8 @@ export interface RuntimeExecutionRequest {
   readonly command: readonly string[];
   readonly shell: boolean;
   readonly cwd: string;
+  /** Container workspace root, so the launcher can re-check the cwd boundary. */
+  readonly workspaceRoot: string;
   readonly timeoutMs: number;
   readonly maxOutputBytes: number;
   readonly env: Readonly<Record<string, string>>;

@@ -26,9 +26,38 @@
  *   4 — permission modes, requests, human approvals, decisions, grants
  *       (ADR 020); `sandboxes.config_digest` so a mode change rebuilds a
  *       container whose mount no longer matches the policy.
+ *   5 — task-scoped working directory (ADR 021): `sandbox_tasks.workspace_root`,
+ *       `current_cwd`, `cwd_version`, `cwd_invalidated_at`, `cwd_invalid_reason`,
+ *       `executions.cwd_version`, and `task_cwd_operations` for idempotent
+ *       retries.
  */
 
-export const SANDBOX_SCHEMA_VERSION = 4;
+export const SANDBOX_SCHEMA_VERSION = 5;
+
+/**
+ * Task working directory (ADR 021).
+ *
+ * `cwd_version` is the compare-and-set token: the conditional `UPDATE` in
+ * `compareAndSetTaskCwd` matches on it, so two concurrent changes cannot both
+ * win and a stale retry is detectable rather than silently overwriting.
+ *
+ * `task_cwd_operations` is the idempotency record for one `change_directory`
+ * call. It stores the whole result, because a retry must return the original
+ * answer — not recompute it against a directory that has since moved.
+ */
+export const CWD_SCHEMA = `
+CREATE TABLE IF NOT EXISTS task_cwd_operations (
+  operation_id TEXT PRIMARY KEY,
+  task_id      TEXT NOT NULL,
+  path         TEXT NOT NULL,
+  result       TEXT NOT NULL,
+  cwd_version  INTEGER NOT NULL,
+  created_at   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS task_cwd_operations_task_idx
+  ON task_cwd_operations (task_id, created_at DESC);
+`;
 
 /**
  * Tables and indexes new in version 4.
@@ -138,6 +167,11 @@ CREATE TABLE IF NOT EXISTS sandbox_tasks (
   status       TEXT NOT NULL CHECK (status IN ('ACTIVE', 'PAUSED', 'COMPLETED', 'FAILED', 'ARCHIVED')),
   workspace_id TEXT NOT NULL,
   sandbox_id   TEXT,
+  workspace_root TEXT,
+  current_cwd  TEXT,
+  cwd_version  INTEGER NOT NULL DEFAULT 1,
+  cwd_invalidated_at TEXT,
+  cwd_invalid_reason TEXT,
   created_at   TEXT NOT NULL,
   updated_at   TEXT NOT NULL
 );
@@ -197,6 +231,7 @@ CREATE TABLE IF NOT EXISTS executions (
   command_digest  TEXT NOT NULL,
   command_json    TEXT NOT NULL,
   cwd             TEXT NOT NULL,
+  cwd_version     INTEGER NOT NULL DEFAULT 1,
   status          TEXT NOT NULL,
   exit_code       INTEGER,
   started_at      TEXT,
@@ -287,4 +322,5 @@ CREATE INDEX IF NOT EXISTS sandbox_audit_task_idx ON sandbox_audit_events (task_
 CREATE INDEX IF NOT EXISTS sandbox_audit_execution_idx ON sandbox_audit_events (execution_id);
 
 ${PERMISSION_SCHEMA}
+${CWD_SCHEMA}
 `;

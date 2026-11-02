@@ -253,6 +253,9 @@ export async function* runTurn(
     policy,
     workspace: sandboxSession?.workspace ?? null,
     executor: sandboxSession?.executor ?? null,
+    // ADR 021: the run gets the task's working-directory port beside the file and
+    // command ports, so `change_directory` needs no access to the sandbox.
+    cwd: sandboxSession?.cwd ?? null,
     model: conversation.modelId ?? COMPANION_MODEL,
     ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
     ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),

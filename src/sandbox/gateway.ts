@@ -77,6 +77,11 @@ import {
   SandboxError,
 } from './errors.ts';
 import { sandboxContainerName } from './runtime/oci-args.ts';
+import { CwdManager } from './cwd/cwd-manager.ts';
+import { FilesystemCwdValidator } from './cwd/cwd-validator.ts';
+import { TaskContextStore } from './cwd/task-context-store.ts';
+import { CwdError, type ChangeDirectoryInput } from './cwd/cwd-types.ts';
+import type { ToolCwdChange, ToolCwdSnapshot } from '../tools/types.ts';
 
 export interface SandboxGatewayDeps {
   readonly store: SandboxStore;
@@ -126,6 +131,9 @@ export class SandboxGateway {
   /** The deployment's structural policy; the permission layer narrows it. */
   private readonly policy: ReturnType<typeof taskPolicy>;
   private readonly permissions: PermissionManager;
+  /** ADR 021: the single reader/writer of the task working directory. */
+  private readonly taskContexts: TaskContextStore;
+  private readonly cwdManager: CwdManager;
   private readonly redactor: Redactor;
   /** Executions currently inside the runtime, per sandbox. */
   private readonly inFlight = new Map<string, number>();
@@ -158,6 +166,20 @@ export class SandboxGateway {
       now: this.now,
       onPolicyChanged: (input) => this.onPermissionPolicyChanged(input),
     });
+    this.taskContexts = new TaskContextStore({
+      store: deps.store,
+      now: this.now,
+      audit: deps.audit,
+    });
+    this.cwdManager = new CwdManager({
+      store: deps.store,
+      contexts: this.taskContexts,
+      validator: new FilesystemCwdValidator(),
+      permissions: this.permissions,
+      audit: deps.audit,
+      metrics: deps.metrics,
+      now: this.now,
+    });
     this.redactor = deps.redactor ?? new Redactor();
     // Credential values are known only after issuance; the audit log has its own
     // redactor, and new values are registered there by the broker's caller.
@@ -185,10 +207,18 @@ export class SandboxGateway {
         throw new SandboxPolicyError('task belongs to a different user');
       }
       const workspace = await this.workspaces.ensureForTask(input.taskId);
-      if (existing.workspaceId !== workspace.workspaceId) {
-        return (await this.store.updateTask(existing.taskId, { workspaceId: workspace.workspaceId })) as Task;
-      }
-      return existing;
+      const refreshed = existing.workspaceId !== workspace.workspaceId
+        ? await this.store.updateTask(existing.taskId, { workspaceId: workspace.workspaceId })
+        : existing;
+      // Backfill a task that predates ADR 021, without moving an existing cwd.
+      await this.taskContexts.initialize({
+        taskId: existing.taskId,
+        workspaceId: workspace.workspaceId,
+        sandboxId: refreshed?.sandboxId ?? existing.sandboxId,
+        workspaceRoot: refreshed?.workspaceRoot ?? WORKSPACE_MOUNT_PATH,
+        now: this.now().toISOString(),
+      });
+      return (await this.store.getTask(existing.taskId)) ?? refreshed ?? existing;
     }
 
     // `sandbox_workspaces.task_id` is a foreign key to `sandbox_tasks`, so the
@@ -211,6 +241,16 @@ export class SandboxGateway {
       workspaceId: workspace.workspaceId,
     });
     if (!ready) throw new SandboxError('not_found', `task ${input.taskId} disappeared during creation`);
+    // ADR 021 §8.1: the context exists before any tool is registered. The store
+    // write inside `initialize` is what sets the cwd columns, so the returned
+    // task is re-read rather than the placeholder row.
+    await this.taskContexts.initialize({
+      taskId: ready.taskId,
+      workspaceId: workspace.workspaceId,
+      sandboxId: ready.sandboxId,
+      workspaceRoot: ready.workspaceRoot ?? WORKSPACE_MOUNT_PATH,
+      now: this.now().toISOString(),
+    });
     await this.audit.record({
       taskId: ready.taskId,
       sessionId: input.sessionId,
@@ -218,7 +258,7 @@ export class SandboxGateway {
       outcome: 'succeeded',
       detail: { workspace: workspace.workspaceId, mode: workspace.mode },
     });
-    return ready;
+    return (await this.store.getTask(ready.taskId)) ?? ready;
   }
 
   /** Get (or create) the task's sandbox with the deployment's defaults. */
@@ -357,6 +397,9 @@ export class SandboxGateway {
     if (!workspace) throw new SandboxNotFoundError('workspace is missing');
     const config = await this.runtimeConfig(sandbox, workspace, true);
     await this.controller.recover(sandbox, config);
+    // The runtime is back, so "does the directory still exist" is a real
+    // question again (ADR 021 §11.4). This never repairs by substituting `/`.
+    await this.recoverDirectory({ taskId: task.taskId, userId: context.userId });
     for (const execution of await this.store.listUnfinishedExecutions(sandbox.sandboxId)) {
       await this.reconcileExecution(sandbox.sandboxId, execution.executionId);
     }
@@ -633,6 +676,82 @@ export class SandboxGateway {
     return { expired, checkpointsRemoved, permission };
   }
 
+  // ------------------------------------------------------- task cwd (ADR 021) ---
+
+  /** The task's current directory, as the runtime sees it. */
+  async currentDirectory(context: SandboxContext): Promise<ToolCwdSnapshot> {
+    const task = await this.loadTask(context);
+    const taskContext = await this.taskContexts.get(task.taskId);
+    return {
+      cwd: taskContext.cwd,
+      workspaceRoot: taskContext.workspaceRoot,
+      cwdVersion: taskContext.cwdVersion,
+    };
+  }
+
+  /** Full context, for the ops CLI and for tests that assert on versioning. */
+  async taskContext(context: SandboxContext): Promise<Awaited<ReturnType<TaskContextStore['get']>>> {
+    const task = await this.loadTask(context);
+    return this.taskContexts.get(task.taskId);
+  }
+
+  /**
+   * Move the task's directory for subsequent executions.
+   *
+   * The tool supplies a path; the task, the sandbox and the expected version come
+   * from the runtime's own context. A model that could name a task id would be
+   * able to move another conversation's directory, which is why no tool argument
+   * exists for it.
+   */
+  async changeDirectory(
+    context: SandboxContext,
+    input: { readonly path: string; readonly operationId?: string },
+  ): Promise<ToolCwdChange> {
+    const task = await this.loadTask(context);
+    const request: ChangeDirectoryInput = {
+      taskId: task.taskId,
+      path: input.path,
+      sessionId: task.sessionId,
+      actorType: 'agent',
+      actorId: `agent:${task.taskId}`,
+      ...(input.operationId ? { operationId: input.operationId } : {}),
+      ...(context.toolCallId ? { toolCallId: context.toolCallId } : {}),
+    };
+    const result = await this.cwdManager.changeDirectory(request);
+    if (!result.success) {
+      return { ok: false, error: result.error, message: result.message };
+    }
+    return {
+      ok: true,
+      previousCwd: result.previousCwd,
+      cwd: result.cwd,
+      cwdVersion: result.cwdVersion,
+      workspaceRoot: result.workspaceRoot,
+    };
+  }
+
+  /**
+   * Re-validate the task cwd after a sandbox rebuild (ADR 021 §11.4).
+   *
+   * Runs after the runtime is back, because "the directory exists" is only
+   * meaningful once the workspace is mounted again. It never repairs by guessing.
+   */
+  async recoverDirectory(context: SandboxContext): Promise<void> {
+    const task = await this.loadTask(context);
+    try {
+      await this.cwdManager.recover(task.taskId);
+    } catch (error) {
+      const code = error instanceof CwdError ? error.code : 'CWD_INVALID';
+      await this.audit.record({
+        taskId: task.taskId,
+        sandboxId: task.sandboxId,
+        action: 'task.cwd.invalidated',
+        outcome: 'failed',
+        detail: { code, reason: error instanceof Error ? error.message.slice(0, 200) : String(error) },
+      });
+    }
+  }
+
   // --------------------------------------------------------------- execution ---
 
   async execute(
@@ -648,15 +767,44 @@ export class SandboxGateway {
 
     validateExecuteInput(input);
 
-    const cwd = normalizeContainerPath(input.cwd || WORKSPACE_MOUNT_PATH);
-    if (cwd !== WORKSPACE_MOUNT_PATH && !cwd.startsWith(`${WORKSPACE_MOUNT_PATH}/`)) {
-      throw new SandboxPolicyError(`cwd must be inside ${WORKSPACE_MOUNT_PATH}`);
+    // ADR 021 §6.4: the Gateway does not trust the cwd the adapter sends. It
+    // re-reads the task context, confirms the sandbox and workspace still match,
+    // and checks the version it was handed against the version on record. A
+    // mismatch is reported, never repaired by guessing a directory.
+    if (sandbox.workspaceId !== task.workspaceId) {
+      throw new CwdError('EXECUTION_CONTEXT_INVALID', 'the sandbox is bound to a different workspace');
+    }
+    const taskContext = await this.taskContexts.get(task.taskId);
+    if (taskContext.invalidatedAt !== null) {
+      throw new CwdError(
+        'CWD_INVALID',
+        `the task working directory is invalid: ${taskContext.invalidReason ?? 'unknown reason'}`,
+      );
+    }
+    const requestedCwd = normalizeContainerPath(input.cwd || WORKSPACE_MOUNT_PATH);
+    if (input.cwdVersion !== undefined && input.cwdVersion !== taskContext.cwdVersion) {
+      throw new CwdError(
+        'CWD_VERSION_MISMATCH',
+        'the execution was prepared against a different task working directory version',
+      );
+    }
+    if (requestedCwd !== taskContext.cwd) {
+      throw new CwdError(
+        'EXECUTION_CONTEXT_INVALID',
+        'the requested working directory is not the task working directory',
+      );
+    }
+    const contextCwd = taskContext.cwd;
+    if (contextCwd !== WORKSPACE_MOUNT_PATH && !contextCwd.startsWith(`${WORKSPACE_MOUNT_PATH}/`)) {
+      throw new CwdError('PATH_OUTSIDE_WORKSPACE', `cwd must be inside ${WORKSPACE_MOUNT_PATH}`);
     }
     const timeoutMs = Math.min(
       Math.max(input.timeoutMs, 1_000),
       this.settings.limits.maxExecutionTimeoutMs,
     );
-    const commandDigest = digestCommand(input.command, cwd, input.shell === true);
+    // The digest names the logical cwd, so a retry of the same tool call still
+    // matches even if the physical path was canonicalised identically.
+    const commandDigest = digestCommand(input.command, contextCwd, input.shell === true);
 
     // An execution id is a client-supplied idempotency handle too. Without this
     // check a second call with a fresh key and the same id would overwrite the
@@ -689,6 +837,28 @@ export class SandboxGateway {
       throw new SandboxConflictError(
         `execution ${duplicate.executionId} is ${duplicate.status}; refusing to submit it twice`,
       );
+    }
+
+    // §6.4 step 5: the directory must still exist and still be inside the
+    // workspace. This is the last point where refusing is free — after this the
+    // command becomes a container process.
+    const validated = await this.cwdManager.validateCurrent(task.taskId);
+    const cwd = validated.cwd;
+    if (validated.canonicalChanged) {
+      await this.audit.record({
+        taskId: task.taskId,
+        sessionId: context.sessionId ?? null,
+        sandboxId: sandbox.sandboxId,
+        toolCallId: input.toolCallId ?? null,
+        action: 'task.cwd.recovered',
+        outcome: 'succeeded',
+        detail: {
+          cwd: taskContext.cwd,
+          canonical_cwd: cwd,
+          cwd_version: taskContext.cwdVersion,
+          note: 'the physical path resolves differently from the recorded one; the execution uses the canonical path',
+        },
+      });
     }
 
     const permissionRequest: PermissionEvaluationRequest = {
@@ -748,6 +918,7 @@ export class SandboxGateway {
       // so a one-off token in an argv does not land in the execution table.
       command: input.command.map((part) => this.redactor.redact(part)),
       cwd,
+      cwdVersion: taskContext.cwdVersion,
       status: 'CREATED',
       exitCode: null,
       startedAt: null,
@@ -772,6 +943,16 @@ export class SandboxGateway {
     }
 
     await this.appendEvent(stored, 'execution/created', { command_digest: commandDigest, cwd });
+    // ADR 021 §6.3/§12.2: the frozen context is recorded on the execution, so
+    // "where did this run?" is answerable after the task has moved on.
+    await this.appendEvent(stored, 'execution.cwd.snapshot.created', {
+      cwd,
+      cwd_version: taskContext.cwdVersion,
+      workspace_id: task.workspaceId,
+      workspace_root: taskContext.workspaceRoot,
+      sandbox_id: sandbox.sandboxId,
+      policy_version: sandbox.policyVersion,
+    });
     await this.transition(stored, ['CREATED'], 'AUTHORIZED');
     await this.appendEvent(stored, 'execution/authorized', { layer: authorization.layer });
     await this.transition(stored, ['AUTHORIZED'], 'SUBMITTED');
@@ -862,6 +1043,7 @@ export class SandboxGateway {
         command: input.command,
         shell: input.shell === true,
         cwd,
+        workspaceRoot: taskContext.workspaceRoot,
         timeoutMs,
         maxOutputBytes: this.settings.limits.maxOutputBytes,
           env,
@@ -891,6 +1073,13 @@ export class SandboxGateway {
         throw new SandboxConflictError('execution was concurrently modified');
       }
 
+      if (result.detail === 'cwd-rejected') {
+        // The pre-flight check passed and the launcher still refused: a symlink
+        // changed or the directory vanished between the two. Fail closed and mark
+        // the context, so the next call reports `cwd_invalid` instead of running
+        // somewhere else (ADR §4.4, §11.3).
+        await this.cwdManager.markInvalidFromRuntime(task.taskId).catch(() => undefined);
+      }
       if (stdout.length > 0) {
         await this.appendEvent(terminal, 'execution/stdout', {
           bytes: Buffer.byteLength(result.stdout, 'utf8'),

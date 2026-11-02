@@ -21,6 +21,9 @@ import { randomUUID } from 'node:crypto';
 import { relative as pathRelative } from 'node:path';
 import type { SandboxContext, SandboxGateway } from './gateway.ts';
 import type {
+  ToolCwdChange,
+  ToolCwdPort,
+  ToolCwdSnapshot,
   ToolDirectoryListing,
   ToolEditResult,
   ToolExecutionResult,
@@ -77,10 +80,11 @@ export function createSandboxToolProvider(gateway: SandboxGateway): SandboxToolP
   };
 }
 
-class GatewayToolSession implements ToolWorkspacePort, ToolExecutor {
+class GatewayToolSession implements ToolWorkspacePort, ToolExecutor, ToolCwdPort {
   readonly displayPath = WORKSPACE_MOUNT_PATH;
   readonly workspace: ToolWorkspacePort;
   readonly executor: ToolExecutor;
+  readonly cwd: ToolCwdPort;
 
   private readonly gateway: SandboxGateway;
   readonly context: SandboxContext;
@@ -93,6 +97,7 @@ class GatewayToolSession implements ToolWorkspacePort, ToolExecutor {
     this.context = context;
     this.workspace = this;
     this.executor = this;
+    this.cwd = this;
   }
 
   /** Called by the provider once the task's workspace is known. */
@@ -140,6 +145,22 @@ class GatewayToolSession implements ToolWorkspacePort, ToolExecutor {
     return this.gateway.editFile(await this.ready(), options);
   }
 
+  // --------------------------------------------------------- task cwd (021) ---
+
+  async change(input: { readonly path: string; readonly operationId?: string }): Promise<ToolCwdChange> {
+    // Warm the task/workspace first so the error a first call reports is about
+    // the directory, not about a workspace that was never created.
+    await this.ready().catch(() => undefined);
+    return this.gateway.changeDirectory(this.call(), {
+      path: input.path,
+      ...(input.operationId ? { operationId: input.operationId } : {}),
+    });
+  }
+
+  async current(): Promise<ToolCwdSnapshot> {
+    return this.gateway.currentDirectory(this.call());
+  }
+
   async run(input: {
     readonly command: readonly string[];
     readonly shell?: boolean;
@@ -149,6 +170,9 @@ class GatewayToolSession implements ToolWorkspacePort, ToolExecutor {
   }): Promise<ToolExecutionResult> {
     const started = Date.now();
     const sandboxId = await this.ensureSandbox();
+    // ADR 021 §6.2: the cwd is read from the task context *here*, at execution
+    // creation, and frozen into the execution. The model never passes one.
+    const cwd = await this.gateway.currentDirectory(this.call());
     const result = await this.gateway.execute(
       this.call(input.toolCallId),
       {
@@ -156,7 +180,8 @@ class GatewayToolSession implements ToolWorkspacePort, ToolExecutor {
         executionId: `exec_${randomUUID()}`,
         idempotencyKey: input.toolCallId,
         command: input.command,
-        cwd: WORKSPACE_MOUNT_PATH,
+        cwd: cwd.cwd,
+        cwdVersion: cwd.cwdVersion,
         timeoutMs: input.timeoutMs ?? 120_000,
         shell: input.shell ?? false,
         toolCallId: input.toolCallId,

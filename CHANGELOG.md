@@ -50,6 +50,37 @@
     运行中新增网络域名/工作区外路径需要改部署策略，记录为 DENY；restricted 的
     工作区子路径由权限层而非 mount 执行。原因见 PERMISSIONS.md §12。
 
+- **Task-scoped CWD（ADR 021）。** `run_command` 保持无状态，工作目录变成任务的
+  显式状态：每次 Execution 从 Task Context 冻结一个 CWD Snapshot，Gateway 二次
+  校验，OCI Runtime 用 `--workdir` 启动。实现与偏差见
+  [docs/adr/021-implementation.md](docs/adr/021-implementation.md)。
+  - **模型侧**：新增 `change_directory(path)`，`run_command` 的输入**没有** `workdir`；
+    相对路径基于当前任务目录，`cd` 只影响当前进程。工具描述明确“后续命令从新目录
+    开始”，并保持 one-shot shell 语义。
+  - **状态与 CAS**：`sandbox_tasks` 增加 `workspace_root` / `current_cwd` /
+    `cwd_version` / `cwd_invalidated_at` / `cwd_invalid_reason`；CWD 变更只走
+    `compareAndSetTaskCwd()`，版本不匹配返回 `CWD_VERSION_CONFLICT`，普通
+    Task 更新路径写不了这三个字段。
+  - **持久化事务**：CWD 更新与 `task.cwd.change.succeeded` 审计行在同一个
+    SQLite 事务里；`task_cwd_operations` 以 tool call id 做幂等，重放返回原始结果，
+    同 id 不同路径返回 `IDEMPOTENCY_CONFLICT`。
+  - **安全**：先做词法边界（`path.relative`，不是字符串前缀），再做物理校验
+    （宿主侧 `realpath` + `stat`，拒绝符号链接逃逸）；容器内启动器在同一个 shell
+    进程里 `cd -P` 并复查边界，`docker exec` 无法传目录 fd 时由它兜住 TOCTOU。
+  - **Gateway 不信任 adapter**：重新读取任务上下文，核对 sandbox/workspace、cwd
+    version 与路径，不一致返回 `CWD_VERSION_MISMATCH` / `EXECUTION_CONTEXT_INVALID`；
+    失效目录不会回退 `/workspace`，而是 `CWD_INVALID` 直到显式恢复。
+  - **权限**：新增 `fs.chdir` 动作，四种模式按 ADR §9.2 处理；改目录不扩大文件
+    权限，文件操作仍逐路径判权。
+  - **恢复**：`recover` / sandbox 重建后重新校验 CWD；目录不存在则标记失效，
+    保留原路径，测试覆盖删除后拒绝执行、重建后恢复。
+  - **观测**：`task.cwd.*` 与 `execution.cwd.*` 事件；`listAudit()` 支持按
+    task/sandbox/execution/action 过滤；CLI 增加 `cwd` / `cd` / `audit`。
+  - **测试**：新增 `tests/sandbox/cwd-path.test.ts`、`cwd-validator.test.ts`、
+    `cwd-manager.test.ts`、`cwd.test.ts`、`cwd-sqlite.test.ts`、
+    `tests/tools/change-directory-tool.test.ts`；真实容器用例在
+    `integration.docker.test.ts` 中按 `SANDBOX_INTEGRATION=1` 运行。
+
 - **`npm run sandbox:smoke`：真实 SQLite + Docker 的端到端冒烟。** 走聊天工具适配器
   （task → workspace → sandbox → list → command），用临时数据库，不碰生产
   `data/eunoia.sqlite`；用于捕捉内存 store 看不到的外键/迁移问题。

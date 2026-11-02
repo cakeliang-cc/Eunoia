@@ -32,6 +32,7 @@ import type {
   PermissionScopeLevel,
 } from './permissions/types.ts';
 import type {
+  AuditQuery,
   CreateExecutionResult,
   CreatePermissionRequestResult,
   ExecutionTransitionPatch,
@@ -39,7 +40,10 @@ import type {
   HumanApprovalPatch,
   PermissionRequestPatch,
   SandboxStore,
+  TaskCwdUpdateInput,
+  TaskCwdUpdateResult,
 } from './store.ts';
+import type { CwdOperationRecord } from './cwd/cwd-types.ts';
 
 export class MemorySandboxStore implements SandboxStore {
   private readonly tasks = new Map<string, Task>();
@@ -55,6 +59,7 @@ export class MemorySandboxStore implements SandboxStore {
   private readonly permissionRequests = new Map<string, PermissionRequestRecord>();
   private readonly humanApprovals = new Map<string, HumanApprovalRecord>();
   private readonly permissionDecisions = new Map<string, PermissionDecision>();
+  private readonly cwdOperations = new Map<string, CwdOperationRecord>();
   private readonly audit: AuditEvent[] = [];
 
   async ensureTask(task: Task): Promise<Task> {
@@ -91,6 +96,81 @@ export class MemorySandboxStore implements SandboxStore {
     };
     this.tasks.set(taskId, updated);
     return { ...updated };
+  }
+
+  // ------------------------------------------------------- task cwd (ADR 021) ---
+
+  async initializeTaskCwd(input: {
+    readonly taskId: string;
+    readonly workspaceRoot: string;
+    readonly at: string;
+  }): Promise<Task | null> {
+    const task = this.tasks.get(input.taskId);
+    if (!task) return null;
+    // A repair, never a reset: an already-initialised cwd keeps its value.
+    const updated: Task = {
+      ...task,
+      workspaceRoot: task.workspaceRoot ?? input.workspaceRoot,
+      currentCwd: task.currentCwd ?? task.workspaceRoot ?? input.workspaceRoot,
+      cwdVersion: task.cwdVersion ?? 1,
+      cwdInvalidatedAt: task.cwdInvalidatedAt ?? null,
+      cwdInvalidReason: task.cwdInvalidReason ?? null,
+      updatedAt: input.at,
+    };
+    this.tasks.set(input.taskId, updated);
+    return { ...updated };
+  }
+
+  async compareAndSetTaskCwd(input: TaskCwdUpdateInput): Promise<TaskCwdUpdateResult> {
+    const task = this.tasks.get(input.taskId);
+    if (!task) return { updated: false, reason: 'not_found', task: null };
+    // Everything below is synchronous, so in a single-threaded runtime the check
+    // and the write cannot interleave with another async change.
+    if (task.status !== 'ACTIVE') return { updated: false, reason: 'not_active', task: { ...task } };
+    const version = task.cwdVersion ?? 1;
+    if (version !== input.expectedVersion) {
+      return { updated: false, reason: 'version_conflict', task: { ...task } };
+    }
+    const updated: Task = {
+      ...task,
+      currentCwd: input.cwd,
+      cwdVersion: version + 1,
+      cwdInvalidatedAt: null,
+      cwdInvalidReason: null,
+      updatedAt: input.at,
+    };
+    this.tasks.set(input.taskId, updated);
+    // The audit row is part of the same synchronous change, mirroring the
+    // single-transaction semantics of the SQLite store.
+    this.audit.push({ ...input.audit, detail: structuredClone(input.audit.detail) });
+    return { updated: true, task: { ...updated } };
+  }
+
+  async setTaskCwdInvalidation(input: {
+    readonly taskId: string;
+    readonly reason: string | null;
+    readonly at: string | null;
+  }): Promise<Task | null> {
+    const task = this.tasks.get(input.taskId);
+    if (!task) return null;
+    const updated: Task = {
+      ...task,
+      cwdInvalidatedAt: input.at,
+      cwdInvalidReason: input.reason,
+      updatedAt: input.at ?? task.updatedAt,
+    };
+    this.tasks.set(input.taskId, updated);
+    return { ...updated };
+  }
+
+  async saveCwdOperation(record: CwdOperationRecord): Promise<void> {
+    if (this.cwdOperations.has(record.operationId)) return;
+    this.cwdOperations.set(record.operationId, structuredClone(record));
+  }
+
+  async findCwdOperation(operationId: string): Promise<CwdOperationRecord | null> {
+    const record = this.cwdOperations.get(operationId);
+    return record ? structuredClone(record) : null;
   }
 
   async saveWorkspace(workspace: Workspace): Promise<void> {
@@ -516,9 +596,18 @@ export class MemorySandboxStore implements SandboxStore {
     this.audit.push({ ...event, detail: structuredClone(event.detail) });
   }
 
-  async listAudit(limit = 100): Promise<AuditEvent[]> {
+  async listAudit(query: number | AuditQuery = 100): Promise<AuditEvent[]> {
+    const filter: AuditQuery = typeof query === 'number' ? { limit: query } : query;
+    const limit = Math.min(Math.max(filter.limit ?? 100, 1), 1_000);
     return this.audit
-      .slice(-Math.min(Math.max(limit, 1), 1_000))
+      .filter(
+        (event) =>
+          (filter.taskId === undefined || event.taskId === filter.taskId) &&
+          (filter.sandboxId === undefined || event.sandboxId === filter.sandboxId) &&
+          (filter.executionId === undefined || event.executionId === filter.executionId) &&
+          (filter.action === undefined || event.action === filter.action),
+      )
+      .slice(-limit)
       .reverse()
       .map((event) => ({ ...event, detail: structuredClone(event.detail) }));
   }

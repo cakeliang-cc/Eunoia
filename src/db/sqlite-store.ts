@@ -59,7 +59,7 @@ import {
   SQLITE_SCHEMA,
   SQLITE_SCHEMA_VERSION,
 } from './sqlite-schema.ts';
-import { PERMISSION_SCHEMA } from '../sandbox/schema.ts';
+import { CWD_SCHEMA, PERMISSION_SCHEMA } from '../sandbox/schema.ts';
 
 type SqlValue = string | number | null;
 
@@ -827,6 +827,9 @@ export function openSqliteStore(path: string): SqliteStore {
     if (version < 4) {
       migrateToVersion4(db);
     }
+    if (version < 5) {
+      migrateToVersion5(db);
+    }
   }
   if (version < SQLITE_SCHEMA_VERSION) {
     db.exec(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
@@ -952,6 +955,40 @@ function migrateToVersion4(db: DatabaseSync): void {
     if (hasColumn(db, entry.table, entry.column)) continue;
     db.exec(`ALTER TABLE ${entry.table} ADD COLUMN ${entry.column} ${entry.ddl}`);
   }
+}
+
+/**
+ * Version 4 → 5.
+ *
+ * Same reason as version 4: `ALTER TABLE … ADD COLUMN` is not idempotent in
+ * SQLite, so each column is checked first and a partially migrated file
+ * converges on the next open.
+ *
+ * Existing tasks get `workspace_root = '/workspace'` and
+ * `current_cwd = workspace_root` rather than a best guess: the ADR is explicit
+ * that a historical `cd` cannot be recovered from command text, and inventing a
+ * directory is worse than starting at the workspace root.
+ */
+function migrateToVersion5(db: DatabaseSync): void {
+  db.exec(CWD_SCHEMA);
+  const columns: readonly { table: string; column: string; ddl: string }[] = [
+    { table: 'sandbox_tasks', column: 'workspace_root', ddl: 'TEXT' },
+    { table: 'sandbox_tasks', column: 'current_cwd', ddl: 'TEXT' },
+    { table: 'sandbox_tasks', column: 'cwd_version', ddl: 'INTEGER NOT NULL DEFAULT 1' },
+    { table: 'sandbox_tasks', column: 'cwd_invalidated_at', ddl: 'TEXT' },
+    { table: 'sandbox_tasks', column: 'cwd_invalid_reason', ddl: 'TEXT' },
+    { table: 'executions', column: 'cwd_version', ddl: 'INTEGER NOT NULL DEFAULT 1' },
+  ];
+  for (const entry of columns) {
+    if (hasColumn(db, entry.table, entry.column)) continue;
+    db.exec(`ALTER TABLE ${entry.table} ADD COLUMN ${entry.column} ${entry.ddl}`);
+  }
+  db.exec(
+    `UPDATE sandbox_tasks
+        SET workspace_root = COALESCE(workspace_root, '/workspace'),
+            current_cwd = COALESCE(current_cwd, workspace_root, '/workspace'),
+            cwd_version = COALESCE(cwd_version, 1)`,
+  );
 }
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {

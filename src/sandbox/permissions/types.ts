@@ -50,6 +50,15 @@ export const PERMISSION_ACTIONS = [
   'fs.read',
   'fs.list',
   'fs.write',
+  /**
+   * Changing the task's working directory (ADR 021 §9).
+   *
+   * Separate from `fs.read` on purpose: moving the task is a *state* change that
+   * affects every later execution, so it is audited and gated on its own rather
+   * than being implied by "may list a directory". It grants no file permission —
+   * a file operation inside the new directory is still evaluated per path.
+   */
+  'fs.chdir',
   'process.exec',
   'network.connect',
   'tool',

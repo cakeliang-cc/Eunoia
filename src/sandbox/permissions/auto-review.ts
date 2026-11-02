@@ -114,6 +114,18 @@ export function assessPermissionRequest(
     };
   }
 
+  if (operation === 'fs.chdir') {
+    // A directory change inside the task workspace is a low-risk state change;
+    // it moves where the next command starts, not what the task may touch.
+    const forbidden = isSystemPath(identifier);
+    return {
+      level: forbidden ? 'critical' : injectionSuspected ? 'high' : 'low',
+      reasons: [...reasons, forbidden ? 'directory change outside the workspace' : 'workspace directory change'],
+      forbidden,
+      injectionSuspected,
+    };
+  }
+
   if (operation === 'fs.write') {
     const forbidden = isSystemPath(identifier);
     return {

@@ -40,7 +40,14 @@ import {
   SandboxRuntimeUnavailableError,
 } from './errors.ts';
 
-export type PolicyAction = 'fs.read' | 'fs.write' | 'fs.list' | 'process.exec' | 'network.connect' | 'tool';
+export type PolicyAction =
+  | 'fs.read'
+  | 'fs.write'
+  | 'fs.list'
+  | 'fs.chdir'
+  | 'process.exec'
+  | 'network.connect'
+  | 'tool';
 
 export interface PolicyRequest {
   readonly action: PolicyAction;

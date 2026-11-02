@@ -38,6 +38,7 @@ import type {
   RiskLevel,
 } from './permissions/types.ts';
 import type {
+  AuditQuery,
   CreateExecutionResult,
   CreatePermissionRequestResult,
   ExecutionTransitionPatch,
@@ -45,7 +46,10 @@ import type {
   HumanApprovalPatch,
   PermissionRequestPatch,
   SandboxStore,
+  TaskCwdUpdateInput,
+  TaskCwdUpdateResult,
 } from './store.ts';
+import type { CwdOperationRecord, ChangeDirectoryResult } from './cwd/cwd-types.ts';
 
 type SqlValue = string | number | null;
 
@@ -56,6 +60,11 @@ interface TaskRow {
   status: string;
   workspace_id: string;
   sandbox_id: string | null;
+  workspace_root: string | null;
+  current_cwd: string | null;
+  cwd_version: number;
+  cwd_invalidated_at: string | null;
+  cwd_invalid_reason: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -94,6 +103,7 @@ interface ExecutionRow {
   command_digest: string;
   command_json: string;
   cwd: string;
+  cwd_version: number;
   status: string;
   exit_code: number | null;
   started_at: string | null;
@@ -242,12 +252,13 @@ interface CheckpointRow {
   storage_location: string;
 }
 
-const TASK_COLUMNS = 'task_id, session_id, user_id, status, workspace_id, sandbox_id, created_at, updated_at';
+const TASK_COLUMNS =
+  'task_id, session_id, user_id, status, workspace_id, sandbox_id, workspace_root, current_cwd, cwd_version, cwd_invalidated_at, cwd_invalid_reason, created_at, updated_at';
 const WORKSPACE_COLUMNS = 'workspace_id, task_id, storage_location, mode, current_version, created_at, updated_at';
 const SANDBOX_COLUMNS =
   'sandbox_id, task_id, runtime_type, runtime_id, image_digest, workspace_id, policy_version, resource_profile, config_digest, status, created_at, last_heartbeat_at, updated_at';
 const EXECUTION_COLUMNS =
-  'execution_id, task_id, sandbox_id, idempotency_key, command_digest, command_json, cwd, status, exit_code, started_at, finished_at, stdout, stderr, policy_version, tool_call_id, decision_id, permission_mode, permission_policy_version, created_at, updated_at';
+  'execution_id, task_id, sandbox_id, idempotency_key, command_digest, command_json, cwd, cwd_version, status, exit_code, started_at, finished_at, stdout, stderr, policy_version, tool_call_id, decision_id, permission_mode, permission_policy_version, created_at, updated_at';
 const APPROVAL_COLUMNS =
   'approval_id, task_id, action, resource_scope, expires_at, approved_by, policy_version, created_at, revoked_at, grant_id, organization_id, project_id, session_id, sandbox_id, principal_id, source, status, scope_level, request_id, approval_request_id, used_at';
 const REQUEST_COLUMNS =
@@ -283,7 +294,8 @@ export class SqliteSandboxStore implements SandboxStore {
 
   async ensureTask(task: Task): Promise<Task> {
     this.#run(
-      `INSERT INTO sandbox_tasks (${TASK_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO sandbox_tasks (${TASK_COLUMNS})
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (task_id) DO NOTHING`,
       task.taskId,
       task.sessionId,
@@ -291,6 +303,11 @@ export class SqliteSandboxStore implements SandboxStore {
       task.status,
       task.workspaceId,
       task.sandboxId,
+      task.workspaceRoot ?? null,
+      task.currentCwd ?? null,
+      task.cwdVersion ?? 1,
+      task.cwdInvalidatedAt ?? null,
+      task.cwdInvalidReason ?? null,
       task.createdAt,
       task.updatedAt,
     );
@@ -328,6 +345,152 @@ export class SqliteSandboxStore implements SandboxStore {
       );
     }
     return this.getTask(taskId);
+  }
+
+  // ------------------------------------------------------- task cwd (ADR 021) ---
+
+  async initializeTaskCwd(input: {
+    readonly taskId: string;
+    readonly workspaceRoot: string;
+    readonly at: string;
+  }): Promise<Task | null> {
+    // `COALESCE` keeps an already-initialised cwd: initialisation repairs a row
+    // that predates the columns, it never moves a task that has one.
+    this.#run(
+      `UPDATE sandbox_tasks
+          SET workspace_root = COALESCE(workspace_root, ?),
+              current_cwd = COALESCE(current_cwd, workspace_root, ?),
+              cwd_version = COALESCE(cwd_version, 1),
+              updated_at = ?
+        WHERE task_id = ?`,
+      input.workspaceRoot,
+      input.workspaceRoot,
+      input.at,
+      input.taskId,
+    );
+    return this.getTask(input.taskId);
+  }
+
+  async compareAndSetTaskCwd(input: TaskCwdUpdateInput): Promise<TaskCwdUpdateResult> {
+    // One transaction for the row and its audit row. `BEGIN IMMEDIATE` takes the
+    // write lock up front so a reader cannot slip between the checks and the
+    // update in a second process.
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = this.#get<TaskRow>(
+        `SELECT ${TASK_COLUMNS} FROM sandbox_tasks WHERE task_id = ?`,
+        input.taskId,
+      );
+      if (!row) {
+        this.#db.exec('COMMIT');
+        return { updated: false, reason: 'not_found', task: null };
+      }
+      if (row.status !== 'ACTIVE') {
+        this.#db.exec('COMMIT');
+        return { updated: false, reason: 'not_active', task: toTask(row) };
+      }
+      if (Number(row.cwd_version ?? 1) !== input.expectedVersion) {
+        this.#db.exec('COMMIT');
+        return { updated: false, reason: 'version_conflict', task: toTask(row) };
+      }
+      const result = this.#run(
+        `UPDATE sandbox_tasks
+            SET current_cwd = ?,
+                cwd_version = cwd_version + 1,
+                cwd_invalidated_at = NULL,
+                cwd_invalid_reason = NULL,
+                updated_at = ?
+          WHERE task_id = ? AND status = 'ACTIVE' AND cwd_version = ?`,
+        input.cwd,
+        input.at,
+        input.taskId,
+        input.expectedVersion,
+      );
+      if (result.changes === 0) {
+        this.#db.exec('COMMIT');
+        const current = this.#get<TaskRow>(
+          `SELECT ${TASK_COLUMNS} FROM sandbox_tasks WHERE task_id = ?`,
+          input.taskId,
+        );
+        return {
+          updated: false,
+          reason: 'version_conflict',
+          task: current ? toTask(current) : null,
+        };
+      }
+      this.insertAudit(input.audit);
+      this.#db.exec('COMMIT');
+      const updated = this.#get<TaskRow>(
+        `SELECT ${TASK_COLUMNS} FROM sandbox_tasks WHERE task_id = ?`,
+        input.taskId,
+      );
+      return updated
+        ? { updated: true, task: toTask(updated) }
+        : { updated: false, reason: 'not_found', task: null };
+    } catch (error) {
+      this.#db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  async setTaskCwdInvalidation(input: {
+    readonly taskId: string;
+    readonly reason: string | null;
+    readonly at: string | null;
+  }): Promise<Task | null> {
+    if (input.at === null) {
+      this.#run(
+        `UPDATE sandbox_tasks
+            SET cwd_invalidated_at = NULL, cwd_invalid_reason = NULL
+          WHERE task_id = ?`,
+        input.taskId,
+      );
+    } else {
+      this.#run(
+        `UPDATE sandbox_tasks
+            SET cwd_invalidated_at = ?, cwd_invalid_reason = ?, updated_at = ?
+          WHERE task_id = ?`,
+        input.at,
+        input.reason,
+        input.at,
+        input.taskId,
+      );
+    }
+    return this.getTask(input.taskId);
+  }
+
+  async saveCwdOperation(record: CwdOperationRecord): Promise<void> {
+    this.#run(
+      `INSERT INTO task_cwd_operations (operation_id, task_id, path, result, cwd_version, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT (operation_id) DO NOTHING`,
+      record.operationId,
+      record.taskId,
+      record.path,
+      JSON.stringify(record.result),
+      record.cwdVersion,
+      record.createdAt,
+    );
+  }
+
+  async findCwdOperation(operationId: string): Promise<CwdOperationRecord | null> {
+    const row = this.#get<{
+      operation_id: string;
+      task_id: string;
+      path: string;
+      result: string;
+      cwd_version: number;
+      created_at: string;
+    }>('SELECT * FROM task_cwd_operations WHERE operation_id = ?', operationId);
+    if (!row) return null;
+    return {
+      operationId: row.operation_id,
+      taskId: row.task_id,
+      path: row.path,
+      result: parseJson(row.result) as ChangeDirectoryResult,
+      cwdVersion: Number(row.cwd_version),
+      createdAt: row.created_at,
+    };
   }
 
   // -------------------------------------------------------------- workspaces ---
@@ -485,7 +648,7 @@ export class SqliteSandboxStore implements SandboxStore {
   async createExecution(execution: Execution): Promise<CreateExecutionResult> {
     const inserted = this.#run(
       `INSERT INTO executions (${EXECUTION_COLUMNS})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (sandbox_id, idempotency_key) DO NOTHING`,
       execution.executionId,
       execution.taskId,
@@ -494,6 +657,7 @@ export class SqliteSandboxStore implements SandboxStore {
       execution.commandDigest,
       JSON.stringify(execution.command),
       execution.cwd,
+      execution.cwdVersion ?? 1,
       execution.status,
       execution.exitCode,
       execution.startedAt,
@@ -1095,6 +1259,11 @@ export class SqliteSandboxStore implements SandboxStore {
   // ------------------------------------------------------------------- audit ---
 
   async appendAudit(event: AuditEvent): Promise<void> {
+    this.insertAudit(event);
+  }
+
+  /** The audit insert, shared with the transactional cwd change. */
+  private insertAudit(event: AuditEvent): void {
     this.#run(
       `INSERT INTO sandbox_audit_events
          (id, timestamp, session_id, task_id, sandbox_id, execution_id, tool_call_id, policy_version, approval_id, action, outcome, detail)
@@ -1114,12 +1283,33 @@ export class SqliteSandboxStore implements SandboxStore {
     );
   }
 
-  async listAudit(limit = 100): Promise<AuditEvent[]> {
+  async listAudit(query: number | AuditQuery = 100): Promise<AuditEvent[]> {
+    const filter: AuditQuery = typeof query === 'number' ? { limit: query } : query;
+    const clauses: string[] = [];
+    const params: SqlValue[] = [];
+    if (filter.taskId !== undefined) {
+      clauses.push('task_id = ?');
+      params.push(filter.taskId);
+    }
+    if (filter.sandboxId !== undefined) {
+      clauses.push('sandbox_id = ?');
+      params.push(filter.sandboxId);
+    }
+    if (filter.executionId !== undefined) {
+      clauses.push('execution_id = ?');
+      params.push(filter.executionId);
+    }
+    if (filter.action !== undefined) {
+      clauses.push('action = ?');
+      params.push(filter.action);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     return this.#all<AuditRow>(
       `SELECT id, timestamp, session_id, task_id, sandbox_id, execution_id, tool_call_id, policy_version,
               approval_id, action, outcome, detail
-         FROM sandbox_audit_events ORDER BY timestamp DESC LIMIT ?`,
-      Math.min(Math.max(limit, 1), 1_000),
+         FROM sandbox_audit_events ${where} ORDER BY timestamp DESC LIMIT ?`,
+      ...params,
+      Math.min(Math.max(filter.limit ?? 100, 1), 1_000),
     ).map((row) => ({
       id: row.id,
       timestamp: row.timestamp,
@@ -1172,6 +1362,11 @@ function toTask(row: TaskRow): Task {
     status: row.status as Task['status'],
     workspaceId: row.workspace_id,
     sandboxId: row.sandbox_id,
+    workspaceRoot: row.workspace_root,
+    currentCwd: row.current_cwd,
+    cwdVersion: Number(row.cwd_version ?? 1),
+    cwdInvalidatedAt: row.cwd_invalidated_at,
+    cwdInvalidReason: row.cwd_invalid_reason,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1216,6 +1411,7 @@ function toExecution(row: ExecutionRow): Execution {
     commandDigest: row.command_digest,
     command: parseJson(row.command_json) as string[],
     cwd: row.cwd,
+    cwdVersion: Number(row.cwd_version ?? 1),
     status: row.status as ExecutionState,
     exitCode: row.exit_code === null ? null : Number(row.exit_code),
     startedAt: row.started_at,

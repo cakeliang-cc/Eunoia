@@ -195,6 +195,8 @@ export function buildExecArgs(input: {
   readonly command: readonly string[];
   readonly shell: boolean;
   readonly cwd: string;
+  /** The task workspace root; the launcher re-checks the boundary against it. */
+  readonly workspaceRoot: string;
   readonly executionId: string;
   readonly envFile: string | null;
   readonly user?: string;
@@ -202,7 +204,10 @@ export function buildExecArgs(input: {
   if (!/^[A-Za-z0-9_-]{1,80}$/.test(input.executionId)) {
     throw new SandboxPolicyError('execution id contains a character unsafe for a marker path');
   }
+  assertExecCwd(input.cwd, input.workspaceRoot);
+
   const args = ['exec', '--user', input.user ?? `${SANDBOX_UID}:${SANDBOX_GID}`];
+  // ADR 021 §7.1: the container starts in the task's directory, not at the root.
   args.push('--workdir', input.cwd);
   if (input.envFile) args.push('--env-file', input.envFile);
   args.push(input.containerName, '/bin/sh', '-c', WRAPPER, 'eunoia', ...wrapperArgv(input));
@@ -211,12 +216,62 @@ export function buildExecArgs(input: {
   return args;
 }
 
-/** The fixed wrapper. `$1` is the execution id; the command follows. */
+/**
+ * The cwd is about to become an argv element and a `--workdir` value.
+ *
+ * It is checked here as well as in the Gateway because this is the last place
+ * before the runtime API: a relative or newline-bearing value must never become
+ * an exec argument, whatever the caller did.
+ */
+function assertExecCwd(cwd: string, workspaceRoot: string): void {
+  if (!cwd.startsWith('/')) {
+    throw new SandboxPolicyError('execution cwd must be absolute');
+  }
+  if (/[\0\r\n]/.test(cwd)) {
+    throw new SandboxPolicyError('execution cwd contains a control character');
+  }
+  const root = workspaceRoot.replace(/\/+$/, '');
+  if (cwd !== root && !cwd.startsWith(`${root}/`)) {
+    throw new SandboxPolicyError(`execution cwd is outside ${root}`);
+  }
+}
+
+/**
+ * The fixed launcher.
+ *
+ * It receives the execution id, the workspace root and the cwd as positional
+ * arguments — never interpolated into this source — resolves the directory and
+ * `cd`s into it in *this* shell, before running the command. That is what makes
+ * the boundary check and the use of the directory happen against one resolution:
+ * a symlink swapped in after validation cannot move the process, because the
+ * shell already holds the working directory it resolved.
+ *
+ * A cwd that cannot be entered, or that resolves outside the workspace, is a
+ * refusal (`eunoia:cwd_rejected:*` on stderr, exit 126) — never a silent `cd /`.
+ */
 export const WRAPPER = [
   'id="$1"',
-  'shift',
+  'root="$2"',
+  'dir="$3"',
+  'shift 3',
   'mkdir -p /tmp/.eunoia 2>/dev/null || true',
   'printf %s "$$" > /tmp/.eunoia/"$id".pid 2>/dev/null || true',
+  'if ! cd -P "$dir" 2>/dev/null; then',
+  '  printf %s "eunoia:cwd_rejected:missing" >&2',
+  '  printf %s "126" > /tmp/.eunoia/"$id".status.tmp 2>/dev/null || true',
+  '  mv /tmp/.eunoia/"$id".status.tmp /tmp/.eunoia/"$id".status 2>/dev/null || true',
+  '  exit 126',
+  'fi',
+  'real=$(pwd -P)',
+  'case "$real" in',
+  '  "$root"|"$root"/*) ;;',
+  '  *)',
+  '    printf %s "eunoia:cwd_rejected:escape" >&2',
+  '    printf %s "126" > /tmp/.eunoia/"$id".status.tmp 2>/dev/null || true',
+  '    mv /tmp/.eunoia/"$id".status.tmp /tmp/.eunoia/"$id".status 2>/dev/null || true',
+  '    exit 126',
+  '    ;;',
+  'esac',
   '"$@"',
   'code=$?',
   'printf %s "$code" > /tmp/.eunoia/"$id".status.tmp 2>/dev/null || true',
@@ -233,9 +288,11 @@ function wrapperArgv(input: {
   readonly executionId: string;
   readonly command: readonly string[];
   readonly shell: boolean;
+  readonly cwd: string;
+  readonly workspaceRoot: string;
 }): string[] {
   const argv = input.shell ? ['/bin/sh', '-c', input.command[0] ?? ''] : [...input.command];
-  return [input.executionId, ...argv];
+  return [input.executionId, input.workspaceRoot, input.cwd, ...argv];
 }
 
 /** Read one marker through the same wrapper-less path. */

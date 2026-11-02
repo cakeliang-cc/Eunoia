@@ -30,6 +30,7 @@ import type {
   Workspace,
   WorkspaceCheckpoint,
 } from './types.ts';
+import type { CwdOperationRecord } from './cwd/cwd-types.ts';
 import type {
   AutoReviewResultRecord,
   HumanApprovalRecord,
@@ -55,6 +56,24 @@ export interface CreateExecutionResult {
   /** False when the idempotency key already existed; the stored row is returned. */
   readonly created: boolean;
 }
+
+/** The compare-and-set input for a task cwd change. */
+export interface TaskCwdUpdateInput {
+  readonly taskId: string;
+  readonly expectedVersion: number;
+  readonly cwd: string;
+  readonly at: string;
+  /** Committed atomically with the cwd change (transactional outbox). */
+  readonly audit: AuditEvent;
+}
+
+export type TaskCwdUpdateResult =
+  | { readonly updated: true; readonly task: Task }
+  | {
+      readonly updated: false;
+      readonly reason: 'not_found' | 'not_active' | 'version_conflict';
+      readonly task: Task | null;
+    };
 
 export interface PermissionRequestPatch {
   readonly reason?: string;
@@ -85,6 +104,20 @@ export interface GrantFilter {
   readonly approvalRequestId?: string;
 }
 
+/**
+ * How an operator narrows the audit trail (ADR 021 §14).
+ *
+ * Task, sandbox and execution are the three correlation ids the ADR asks to be
+ * queryable; `action` answers "show me every cwd change" without a full scan.
+ */
+export interface AuditQuery {
+  readonly taskId?: string;
+  readonly sandboxId?: string;
+  readonly executionId?: string;
+  readonly action?: string;
+  readonly limit?: number;
+}
+
 export interface SandboxStore {
   // ------------------------------------------------------------------ tasks ---
   /** Idempotent: an existing task is returned unchanged. */
@@ -92,6 +125,41 @@ export interface SandboxStore {
   getTask(taskId: string): Promise<Task | null>;
   getTaskBySession(sessionId: string): Promise<Task | null>;
   updateTask(taskId: string, patch: Partial<Pick<Task, 'status' | 'sandboxId' | 'workspaceId'>>): Promise<Task | null>;
+
+  // ------------------------------------------------------- task cwd (ADR 021) ---
+  /**
+   * Fill in the cwd columns for a task that predates them, or re-point the
+   * workspace root. Never moves an already-initialised cwd: initialisation is a
+   * repair, not a silent reset (ADR 021 §16.1).
+   */
+  initializeTaskCwd(input: {
+    readonly taskId: string;
+    readonly workspaceRoot: string;
+    readonly at: string;
+  }): Promise<Task | null>;
+
+  /**
+   * Compare-and-set the task cwd, its version and the audit row describing it.
+   *
+   * All three happen in one database transaction. Writing the audit row outside
+   * it would allow the exact failure the ADR forbids: a cwd that changed with no
+   * trace, or a trace for a change that was rolled back.
+   */
+  compareAndSetTaskCwd(input: TaskCwdUpdateInput): Promise<TaskCwdUpdateResult>;
+
+  /**
+   * Mark the recorded cwd unusable without changing it (ADR 021 §11.3), or clear
+   * the mark once a validation succeeds again (`at: null`).
+   */
+  setTaskCwdInvalidation(input: {
+    readonly taskId: string;
+    readonly reason: string | null;
+    readonly at: string | null;
+  }): Promise<Task | null>;
+
+  /** Idempotency record for one `change_directory` operation (ADR 021 §13). */
+  saveCwdOperation(record: CwdOperationRecord): Promise<void>;
+  findCwdOperation(operationId: string): Promise<CwdOperationRecord | null>;
 
   // -------------------------------------------------------------- workspaces ---
   saveWorkspace(workspace: Workspace): Promise<void>;
@@ -206,5 +274,6 @@ export interface SandboxStore {
 
   // ------------------------------------------------------------------- audit ---
   appendAudit(event: AuditEvent): Promise<void>;
-  listAudit(limit?: number): Promise<AuditEvent[]>;
+  /** A number keeps the old "latest N" behaviour; a filter narrows by id. */
+  listAudit(query?: number | AuditQuery): Promise<AuditEvent[]>;
 }

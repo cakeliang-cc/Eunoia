@@ -978,7 +978,12 @@ function isGrantExpandable(
   if (layer === 'system') return false;
   const operation = request.action.operation;
   if (operation === 'process.exec') return true;
-  if (operation === 'fs.write' || operation === 'fs.read' || operation === 'fs.list') {
+  if (
+    operation === 'fs.write' ||
+    operation === 'fs.read' ||
+    operation === 'fs.list' ||
+    operation === 'fs.chdir'
+  ) {
     if (effective.mode !== 'restricted') return false;
     const identifier = request.resource.identifier;
     const insideWorkspace =

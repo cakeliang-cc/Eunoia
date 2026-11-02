@@ -299,6 +299,47 @@ export type {
   PermissionScopeLevel,
   RiskLevel,
 } from './permissions/types.ts';
+// ---------------------------------------------------- task cwd (ADR 021) ---
+export { CwdManager } from './cwd/cwd-manager.ts';
+export type { CwdPermissionPort, ValidatedCwd } from './cwd/cwd-manager.ts';
+export { TaskContextStore, toContext } from './cwd/task-context-store.ts';
+export {
+  FilesystemCwdValidator,
+  nodeCwdFilesystem,
+} from './cwd/cwd-validator.ts';
+export type {
+  CwdFilesystem,
+  CwdValidationInput,
+  CwdValidationResult,
+  CwdValidator,
+} from './cwd/cwd-validator.ts';
+export {
+  assertPathInput,
+  isWithinRoot,
+  resolveTaskPath,
+  toContainerPath,
+  toHostPath,
+  workspaceRelative,
+} from './cwd/cwd-path.ts';
+export { authorizeCwdChange } from './cwd/cwd-policy.ts';
+export type { CwdPolicyDecision, CwdPolicyInput } from './cwd/cwd-policy.ts';
+export { CwdError, CwdVersionConflictError, TASK_CWD_ROOT } from './cwd/cwd-types.ts';
+export type {
+  ChangeDirectoryFailure,
+  ChangeDirectoryInput,
+  ChangeDirectoryResult,
+  ChangeDirectorySuccess,
+  CwdAuditAction,
+  CwdErrorCode,
+  CwdOperationRecord,
+  CwdResult,
+  ExecutionContextSnapshot,
+  InitializeTaskContextInput,
+  TaskCwdStatus,
+  TaskExecutionContext,
+  UpdateTaskCwdInput,
+} from './cwd/cwd-types.ts';
+
 export { SandboxGateway } from './gateway.ts';
 export type { SandboxContext, ExecuteOptions } from './gateway.ts';
 export { SandboxController } from './controller.ts';
