@@ -1,7 +1,7 @@
 ---
 name: code-change-verification
 description: 在改动运行时代码、测试、构建配置或示例之后，按仓库规定的顺序跑类型检查、lint 和测试，并把失败限定在本次改动内。改动完成、准备说“做好了”之前使用。
-allowed-tools: [read_file, grep, glob, list_dir, run_command]
+allowed-tools: [read, grep, glob, list_dir, bash]
 version: 1.0.0
 ---
 
@@ -11,7 +11,7 @@ version: 1.0.0
 
 ## 先看清楚再跑
 
-1. 用 `glob` 或 `read_file` 找到本次改动涉及的文件。
+1. 用 `glob` 或 `read` 找到本次改动涉及的文件。
 2. 读 `package.json`（或 `Makefile` / `pyproject.toml`）里的 scripts，确认实际命令，不要凭印象拼。
 3. 判断影响面：
    - 只改一个模块：先跑针对它的测试，再跑全量类型检查。

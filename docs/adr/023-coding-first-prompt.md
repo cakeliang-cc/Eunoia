@@ -40,7 +40,7 @@ DSH 的提示词被拿来参考。需要说清楚的是它到底是什么：实�
 |---|---|
 | 身份 | Eunoia + 会写代码 + 中文 + 不客套 |
 | 工作方式 | 先看再说、最小改动、改完验证、退出码 0 不等于完成、不确定就问 |
-| 工具纪律 | `glob` / `grep` / `read_file` / `edit_file` / `write_file` / `run_command` / `change_directory` / `load_skill` 的用法；两个路径基准；不可逆操作用绝对路径并确认目标 |
+| 工具纪律 | `glob` / `grep` / `read` / `edit` / `write` / `bash` / `change_directory` / `skill` 的用法；两个路径基准；不可逆操作用绝对路径并确认目标 |
 | 输出 | 先结果后解释、路径和行号、说清验证了什么、不贴整份文件 |
 | 记忆规则 | 压缩成一节：什么时候搜、存、更新；来源诚实；检索结果是片段 |
 | 安全 | 危机处理保留，安全优先 |
@@ -67,24 +67,14 @@ DSH 的提示词被拿来参考。需要说清楚的是它到底是什么：实�
   live 评测。
 - 回滚成本很低：复制备份文件、构建、重启。
 
-## 6. 工具描述
+## 6. 工具层对齐
 
-活动提示词换成 coding-first 之后，工具描述也按 DSH 的形状重写：**一句到几句的契约**
-——它做什么、返回什么、哪一两条约束是 schema 表达不了的。“什么时候调用”移到提示词的
-「工具纪律」，不再在每个工具里重复一遍。
+最终状态：工具名、描述和参数名都对齐 DSH。
 
-- 参数描述改成一行，路径参数明确写出基准（工作区根目录 / 当前任务目录）。
-- 没有照搬 DSH 英文原文：语言不同，工具名和语义也不同（`bash` 没有 `workdir`、
-  Eunoia 的 `read_file` 用 `start/end`）。借鉴的是结构，不是句子。
-- 记忆工具没有 DSH 对应物，但也缩短了；什么时候该搜、该存、该更新，现在由提示词的
-  记忆段统一说明。
-- `tests/tools/descriptions.test.ts` 守住两点：描述不重新长成“什么时候调用”清单，
-  以及 run_command / change_directory 的路径基准和不可逆操作规则还在。
-
-## 7. 不做什么
-
-- **不照搬 DSH 原文。** 它的工具名和环境与 Eunoia 不匹配；照搬会让模型调用不存在
-  的工具。
-- **不新增工具。** 这次只改提示词；路径统一（让文件工具也接受 `/workspace/...`）
-  仍是独立决策。
-- **不删人格文档。** 它是回滚路径，也是产品历史的一部分。
+- **工具名**：`read` / `write` / `edit` / `bash`，技能加载器叫 `skill`。`list_dir`、
+  `change_directory` 和三个记忆工具是 Eunoia 自己的扩展，保留原名。
+- **描述**：英文契约，取自 DSH 原文；只在语义不同处改写（`bash` 跑的是 `/bin/sh -c`；
+  glob 跳过忽略目录和凭据；grep 用 JavaScript 正则而不是 ripgrep）。
+- **参数名**：`file_path` / `offset` / `limit` / `timeout`。`start/end` 改成
+  `offset/limit`（offset 是首行，limit 是行数）。路径参数写明基准。
+- **仍然没有**：`workdir`、`run_in_background`、`sandbox_permissions`

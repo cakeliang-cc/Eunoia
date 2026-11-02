@@ -665,13 +665,13 @@ export function assertAllowed(decision: PolicyEvaluation): void {
 
 /** The names of the tools the platform owns, for policy checks and docs. */
 export const SANDBOX_TOOL_NAMES = [
-  'read_file',
+  'read',
   'list_dir',
   'glob',
   'grep',
-  'write_file',
-  'edit_file',
-  'run_command',
+  'write',
+  'edit',
+  'bash',
 ] as const;
 
 export type SandboxToolName = (typeof SANDBOX_TOOL_NAMES)[number];

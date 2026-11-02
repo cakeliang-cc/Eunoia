@@ -507,10 +507,10 @@ export class PermissionManager {
       action: {
         tool:
           input.action === 'process.exec'
-            ? 'run_command'
+            ? 'bash'
             : input.action === 'fs.write'
-              ? 'write_file'
-              : 'read_file',
+              ? 'write'
+              : 'read',
         operation: input.action,
       },
       resource: {

@@ -1,7 +1,7 @@
 /**
  * The built-in skills are part of the product, so they are parsed by the same
  * tests as user skills. A malformed built-in would otherwise ship silently: the
- * registry would report a diagnostic that nobody reads, and `load_skill` would
+ * registry would report a diagnostic that nobody reads, and `skill` would
  * simply be absent for that workflow.
  */
 

@@ -61,7 +61,7 @@ export function createSandboxToolProvider(gateway: SandboxGateway): SandboxToolP
         sessionId: target.sessionId,
         userId: target.userId,
       });
-      // Ensure the task/workspace eagerly so `load_skill` can map a host path to
+      // Ensure the task/workspace eagerly so `skill` can map a host path to
       // a workspace path synchronously. This does not create a container: a
       // read-only turn still runs without a runtime.
       try {

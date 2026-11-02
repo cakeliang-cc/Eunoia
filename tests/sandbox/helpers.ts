@@ -86,7 +86,7 @@ export function testPermissionSettings(
     approvalTtlMs: overrides.approvalTtlMs ?? 15 * 60_000,
     operatorId: 'operator',
     restricted: {
-      allowedTools: ['read_file', 'list_dir', 'glob', 'grep', 'run_command'],
+      allowedTools: ['read', 'list_dir', 'glob', 'grep', 'bash'],
       filesystem: { read: ['/workspace'], write: [] },
       network: { mode: 'none', allowedDomains: [], allowedPorts: [] },
       ...overrides.restricted,

@@ -16,11 +16,15 @@ import type { ToolResult } from './types.ts';
 export function summarizeToolCall(name: string, args: Record<string, unknown>): string {
   const path = stringArg(args, 'path');
   switch (name) {
-    case 'read_file': {
-      const start = numberArg(args, 'start');
-      const end = numberArg(args, 'end');
-      const range = start > 0 || end > 0 ? `:${start > 0 ? start : 1}-${end > 0 ? end : ''}` : '';
-      return `读取 ${path || '文件'}${range}`;
+    case 'read': {
+      const file = stringArg(args, 'file_path');
+      const offset = numberArg(args, 'offset');
+      const limit = numberArg(args, 'limit');
+      const range =
+        offset > 0 || limit > 0
+          ? `:${offset > 0 ? offset : 1}-${limit > 0 ? (offset > 0 ? offset : 1) + limit - 1 : ''}`
+          : '';
+      return `读取 ${file || '文件'}${range}`;
     }
     case 'list_dir':
       return `查看 ${path || '.'}/`;
@@ -30,13 +34,13 @@ export function summarizeToolCall(name: string, args: Record<string, unknown>): 
       const query = stringArg(args, 'pattern');
       return `搜索 ${query ? JSON.stringify(clip(query, 40)) : '内容'}${path ? ` 在 ${path}` : ''}`;
     }
-    case 'write_file': {
+    case 'write': {
       const content = stringArg(args, 'content');
-      return `写入 ${path || '文件'}${content ? `（${formatBytes(Buffer.byteLength(content, 'utf8'))}）` : ''}`;
+      return `写入 ${stringArg(args, 'file_path') || '文件'}${content ? `（${formatBytes(Buffer.byteLength(content, 'utf8'))}）` : ''}`;
     }
-    case 'edit_file':
-      return `修改 ${path || '文件'}`;
-    case 'run_command':
+    case 'edit':
+      return `修改 ${stringArg(args, 'file_path') || '文件'}`;
+    case 'bash':
       return `运行 ${clip(stringArg(args, 'command'), 80) || '命令'}`;
     case 'search_memory':
       return `检索记忆 ${clip(stringArg(args, 'query'), 40)}`;
@@ -44,7 +48,7 @@ export function summarizeToolCall(name: string, args: Record<string, unknown>): 
       return `保存记忆 ${clip(stringArg(args, 'content'), 40)}`;
     case 'update_memory':
       return `更新记忆 ${clip(stringArg(args, 'id'), 20)}`;
-    case 'load_skill':
+    case 'skill':
       return `加载技能 ${clip(stringArg(args, 'name'), 60)}`;
     default:
       return name;
@@ -59,10 +63,10 @@ export function summarizeToolResult(name: string, result: ToolResult): string {
   const read = result.meta?.read as
     | { start?: number; end?: number; complete?: boolean }
     | undefined;
-  if (name === 'read_file' && read) {
+  if (name === 'read' && read) {
     return `读取 ${read.start ?? 1}-${read.end ?? '?'} 行${read.complete ? '（整份）' : ''}`;
   }
-  if (name === 'run_command') {
+  if (name === 'bash') {
     const exit = result.meta?.exitCode;
     const duration = result.meta?.durationMs;
     const suffix = typeof duration === 'number' ? ` · ${(duration / 1000).toFixed(1)}s` : '';

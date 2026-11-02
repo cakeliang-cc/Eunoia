@@ -1,7 +1,7 @@
 /**
  * The skill mechanism inside the loop.
  *
- * `load_skill` is only useful if its result reaches the next model step. This is
+ * `skill` is only useful if its result reaches the next model step. This is
  * that end-to-end assertion without a provider: the first step calls the tool,
  * the second sees the body in its input, and the turn completes.
  */
@@ -32,7 +32,7 @@ beforeEach(async () => {
     manifest: {
       name: 'demo-skill',
       description: '演示技能，在测试里使用。',
-      allowedTools: ['read_file'],
+      allowedTools: ['read'],
       metadata: {},
     },
     root: join(workspace.root, 'skills', 'demo-skill'),
@@ -53,7 +53,7 @@ afterEach(async () => {
 describe('skills in the loop', () => {
   it('feeds a loaded skill body into the next model step', async () => {
     const registry = new ToolRegistry(
-      createSkillTools(new SkillRegistry([skill]), { availableTools: new Set(['read_file']) }),
+      createSkillTools(new SkillRegistry([skill]), { availableTools: new Set(['read']) }),
     );
     const requests: LoopInputItem[][] = [];
     let step = 0;
@@ -66,7 +66,7 @@ describe('skills in the loop', () => {
           {
             type: 'function_call',
             callId: 'c1',
-            name: 'load_skill',
+            name: 'skill',
             arguments: JSON.stringify({ name: 'demo-skill' }),
           },
         ];
@@ -96,7 +96,7 @@ describe('skills in the loop', () => {
       events.push(event);
     }
 
-    expect(events.some((event) => event.type === 'tool_call' && event.name === 'load_skill')).toBe(
+    expect(events.some((event) => event.type === 'tool_call' && event.name === 'skill')).toBe(
       true,
     );
     expect(events.some((event) => event.type === 'tool_result' && event.ok)).toBe(true);

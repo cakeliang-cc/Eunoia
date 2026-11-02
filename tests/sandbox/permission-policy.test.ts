@@ -45,7 +45,7 @@ function request(
     taskId: 'task-1',
     sandboxId: 'sbx-1',
     principal: { type: 'agent', id: 'agent:task-1' },
-    action: { tool: 'write_file', operation: 'fs.write' },
+    action: { tool: 'write', operation: 'fs.write' },
     resource: { type: 'path', identifier: '/workspace/src/a.ts', scope: ['/workspace/src/a.ts'] },
     ...overrides,
   };
@@ -109,14 +109,14 @@ describe('permission mode resolution', () => {
 
   it('applies the restricted allow-list to the structural policy', () => {
     const policy = narrowPolicyForMode(taskPolicy(), 'restricted', {
-      allowedTools: ['read_file', 'run_command'],
+      allowedTools: ['read', 'bash'],
       filesystem: { read: ['/workspace/src'], write: ['/workspace/tests'] },
       network: { mode: 'none', allowedDomains: [], allowedPorts: [] },
     });
     expect(policy.filesystem.read).toEqual(['/workspace/src']);
     expect(policy.filesystem.write).toEqual(['/workspace/tests']);
     expect(policy.process.allowShell).toBe(true);
-    expect(policy.tools.allowedTools).toEqual(['read_file', 'run_command']);
+    expect(policy.tools.allowedTools).toEqual(['read', 'bash']);
   });
 
   it('makes read-only remove every writable prefix', () => {
@@ -194,7 +194,7 @@ describe('scope policies can only tighten', () => {
   it('cannot add a tool, a write path or a network domain from a narrower scope', () => {
     const widened = scopePolicy('task', 'restricted', {
       restricted: {
-        allowedTools: ['read_file', 'write_file'],
+        allowedTools: ['read', 'write'],
         filesystem: { read: ['/workspace'], write: ['/workspace/src'] },
         network: {
           mode: 'proxy_only',
@@ -205,7 +205,7 @@ describe('scope policies can only tighten', () => {
     });
 
     const effective = resolve({ task: widened }, { mode: 'restricted' });
-    expect(effective.restricted.allowedTools).toEqual(['read_file']);
+    expect(effective.restricted.allowedTools).toEqual(['read']);
     expect(effective.restricted.filesystem.write).toEqual([]);
     expect(effective.restricted.network.mode).toBe('none');
     expect(effective.restricted.network.allowedDomains).toEqual([]);
@@ -214,14 +214,14 @@ describe('scope policies can only tighten', () => {
   it('still lets a scope genuinely narrow the allow-list', () => {
     const narrowed = scopePolicy('task', 'restricted', {
       restricted: {
-        allowedTools: ['read_file'],
+        allowedTools: ['read'],
         filesystem: { read: ['/workspace/src'], write: [] },
         network: { mode: 'none', allowedDomains: [], allowedPorts: [] },
       },
     });
 
     const effective = resolve({ task: narrowed }, { mode: 'restricted' });
-    expect(effective.restricted.allowedTools).toEqual(['read_file']);
+    expect(effective.restricted.allowedTools).toEqual(['read']);
     expect(effective.restricted.filesystem.read).toEqual(['/workspace/src']);
   });
 });
@@ -244,7 +244,7 @@ describe('permission rules', () => {
 
   it('does not match a different action', () => {
     const result = evaluatePermissionRules([rule()], request({
-      action: { tool: 'read_file', operation: 'fs.read' },
+      action: { tool: 'read', operation: 'fs.read' },
     }));
     expect(result.effect).toBe('none');
   });
@@ -308,7 +308,7 @@ describe('auto-review', () => {
     );
     const outcome = await service.review({
       request: request({
-        action: { tool: 'run_command', operation: 'process.exec' },
+        action: { tool: 'bash', operation: 'process.exec' },
         resource: { type: 'command', identifier: '/workspace' },
         context: { command: 'npm install left-pad' },
       }),

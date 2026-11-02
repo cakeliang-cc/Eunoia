@@ -415,7 +415,7 @@ describe('permission persistence', () => {
       autoReview: { enabled: true, allowedRiskLevels: ['low'], maxTtlMs: 600_000 },
       approval: { allowed: true, requireHumanForRiskLevels: ['high'], maxTtlMs: 900_000 },
       restricted: {
-        allowedTools: ['read_file'],
+        allowedTools: ['read'],
         filesystem: { read: ['/workspace'], write: [] },
         network: { mode: 'none', allowedDomains: [], allowedPorts: [] },
       },
@@ -439,7 +439,7 @@ describe('permission persistence', () => {
       principalType: 'agent',
       principalId: 'agent:task-1',
       action: 'fs.write',
-      toolName: 'write_file',
+      toolName: 'write',
       resourceType: 'path',
       resourceIdentifier: '/workspace/a.ts',
       resourceScope: ['/workspace/a.ts'],

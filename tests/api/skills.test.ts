@@ -3,7 +3,7 @@
  *
  * This is what a UI needs to list skills without loading bodies: names,
  * descriptions, sources and resource paths. The body is intentionally absent —
- * it is loaded per turn by `load_skill`, not shipped to every client.
+ * it is loaded per turn by `skill`, not shipped to every client.
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -29,7 +29,7 @@ const skill: Skill = {
   manifest: {
     name: 'docs-sync',
     description: '在代码或配置改动后检查文档是否仍然准确。',
-    allowedTools: ['read_file', 'grep'],
+    allowedTools: ['read', 'grep'],
     metadata: {},
   },
   root: '/tmp/skills/docs-sync',

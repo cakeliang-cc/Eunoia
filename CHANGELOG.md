@@ -337,15 +337,14 @@
 
 ### Changed
 
-- **工具描述改为契约式短文（ADR 023）。** `read_file` / `write_file` / `edit_file` /
-  `glob` / `grep` / `run_command` / `change_directory` / `load_skill` 的描述从
-  “什么时候调用 + 规则 + 不要”清单收缩成一句到几句的契约：做什么、返回什么、哪条约束
-  schema 表达不了；“什么时候调用”交给提示词的「工具纪律」。参数描述统一成一行，路径参数
-  写明基准。记忆工具没有 DSH 对应物，但同步缩短，使用时机由提示词统一说明。新增
-  `tests/tools/descriptions.test.ts` 守住这个形状。
+- **工具层完全对齐 DSH（ADR 023）。** 工具名改为 `read` / `write` / `edit` / `bash`，
+  `load_skill` 改为 `skill`；描述改成英文契约（DSH 原文，仅在语义不同处改写），参数名
+  对齐为 `file_path` / `offset` / `limit` / `timeout`。`list_dir`、`change_directory`
+  和记忆工具是 Eunoia 自己的扩展，保持中文。`prompt-language` 不再要求工具目录是中文，
+  只约束提示词、安全指令和记忆块；新增 `tests/tools/descriptions.test.ts` 守住契约形状。
 - **系统提示词改为 coding-first（ADR 023）。** 活动文档 `src/agent/prompts/companion.md`
   从“陪伴者人格”换成“会写代码的 agent”：保留 Eunoia 身份和中文回复，删除四种视角、
-  五条原则和陪伴示例，新增工具纪律（用 `glob`/`grep`/`read_file`、先读再改、检查退出码、
+  五条原则和陪伴示例，新增工具纪律（用 `glob`/`grep`/`read`、先读再改、检查退出码、
   两个路径基准、不可逆操作用绝对路径并确认目标）与输出规则；记忆与安全压缩成小节保留。
   原人格文档完整归档为 `companion.personality.md`，Fi/Ne/Si/Te 与五原则的测试改为守住
   这份备份，新增 `prompt-coding.test.ts` 约束新文档。回滚：把备份复制回 `companion.md`

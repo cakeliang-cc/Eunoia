@@ -62,8 +62,8 @@ const THINKING_TURN: Frame[] = [
 ];
 
 const TOOL_TURN: Frame[] = [
-  { type: 'tool_call', callId: 'c1', name: 'read_file', displayable: true, summary: '读取 src/a.ts:1-40' },
-  { type: 'tool_result', callId: 'c1', name: 'read_file', ok: true, durationMs: 1200, summary: '读取 1-40 行' },
+  { type: 'tool_call', callId: 'c1', name: 'read', displayable: true, summary: '读取 src/a.ts:1-40' },
+  { type: 'tool_result', callId: 'c1', name: 'read', ok: true, durationMs: 1200, summary: '读取 1-40 行' },
   { type: 'text_delta', text: '看完了，可以改。' },
   { type: 'completed', text: '看完了，可以改。', conversationId: 'c1', messageId: 'm1' },
 ];
@@ -180,7 +180,7 @@ describe('the tool trace', () => {
     const rows = traceBody?.find((node) => node.classList.contains('tool-row')) ?? [];
     expect(rows).toHaveLength(1);
     expect(rows[0]?.dataset.state).toBe('ok');
-    expect(rows[0]?.child('tool-name')?.textContent).toBe('read_file');
+    expect(rows[0]?.child('tool-name')?.textContent).toBe('read');
     expect(rows[0]?.child('tool-summary')?.textContent).toBe('读取 1-40 行');
     expect(rows[0]?.child('tool-state')?.textContent).toContain('完成');
     expect(rows[0]?.child('tool-state')?.textContent).toContain('1.2s');
@@ -189,11 +189,11 @@ describe('the tool trace', () => {
   it('shows a failed call as failed, with the error available on hover', async () => {
     const { traceBody } = lastTurn(
       await runTurn([
-        { type: 'tool_call', callId: 'c1', name: 'edit_file', displayable: true, summary: '修改 src/a.ts' },
+        { type: 'tool_call', callId: 'c1', name: 'edit', displayable: true, summary: '修改 src/a.ts' },
         {
           type: 'tool_result',
           callId: 'c1',
-          name: 'edit_file',
+          name: 'edit',
           ok: false,
           durationMs: 20,
           summary: 'old_string 不唯一',

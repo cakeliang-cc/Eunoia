@@ -7,7 +7,7 @@
  * — "which version of this workflow ran?" has to be answerable from a log.
  *
  * Discovery reads `SKILL.md` (to validate it) but the context only ever receives
- * `name` + `description`. The body is loaded by `load_skill`, which is the whole
+ * `name` + `description`. The body is loaded by `skill`, which is the whole
  * point of progressive disclosure: a repository with twenty skills should not
  * pay for twenty bodies on every turn.
  *
@@ -125,11 +125,11 @@ export class SkillRegistry {
       return `- ${skill.manifest.name}（${sourceLabel(skill.source)}）— ${description}`;
     });
     if (this.all.length > shown.length) {
-      lines.push(`… 还有 ${this.all.length - shown.length} 个技能未列出；用 load_skill 前先确认名字。`);
+      lines.push(`… 还有 ${this.all.length - shown.length} 个技能未列出；用 skill 前先确认名字。`);
     }
     return [
       '# 可用技能',
-      '以下是技能索引，不是完整说明。当用户请求匹配某个 description 时，先调用 load_skill 读取完整步骤；不要凭名字猜流程。',
+      '以下是技能索引，不是完整说明。当用户请求匹配某个 description 时，先调用 skill 读取完整步骤；不要凭名字猜流程。',
       '',
       ...lines,
     ].join('\n');

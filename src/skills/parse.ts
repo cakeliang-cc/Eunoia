@@ -11,7 +11,7 @@
  * - `description` is capped at the standard's 1024 characters because every
  *   description is in the per-turn index;
  * - the body is capped well above the recommended 5k tokens, but still capped,
- *   because `load_skill` puts the whole body into one tool result. A skill that
+ *   because `skill` puts the whole body into one tool result. A skill that
  *   needs more should move the detail into `references/`.
  */
 
@@ -139,15 +139,15 @@ export function parseSkillDocument(raw: string, fallbackName: string): ParsedSki
  * warning. The mapping is advisory only — it never grants a permission.
  */
 const TOOL_ALIASES: Readonly<Record<string, string>> = {
-  Read: 'read_file',
-  Write: 'write_file',
-  Edit: 'edit_file',
-  MultiEdit: 'edit_file',
+  Read: 'read',
+  Write: 'write',
+  Edit: 'edit',
+  MultiEdit: 'edit',
   Grep: 'grep',
   Glob: 'glob',
   LS: 'list_dir',
-  Bash: 'run_command',
-  Shell: 'run_command',
+  Bash: 'bash',
+  Shell: 'bash',
 };
 
 function parseAllowedTools(value: string | readonly string[] | undefined): readonly string[] {

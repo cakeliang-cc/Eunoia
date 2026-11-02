@@ -99,7 +99,7 @@ function fakeSandbox(options: { mode?: PermissionMode } = {}): FakeSandbox {
       autoReview: { enabled: true, allowedRiskLevels: ['low', 'medium'], maxTtlMs: 600_000 },
       approval: { allowed: true, requireHumanForRiskLevels: ['high', 'critical'], maxTtlMs: 900_000 },
       restricted: {
-        allowedTools: ['read_file', 'list_dir'],
+        allowedTools: ['read', 'list_dir'],
         filesystem: { read: ['/workspace'], write: [] },
         network: { mode: 'none', allowedDomains: [], allowedPorts: [] },
       },
@@ -364,7 +364,7 @@ describe('GET /api/permissions', () => {
     sandbox.requests.push({
       requestId: '22222222-2222-4222-8222-222222222222',
       approvalRequestId: '11111111-1111-4111-8111-111111111111',
-      toolName: 'write_file',
+      toolName: 'write',
       action: 'fs.write',
       resourceIdentifier: '/workspace/src/a.ts',
       riskLevel: 'high',
@@ -381,7 +381,7 @@ describe('GET /api/permissions', () => {
     expect(response.body.pending).toHaveLength(1);
     expect(response.body.pending[0]).toMatchObject({
       approvalRequestId: '11111111-1111-4111-8111-111111111111',
-      tool: 'write_file',
+      tool: 'write',
       action: 'fs.write',
       resource: '/workspace/src/a.ts',
       risk_level: 'high',

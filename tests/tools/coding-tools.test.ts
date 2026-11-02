@@ -74,10 +74,10 @@ afterEach(async () => {
   await rm(base, { recursive: true, force: true });
 });
 
-describe('read_file', () => {
+describe('read', () => {
   it('returns numbered content and a summary', async () => {
     await writeFile(join(base, 'a.ts'), 'one\ntwo\nthree\n');
-    const result = await readFileTool.execute({ path: 'a.ts' }, context);
+    const result = await readFileTool.execute({ file_path: 'a.ts' }, context);
     expect(result.ok).toBe(true);
     expect(result.output).toContain('     1\tone');
     expect(result.meta?.summary).toContain('读取 a.ts');
@@ -85,8 +85,8 @@ describe('read_file', () => {
 
   it('answers a repeated read with a pointer instead of the same bytes', async () => {
     await writeFile(join(base, 'a.ts'), 'one\ntwo\n');
-    const first = await readFileTool.execute({ path: 'a.ts' }, context);
-    const second = await readFileTool.execute({ path: 'a.ts' }, context);
+    const first = await readFileTool.execute({ file_path: 'a.ts' }, context);
+    const second = await readFileTool.execute({ file_path: 'a.ts' }, context);
     expect(first.meta?.ledgerHit).toBeUndefined();
     expect(second.meta?.ledgerHit).toBe(true);
     expect(second.output).toContain('已经在本次对话的上文里');
@@ -95,21 +95,21 @@ describe('read_file', () => {
 
   it('re-reads after the file changes', async () => {
     await writeFile(join(base, 'a.ts'), 'one\n');
-    await readFileTool.execute({ path: 'a.ts' }, context);
+    await readFileTool.execute({ file_path: 'a.ts' }, context);
     await writeFile(join(base, 'a.ts'), 'one changed\n');
-    const again = await readFileTool.execute({ path: 'a.ts' }, context);
+    const again = await readFileTool.execute({ file_path: 'a.ts' }, context);
     expect(again.meta?.ledgerHit).toBeUndefined();
     expect(again.output).toContain('one changed');
   });
 
   it('reports a missing workspace as a tool error', async () => {
-    const result = await readFileTool.execute({ path: 'a.ts' }, { ...context, workspace: null });
+    const result = await readFileTool.execute({ file_path: 'a.ts' }, { ...context, workspace: null });
     expect(result.ok).toBe(false);
     expect(result.error).toContain('WORKSPACE_ROOT');
   });
 
   it('returns an error result for an escaping path rather than throwing', async () => {
-    const result = await readFileTool.execute({ path: '../secret' }, context);
+    const result = await readFileTool.execute({ file_path: '../secret' }, context);
     expect(result.ok).toBe(false);
     expect(result.error).toContain('escapes');
   });
@@ -140,17 +140,17 @@ describe('grep', () => {
   });
 });
 
-describe('write_file and edit_file', () => {
+describe('write and edit', () => {
   it('writes and then edits a file', async () => {
     const written = await writeFileTool.execute(
-      { path: 'src/a.ts', content: 'const a = 1;\n' },
+      { file_path: 'src/a.ts', content: 'const a = 1;\n' },
       context,
     );
     expect(written.ok).toBe(true);
     expect(await readFile(join(base, 'src/a.ts'), 'utf8')).toBe('const a = 1;\n');
 
     const edited = await editFileTool.execute(
-      { path: 'src/a.ts', old_string: 'const a = 1;', new_string: 'const a = 2;' },
+      { file_path: 'src/a.ts', old_string: 'const a = 1;', new_string: 'const a = 2;' },
       context,
     );
     expect(edited.ok).toBe(true);
@@ -161,7 +161,7 @@ describe('write_file and edit_file', () => {
   it('reports a non-unique edit as a tool error the model can act on', async () => {
     await writeFile(join(base, 'a.ts'), 'x\nx\n');
     const result = await editFileTool.execute(
-      { path: 'a.ts', old_string: 'x', new_string: 'y' },
+      { file_path: 'a.ts', old_string: 'x', new_string: 'y' },
       context,
     );
     expect(result.ok).toBe(false);
@@ -169,7 +169,7 @@ describe('write_file and edit_file', () => {
   });
 });
 
-describe('run_command', () => {
+describe('bash', () => {
   it('formats exit code and output, and leads with the directory it ran in', async () => {
     const result = await runCommandTool.execute({ command: 'printf hello' }, context);
     expect(result.ok).toBe(true);
@@ -183,7 +183,7 @@ describe('run_command', () => {
     expect(result.meta?.cwd).toBe('/workspace/src/models');
     // The trace replaces the command with the result summary, so the directory
     // has to survive there too.
-    expect(summarizeToolResult('run_command', result)).toContain('/workspace/src/models');
+    expect(summarizeToolResult('bash', result)).toContain('/workspace/src/models');
   });
 
   it('keeps output on a non-zero exit and still reports the directory', async () => {
@@ -201,14 +201,14 @@ describe('run_command', () => {
 
 describe('summaries', () => {
   it('describe the step without leaking file content', () => {
-    expect(summarizeToolCall('read_file', { path: 'src/a.ts', start: 1, end: 40 })).toBe(
+    expect(summarizeToolCall('read', { file_path: 'src/a.ts', offset: 1, limit: 40 })).toBe(
       '读取 src/a.ts:1-40',
     );
-    expect(summarizeToolCall('edit_file', { path: 'src/a.ts', old_string: 'secret' })).toBe(
+    expect(summarizeToolCall('edit', { file_path: 'src/a.ts', old_string: 'secret' })).toBe(
       '修改 src/a.ts',
     );
     expect(
-      summarizeToolResult('read_file', {
+      summarizeToolResult('read', {
         ok: true,
         output: '...',
         meta: { read: { path: 'src/a.ts', start: 1, end: 40, complete: false, chars: 1, mtimeMs: 1, size: 1 } },

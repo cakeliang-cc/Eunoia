@@ -43,7 +43,7 @@ const doneEvent = {
     output: [
       { type: 'reasoning', id: 'rs_1', content: [{ type: 'input_text', text: '想一下' }], rawContent: [{ type: 'reasoning_text', text: '想一下' }] },
       { type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: '好。' }] },
-      { type: 'function_call', callId: 'c1', name: 'read_file', arguments: '{"path":"a.ts"}' },
+      { type: 'function_call', callId: 'c1', name: 'read', arguments: '{"path":"a.ts"}' },
     ],
   },
 } as unknown as StreamEvent;
@@ -69,7 +69,7 @@ describe('the SDK model adapter', () => {
         ],
         tools: [
           {
-            name: 'read_file',
+            name: 'read',
             description: 'read',
             parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
           },
@@ -88,7 +88,7 @@ describe('the SDK model adapter', () => {
     expect(done.output).toEqual([
       { type: 'reasoning', text: '想一下', id: 'rs_1', raw: expect.objectContaining({ type: 'reasoning' }) },
       { type: 'message', role: 'assistant', content: '好。' },
-      { type: 'function_call', callId: 'c1', name: 'read_file', arguments: '{"path":"a.ts"}' },
+      { type: 'function_call', callId: 'c1', name: 'read', arguments: '{"path":"a.ts"}' },
     ]);
 
     const request = seen.request as {

@@ -315,7 +315,7 @@ function permissionSettings(
   const restricted: RestrictedAllowlist = {
     allowedTools: listEnv(env.SANDBOX_RESTRICTED_TOOLS).length > 0
       ? listEnv(env.SANDBOX_RESTRICTED_TOOLS)
-      : ['read_file', 'list_dir', 'glob', 'grep', 'run_command'],
+      : ['read', 'list_dir', 'glob', 'grep', 'bash'],
     filesystem: {
       read: listEnv(env.SANDBOX_RESTRICTED_READ).length > 0
         ? listEnv(env.SANDBOX_RESTRICTED_READ)

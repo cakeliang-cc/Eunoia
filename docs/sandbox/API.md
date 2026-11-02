@@ -114,16 +114,16 @@ interface ToolWorkspacePort {
 
 | 工具 | 端口 | Action | 默认（`WORKSPACE_WRITES/COMMANDS` 关） |
 |---|---|---|---|
-| `read_file` | `readLines` | `fs.read` | ALLOW |
+| `read` | `readLines` | `fs.read` | ALLOW |
 | `list_dir` | `listDir` | `fs.list` | ALLOW |
 | `glob` | `glob` | `fs.read` | ALLOW |
 | `grep` | `grep` | `fs.read` | ALLOW |
-| `write_file` | `writeText` | `fs.write` | APPROVAL_REQUIRED |
-| `edit_file` | `editText` | `fs.write` | APPROVAL_REQUIRED |
-| `run_command` | `run` | `process.exec` | APPROVAL_REQUIRED |
+| `write` | `writeText` | `fs.write` | APPROVAL_REQUIRED |
+| `edit` | `editText` | `fs.write` | APPROVAL_REQUIRED |
+| `bash` | `run` | `process.exec` | APPROVAL_REQUIRED |
 
 工具输入/输出格式保持不变：`ToolResult { ok, output, error?, meta? }`。
-`run_command` 的 `meta` 增加 `status`、`executionId`；`read_file` 的 ledger 行为不变。
+`bash` 的 `meta` 增加 `status`、`executionId`；`read` 的 ledger 行为不变。
 
 ## 6. 权限 API（ADR 020）
 

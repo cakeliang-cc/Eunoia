@@ -112,7 +112,7 @@ async function startHarness(mode: 'bind' | 'copy' = 'bind'): Promise<Harness> {
 }
 
 /**
- * Execute in the task's current directory, exactly as `run_command` does.
+ * Execute in the task's current directory, exactly as `bash` does.
  *
  * ADR 021 makes `/workspace` no longer an implicit assumption: an execution is
  * created with the cwd the task currently has, and the Gateway refuses a

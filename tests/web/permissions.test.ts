@@ -53,14 +53,14 @@ const APPROVAL_TURN: Frame[] = [
   {
     type: 'tool_call',
     callId: 't1',
-    name: 'write_file',
+    name: 'write',
     displayable: true,
     summary: '写入 src/a.ts',
   },
   {
     type: 'tool_result',
     callId: 't1',
-    name: 'write_file',
+    name: 'write',
     ok: false,
     error: 'workspace writes are disabled for this deployment (approval appr-1)',
     approval: { requestId: 'req-1', approvalRequestId: 'appr-1' },
@@ -117,7 +117,7 @@ describe('the permission pill', () => {
             pending: [
               {
                 approvalRequestId: 'appr-1',
-                tool: 'write_file',
+                tool: 'write',
                 action: 'fs.write',
                 resource: '/workspace/src/a.ts',
                 risk_level: 'high',
@@ -136,7 +136,7 @@ describe('the permission pill', () => {
     expect(
       menu.querySelectorAll('.perm-pending-item')[0]?.querySelector('.perm-pending-title')
         ?.textContent ?? '',
-    ).toContain('write_file');
+    ).toContain('write');
   });
 });
 
@@ -212,7 +212,7 @@ describe('an approval card', () => {
 
     const card = harness.transcript.querySelector('.approval');
     expect(card?.dataset.state).toBe('pending');
-    expect(card?.querySelector('.approval-head')?.textContent ?? '').toContain('write_file');
+    expect(card?.querySelector('.approval-head')?.textContent ?? '').toContain('write');
   });
 
   it('approves once with the token, then offers to continue instead of retrying', async () => {

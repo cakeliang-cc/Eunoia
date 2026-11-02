@@ -49,7 +49,7 @@ function req(overrides: Partial<PermissionEvaluationRequest> = {}): PermissionEv
     taskId: 'task-1',
     sandboxId: 'sbx-1',
     principal: { type: 'agent', id: 'agent:task-1' },
-    action: { tool: 'write_file', operation: 'fs.write' },
+    action: { tool: 'write', operation: 'fs.write' },
     resource: { type: 'path', identifier: '/workspace/a.ts', scope: ['/workspace/a.ts'] },
     ...overrides,
   };
@@ -137,7 +137,7 @@ describe('grants are checked field by field', () => {
     expect(
       validateGrant(
         grant,
-        req({ action: { tool: 'run_command', operation: 'process.exec' } }),
+        req({ action: { tool: 'bash', operation: 'process.exec' } }),
         effective({ mode: 'auto' }, 1),
         platform.clock.current,
       ).valid,

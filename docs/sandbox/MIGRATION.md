@@ -13,7 +13,7 @@
 | 环境变量/凭证注入 | `runCommand` 把整个 `process.env` 传给子进程 | 删除；容器使用固定最小环境 + brokered 值 |
 | Session/Task 持久化 | `conversations` / `messages`（SQLite） | 保留；新增 `sandbox_tasks`，taskId = conversationId |
 | 后台任务/取消 | Agent loop 的 `AbortSignal`；无独立后台任务 | 保留；执行层新增 timeout + container kill |
-| 绕过 Tool Dispatcher | `run_command` 直接调 `Workspace.runCommand` | 删除；工具只能拿 `ToolExecutor` 端口 |
+| 绕过 Tool Dispatcher | `bash` 直接调 `Workspace.runCommand` | 删除；工具只能拿 `ToolExecutor` 端口 |
 | 人员工作台的 git | `src/workspace-ui/git.ts` 的 `spawn('git', ...)` | **不在 agent 执行路径内**：由人打开 Changes 标签触发，无 shell、净化环境、只读、有超时/上限；架构测试禁止 `src/tools|agent|service` 引入它 |
 | MCP / Agent Delegation / Scheduled Task | 本仓库不存在 | 无需迁移；`docs/sandbox/SECURITY.md` 已注明 |
 
@@ -36,7 +36,7 @@ Controller/runtime/store，`node:child_process` 只出现在 `src/sandbox/runtim
 | `workspace.root` 展示 | `sandboxSession.displayPath`（`/workspace`） |
 
 工具的 **schema**、模型可见描述、`ToolResult` 形状、SSE `tool_call`/`tool_result`
-事件、`read_file` 的 ledger 行为都没有变。模型不需要知道 sandbox 的存在。
+事件、`read` 的 ledger 行为都没有变。模型不需要知道 sandbox 的存在。
 
 ## 3. 数据库迁移
 

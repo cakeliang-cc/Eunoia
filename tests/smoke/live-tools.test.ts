@@ -54,7 +54,7 @@ describe.skipIf(!enabled)('live tool turn', () => {
 
         const calls = events.filter((event) => event.type === 'tool_call');
         expect(calls.length, 'the model never called a tool').toBeGreaterThan(0);
-        expect(calls.some((event) => event.type === 'tool_call' && event.name === 'read_file')).toBe(
+        expect(calls.some((event) => event.type === 'tool_call' && event.name === 'read')).toBe(
           true,
         );
 

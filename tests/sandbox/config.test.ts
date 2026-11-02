@@ -109,14 +109,14 @@ describe('sandbox settings', () => {
         SANDBOX_AUTO_REVIEW: 'off',
         SANDBOX_AUTO_APPROVE_RISK: 'low',
         SANDBOX_RESTRICTED_WRITE: '/workspace/tests',
-        SANDBOX_RESTRICTED_TOOLS: 'read_file,write_file',
+        SANDBOX_RESTRICTED_TOOLS: 'read,write',
       }),
     );
     expect(settings?.permission.mode).toBe('restricted');
     expect(settings?.permission.autoReview.enabled).toBe(false);
     expect(settings?.permission.autoReview.allowedRiskLevels).toEqual(['low']);
     expect(settings?.permission.restricted.filesystem.write).toEqual(['/workspace/tests']);
-    expect(settings?.permission.restricted.allowedTools).toEqual(['read_file', 'write_file']);
+    expect(settings?.permission.restricted.allowedTools).toEqual(['read', 'write']);
 
     expect(() => sandboxSettings(env({ SANDBOX_PERMISSION_MODE: 'yolo' }))).toThrow(/PERMISSION_MODE/);
     expect(() =>

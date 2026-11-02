@@ -24,7 +24,7 @@ import { changeDirectoryTool } from './change-directory-tool.ts';
 import { globTool, grepTool, listDirTool, readFileTool } from './read-tools.ts';
 
 /**
- * The coding tool set. `change_directory` sits next to `run_command` because the
+ * The coding tool set. `change_directory` sits next to `bash` because the
  * two are one workflow: the command is stateless, the directory is not.
  */
 export const codingTools = [

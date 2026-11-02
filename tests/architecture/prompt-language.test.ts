@@ -1,9 +1,13 @@
 /**
- * The prompt is Chinese, and the parts of it that are not are named here.
+ * The standing prompt is Chinese, and the parts of it that are not are named here.
  *
- * The product is Chinese-facing (spec §11), so every word the model *reads*
- * should be Chinese. Two kinds of string are legitimately not, and they are
- * exempted by name rather than by a pattern:
+ * The tool catalog is English on purpose (ADR 023: it mirrors DSH), so this
+ * check covers the prose surfaces the product authors: the system prompt, the
+ * safety directives and the rendered memory block. It does not cover tool
+ * descriptions or schemas any more; those are the alignment target, not Chinese.
+ *
+ * Two kinds of string are legitimately not Chinese, exempted by name rather
+ * than by a pattern:
  *
  *   - **Identifiers the code matches on.** Tool names, enum values the model
  *     emits as arguments (`user_explicit`), and JSON Schema field names
@@ -21,9 +25,9 @@
  * each string looked like a deliberate English term next to Chinese ones. A
  * cleanup decays; a test does not.
  *
- * It scans model-facing surfaces, not files. `instructions.ts` is not the only
- * thing the model reads — the tool schemas, the safety directives and the
- * rendered memory block are separate surfaces, and English hid in all of them.
+ * It scans the prose surfaces, not files: the prompt, the safety directives and
+ * the rendered memory block. Tool descriptions and schemas are deliberately out
+ * of scope — English by ADR 023 — and translating them would break tool calls.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -33,9 +37,6 @@ import { buildRuntimeContext } from '../../src/agent/runtime-context.ts';
 import { renderSituation } from '../../src/agent/situation.ts';
 import { CRISIS_DIRECTIVE, CRISIS_FALLBACK, ELEVATED_DIRECTIVE } from '../../src/safety/response.ts';
 import { renderMemories } from '../../src/memory/render.ts';
-import { createMemoryTools } from '../../src/tools/memory.ts';
-import { codingTools } from '../../src/tools/coding/index.ts';
-import { jsonSchemaOf } from '../../src/tools/schema.ts';
 
 /** Tokens allowed to be Latin, each with the reason it is allowed. */
 const ALLOWED: Readonly<Record<string, string>> = {
@@ -75,41 +76,40 @@ const ALLOWED: Readonly<Record<string, string>> = {
   query: 'schema field',
   limit: 'schema field',
   // Coding tool names and their schema fields. The model emits these verbatim.
-  read_file: 'tool name',
+  read: 'tool name',
+  write: 'tool name',
+  edit: 'tool name',
+  bash: 'tool name',
+  skill: 'tool name',
   list_dir: 'tool name',
   glob: 'tool name',
   grep: 'tool name',
-  write_file: 'tool name',
-  edit_file: 'tool name',
-  run_command: 'tool name',
   change_directory: 'tool name',
-  load_skill: 'tool name',
   description: 'SKILL.md frontmatter field',
   old_string: 'schema field',
   new_string: 'schema field',
   replace_all: 'schema field',
   include: 'schema field',
-  start: 'schema field',
-  end: 'schema field',
+  offset: 'schema field',
   depth: 'schema field',
   pattern: 'schema field',
   max_results: 'schema field',
   case_sensitive: 'schema field',
   command: 'schema field',
-  timeout_ms: 'schema field',
+  timeout: 'schema field',
   // Technical names that appear in examples and descriptions, not prose.
   CRLF: 'line ending name',
   LF: 'line ending name',
   stdout: 'command stream name',
   stderr: 'command stream name',
-  shell: 'the thing run_command runs',
+  shell: 'the thing bash runs',
   JavaScript: 'regex dialect name',
   JSON: 'wire format name',
   npm: 'package manager name',
   lint: 'command category',
   test: 'command/file category',
   src: 'example path segment',
-  cd: 'shell builtin the model types inside run_command',
+  cd: 'shell builtin the model types inside bash',
   workspace: 'the container mount path the description names',
   ts: 'file extension',
   dist: 'ignored directory name',
@@ -128,27 +128,6 @@ const ALLOWED: Readonly<Record<string, string>> = {
   saveMemory: 'example search term in a tool description',
 };
 
-/** The tools never execute here, so the context is never dereferenced. */
-const tools = [
-  ...createMemoryTools({ store: {} as never, userId: 'prompt-language-test' }),
-  ...codingTools,
-];
-
-/** Every `description` in a JSON Schema, at any depth — what the model reads. */
-function schemaDescriptions(schema: unknown): string {
-  const found: string[] = [];
-  const walk = (node: unknown): void => {
-    if (Array.isArray(node)) return node.forEach(walk);
-    if (typeof node !== 'object' || node === null) return;
-    for (const [key, value] of Object.entries(node)) {
-      if (key === 'description' && typeof value === 'string') found.push(value);
-      else walk(value);
-    }
-  };
-  walk(schema);
-  return found.join('\n');
-}
-
 const SURFACES: Readonly<Record<string, string>> = {
   'system prompt': STABLE_INSTRUCTIONS,
   'situation block': renderSituation({
@@ -161,10 +140,6 @@ const SURFACES: Readonly<Record<string, string>> = {
     memoryBlock: '用户喜欢安静的地方。',
     safetyDirective: '安全优先于人格设定。',
   }),
-  'tool descriptions': tools.map((tool) => tool.description ?? '').join('\n'),
-  'tool schema': tools
-    .map((tool) => schemaDescriptions(jsonSchemaOf(tool.parameters)))
-    .join('\n'),
   'crisis directive': CRISIS_DIRECTIVE,
   'elevated directive': ELEVATED_DIRECTIVE,
   'crisis fallback': CRISIS_FALLBACK,

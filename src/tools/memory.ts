@@ -38,21 +38,21 @@ const MEMORY_SOURCE = z
       '否则会被拒绝——如果你不确定，就不要存，直接问用户。',
   );
 
-const SEARCH_DESCRIPTION = '检索长期记忆，返回可能相关的片段。';
-const SAVE_DESCRIPTION = '保存一条值得长期记住的事实。大多数对话不应该调用；来源必须诚实。';
-const UPDATE_DESCRIPTION = '修改或废弃一条已有记忆；先搜到 id 再改。';
+const SEARCH_DESCRIPTION = 'Search long-term memory and return possibly relevant fragments.';
+const SAVE_DESCRIPTION = 'Save one fact worth remembering long-term. Most conversations should not call this; be honest about the source.';
+const UPDATE_DESCRIPTION = 'Update or retire an existing memory. Search for its id first.';
 
 export function createMemoryTools(deps: MemoryToolContext) {
   const search = defineTool({
     name: 'search_memory',
     description: SEARCH_DESCRIPTION,
     parameters: z.object({
-      query: z.string().min(1).describe('要检索的内容，用自然语言描述当前话题。'),
-      limit: z.number().int().min(1).max(10).optional().describe('最多返回几条，默认 5。'),
+      query: z.string().min(1).describe('What to search for, in natural language.'),
+      limit: z.number().int().min(1).max(10).optional().describe('Maximum number of results. Defaults to 5.'),
     }),
     sideEffect: 'none',
     readOnly: true,
-    guidelines: 'search_memory：只在话题可能和过去有关时检索；检索不到是正常结果。',
+    guidelines: 'Search memory only when the topic may relate to the past; no result is a normal result.',
     execute: async (args) => {
       const result = await searchMemory(deps, args);
       return toolOk(JSON.stringify(result), {
@@ -71,15 +71,15 @@ export function createMemoryTools(deps: MemoryToolContext) {
         .string()
         .min(1)
         .max(500)
-        .describe('用一句陈述句描述这件事，写成关于这个人的事实。'),
-      importance: z.number().min(0).max(1).optional().describe('对这个人有多重要，默认 0.5。'),
-      confidence: z.number().min(0).max(1).optional().describe('你有多确定，默认按 source 决定。'),
+        .describe('One statement of fact about the person, not a transcript.'),
+      importance: z.number().min(0).max(1).optional().describe('How important this is to the person. Defaults to 0.5.'),
+      confidence: z.number().min(0).max(1).optional().describe('How certain you are. Defaults by source.'),
       source: MEMORY_SOURCE,
-      tags: z.array(z.string()).max(6).optional().describe('可选标签。'),
+      tags: z.array(z.string()).max(6).optional().describe('Optional tags.'),
     }),
     sideEffect: 'memory_write',
     readOnly: false,
-    guidelines: 'save_memory：宁可少存，也不要把推测当事实。',
+    guidelines: 'Prefer saving less; never store a guess as fact.',
     execute: async (args) => {
       const result = await saveMemory(deps, args);
       return toolOk(JSON.stringify(result), {
@@ -98,18 +98,18 @@ export function createMemoryTools(deps: MemoryToolContext) {
     name: 'update_memory',
     description: UPDATE_DESCRIPTION,
     parameters: z.object({
-      id: z.string().describe('要更新的记忆 id，从 search_memory 的结果里获得。'),
-      content: z.string().max(500).optional().describe('新的说法。'),
+      id: z.string().describe('The memory id to update, from search_memory.'),
+      content: z.string().max(500).optional().describe('The new statement.'),
       importance: z.number().min(0).max(1).optional(),
       confidence: z.number().min(0).max(1).optional(),
       status: z
         .enum(['active', 'deleted'])
         .optional()
-        .describe('"deleted" 表示这条不再适用了。'),
+        .describe('"deleted" means it no longer applies.'),
     }),
     sideEffect: 'memory_write',
     readOnly: false,
-    guidelines: 'update_memory：用户纠正过去的说法时用；先 search 再改，不要新建冲突记忆。',
+    guidelines: 'When the person corrects an earlier statement, search first and update; do not create a conflicting memory.',
     execute: async (args) => {
       const result = await updateMemory(deps, args);
       return toolOk(JSON.stringify(result), {

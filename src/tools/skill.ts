@@ -1,5 +1,5 @@
 /**
- * `load_skill`: the one tool the skill layer adds.
+ * `skill`: the one tool the skill layer adds.
  *
  * A skill is not a tool, so it does not get one tool per skill. It gets one
  * loader: the index carries `name` + `description`, and this tool brings the
@@ -32,15 +32,16 @@ export function createSkillTools(
 ): readonly ToolDefinition[] {
   return [
     defineTool({
-      name: 'load_skill',
-      description: '加载一个技能的完整说明。在任务点名或明显匹配技能索引里的某个技能时，先调用它再动手；技能声明的工具被关闭时会明确写出来，不要绕过。',
+      name: 'skill',
+      description:
+        'Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.',
       parameters: z.object({
-        name: z.string().min(1).describe('技能名，必须来自技能索引，例如 code-change-verification。'),
+        name: z.string().min(1).describe('The exact skill name from the available skills list.'),
       }),
       sideEffect: 'none',
       readOnly: true,
       timeoutMs: 10_000,
-      guidelines: 'load_skill：请求匹配技能索引里的 description 时先加载，再照做；不要假装使用未加载的技能。',
+      guidelines: 'Load a matching skill before acting; never claim to use one you have not loaded.',
       execute: async ({ name }, context) => {
         const loaded = registry.load(name);
         if (!loaded.ok) {
@@ -88,11 +89,11 @@ function missingTools(
       missing.push({ tool, reason: '当前服务没有提供这个工具' });
       continue;
     }
-    if (tool === 'run_command' && !policy.allowCommands) {
+    if (tool === 'bash' && !policy.allowCommands) {
       missing.push({ tool, reason: '命令执行未开启（WORKSPACE_COMMANDS）' });
       continue;
     }
-    if ((tool === 'write_file' || tool === 'edit_file') && !policy.allowWorkspaceWrites) {
+    if ((tool === 'write' || tool === 'edit') && !policy.allowWorkspaceWrites) {
       missing.push({ tool, reason: '文件写入未开启（WORKSPACE_WRITES）' });
     }
   }
@@ -134,7 +135,7 @@ function formatSkill(
   if (scripts.length > 0) {
     lines.push(
       '## 脚本（不会自动执行）',
-      '需要时用 run_command 运行；不要先把脚本内容读进上下文，除非运行失败需要调试。',
+      '需要时用 bash 运行；不要先把脚本内容读进上下文，除非运行失败需要调试。',
       ...scripts.map((entry) => `- ${entry}`),
     );
   }
@@ -148,7 +149,7 @@ function formatSkill(
 }
 
 /**
- * Turn resource paths into paths the model can actually pass to `read_file`.
+ * Turn resource paths into paths the model can actually pass to `read`.
  *
  * Project skills live under `WORKSPACE_ROOT`, so `references/x.md` becomes
  * `.eunoia/skills/name/references/x.md`. Built-in skills live beside the server,
@@ -162,10 +163,10 @@ function resourcePaths(
 ): readonly string[] {
   return entries.map((entry) => {
     const absolute = join(skill.root, entry);
-    if (!context.workspace) return `${entry}（没有工作目录，无法用 read_file 读取）`;
+    if (!context.workspace) return `${entry}（没有工作目录，无法用 read 读取）`;
     const relativePath = context.workspace.relative(absolute);
     if (relativePath === '..' || relativePath.startsWith('../')) {
-      return `${entry}（在 server 目录内，不在工作目录，无法用 read_file 读取）`;
+      return `${entry}（在 server 目录内，不在工作目录，无法用 read 读取）`;
     }
     return relativePath;
   });

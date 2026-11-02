@@ -24,7 +24,7 @@ export interface SkillManifest {
    * Tools the skill says it needs.
    *
    * Advisory, never a grant. The loop still checks `ToolPolicy`; a skill that
-   * says `run_command` does not make commands available.
+   * says `bash` does not make commands available.
    */
   readonly allowedTools: readonly string[];
   readonly version?: string;

@@ -1,7 +1,7 @@
 /**
  * The `change_directory` tool (ADR 021 §5).
  *
- * `run_command` is stateless: every call is a fresh shell, so a `cd` inside one
+ * `bash` is stateless: every call is a fresh shell, so a `cd` inside one
  * command cannot affect the next. This tool is the explicit, audited way to move
  * the *task* instead. It is a formatter and a translator: it validates its own
  * input shape, delegates every decision to the `ToolCwdPort`, and turns the
@@ -17,16 +17,17 @@ import { defineTool, toolError, toolOk } from '../types.ts';
 
 export const changeDirectoryTool = defineTool({
   name: 'change_directory',
-  description: '改变当前任务的目录，后续 run_command 从新目录开始。相对路径从当前任务目录算；绝对路径必须落在工作区内；目标必须是已经存在的目录。',
+  description:
+    'Change the task working directory for subsequent bash calls. Relative paths resolve against the current task directory; absolute paths must stay inside the workspace; the target must be an existing directory.',
   parameters: z.object({
     path: z
       .string()
       .min(1)
-      .describe('目录路径：相对当前任务目录，或以 /workspace 开头的绝对路径。'),
+      .describe('Directory path: relative to the current task directory, or absolute under /workspace.'),
   }),
   sideEffect: 'workspace_state',
   readOnly: false,
-  guidelines: 'change_directory：改变后续命令的目录；一次性 cd 不会改变任务目录。',
+  guidelines: 'Move the task directory with change_directory; a cd inside one bash call does not persist.',
   execute: async ({ path }, context) => {
     const cwd = context.cwd;
     if (!cwd) {
@@ -63,7 +64,7 @@ export const changeDirectoryTool = defineTool({
 
     return toolOk(
       `当前目录：${result.cwd}（之前：${result.previousCwd}，版本 ${result.cwdVersion}）\n` +
-        `后续 run_command 会从 ${result.cwd} 开始。`,
+        `后续 bash 会从 ${result.cwd} 开始。`,
       {
         summary: `cd ${result.cwd}`,
         cwd: result.cwd,

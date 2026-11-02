@@ -230,12 +230,12 @@ describe('network policy', () => {
 
 describe('policy layering', () => {
   it('narrowing cannot widen a denial', () => {
-    const wide = tenantPolicy({ deniedTools: ['run_command'] });
+    const wide = tenantPolicy({ deniedTools: ['bash'] });
     const narrow = taskPolicy({ deniedTools: [] });
     const effective = intersectPolicies(wide, narrow);
-    expect(effective.tools.deniedTools).toContain('run_command');
+    expect(effective.tools.deniedTools).toContain('bash');
     expect(
-      evaluatePolicy(effective, { action: 'tool', toolName: 'run_command', resources: [] }).decision,
+      evaluatePolicy(effective, { action: 'tool', toolName: 'bash', resources: [] }).decision,
     ).toBe('DENY');
   });
 

@@ -112,7 +112,7 @@ system deny  ── 不可覆盖（/etc/shadow、/proc/sys、docker.sock、metad
 ## 7. 凭据
 
 - **bind 模式下，`.env` / `*.pem` / `id_rsa` 等文件被空的只读文件覆盖挂载**：
-  `run_command` 看到的也是空文件，宿主的原件不变；文件工具仍然拒绝这些名字。
+  `bash` 看到的也是空文件，宿主的原件不变；文件工具仍然拒绝这些名字。
   copy 模式根本不复制它们。mask 在 sandbox 创建/重建时计算；运行期间 host 上
   新出现的凭据文件要等一次重建才会被遮蔽。
 - 宿主 `process.env` 不进入容器；

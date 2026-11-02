@@ -1,7 +1,7 @@
 ---
 name: docs-sync
 description: 在代码、配置、命令或 API 改动之后，检查 README、docs、ADR、CHANGELOG 和注释是否仍在描述真实行为。用户说“同步文档”“看看文档有没有过时”“docs review”时使用。
-allowed-tools: [read_file, grep, glob, list_dir]
+allowed-tools: [read, grep, glob, list_dir]
 version: 1.0.0
 ---
 

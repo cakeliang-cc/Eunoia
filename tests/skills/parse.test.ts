@@ -18,7 +18,7 @@ import {
 const VALID = `---
 name: code-change-verification
 description: 改动代码之后，按仓库顺序跑类型检查、lint 和测试；在全部通过前不要声称完成。
-allowed-tools: [read_file, grep, run_command]
+allowed-tools: [read, grep, bash]
 version: 1.0.0
 license: MIT
 metadata:
@@ -35,7 +35,7 @@ describe('parseSkillDocument', () => {
     const parsed = parseSkillDocument(VALID, 'code-change-verification');
     expect(parsed.manifest).toMatchObject({
       name: 'code-change-verification',
-      allowedTools: ['read_file', 'grep', 'run_command'],
+      allowedTools: ['read', 'grep', 'bash'],
       version: '1.0.0',
       license: 'MIT',
       metadata: { owner: 'platform' },
@@ -76,13 +76,13 @@ description: 做某件事。
     const parsed = parseSkillDocument(
       `---
 description: 做某件事。
-allowed-tools: read_file, grep, run_command
+allowed-tools: read, grep, bash
 ---
 # body
 `,
       'demo',
     );
-    expect(parsed.manifest.allowedTools).toEqual(['read_file', 'grep', 'run_command']);
+    expect(parsed.manifest.allowedTools).toEqual(['read', 'grep', 'bash']);
   });
 
   it('maps Claude tool spellings to this project\'s tool names', () => {
@@ -95,7 +95,7 @@ allowed-tools: Read, Bash(git status *), Grep
 `,
       'demo',
     );
-    expect(parsed.manifest.allowedTools).toEqual(['read_file', 'run_command', 'grep']);
+    expect(parsed.manifest.allowedTools).toEqual(['read', 'bash', 'grep']);
   });
 
   it('collapses whitespace in the description, which is index text', () => {

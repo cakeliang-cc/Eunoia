@@ -254,14 +254,14 @@ describe('changes', () => {
         {
           type: 'tool_call',
           callId: 'c1',
-          name: 'write_file',
+          name: 'write',
           displayable: true,
           summary: '写入 src/a.ts（20 B）',
         },
         {
           type: 'tool_result',
           callId: 'c1',
-          name: 'write_file',
+          name: 'write',
           ok: true,
           durationMs: 5,
           summary: '写入 src/a.ts（20 B）',

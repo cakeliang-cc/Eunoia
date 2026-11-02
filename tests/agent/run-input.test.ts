@@ -44,7 +44,7 @@ describe('buildRuntimeContext', () => {
     const context = buildRuntimeContext({
       memoryBlock: '记忆块',
       skillsBlock: '# 可用技能\n\n- demo — 演示。',
-      toolGuidelines: 'load_skill：先加载。',
+      toolGuidelines: 'skill：先加载。',
       safetyDirective: '安全指令',
     });
 

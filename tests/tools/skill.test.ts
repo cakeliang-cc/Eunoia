@@ -1,5 +1,5 @@
 /**
- * `load_skill` through its real execute path.
+ * `skill` through its real execute path.
  *
  * The tool is the whole mechanism's load-bearing piece: it must return the body
  * (so the next model step has the procedure), list resources as paths the model
@@ -37,7 +37,7 @@ beforeEach(async () => {
     manifest: {
       name: 'code-change-verification',
       description: '改动代码之后，按仓库顺序跑检查。',
-      allowedTools: ['read_file', 'run_command', 'write_file'],
+      allowedTools: ['read', 'bash', 'write'],
       metadata: {},
     },
     root: join(workspace.root, 'skills', 'code-change-verification'),
@@ -55,10 +55,10 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe('load_skill', () => {
+describe('skill', () => {
   it('returns the body and the resource paths, and names permission gaps', async () => {
     const [tool] = createSkillTools(new SkillRegistry([skill]), {
-      availableTools: new Set(['read_file', 'run_command']),
+      availableTools: new Set(['read', 'bash']),
     });
     expect(tool).toBeDefined();
     expect(tool?.readOnly).toBe(true);

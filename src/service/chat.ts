@@ -95,7 +95,7 @@ export interface TurnDependencies {
    * Discovered skills, when the process configured a workspace.
    *
    * The registry is read-only after discovery. It contributes an index block
-   * and one `load_skill` tool; it never adds a tool per skill.
+   * and one `skill` tool; it never adds a tool per skill.
    */
   readonly skills?: SkillRegistry | null;
   /** Model/tool step cap for one turn. */

@@ -897,7 +897,7 @@ export class SandboxGateway {
       sandboxId: sandbox.sandboxId,
       executionId: input.executionId ?? null,
       principal: { type: 'agent', id: `agent:${task.taskId}` },
-      action: { tool: 'run_command', operation: 'process.exec' },
+      action: { tool: 'bash', operation: 'process.exec' },
       resource: { type: 'command', identifier: cwd, scope: [cwd] },
       context: {
         command: input.shell ? (input.command[0] ?? '') : input.command.join(' '),
@@ -1307,7 +1307,7 @@ export class SandboxGateway {
   // -------------------------------------------------------------- file tools ---
 
   async readFile(context: SandboxContext, path: string, start = 1, end = 0): Promise<Awaited<ReturnType<WorkspaceFilesPort['readLines']>>> {
-    const { task, files } = await this.fileContext(context, path, 'fs.read', 'read_file');
+    const { task, files } = await this.fileContext(context, path, 'fs.read', 'read');
     const slice = await files.readLines(path, start, end);
     await this.audit.record({
       taskId: task.taskId,
@@ -1366,7 +1366,7 @@ export class SandboxGateway {
   }
 
   async writeFile(context: SandboxContext, path: string, content: string): Promise<Awaited<ReturnType<WorkspaceFilesPort['writeText']>>> {
-    const { task, workspace, files } = await this.fileContext(context, path, 'fs.write', 'write_file');
+    const { task, workspace, files } = await this.fileContext(context, path, 'fs.write', 'write');
     const result = await files.writeText(path, content);
     await this.workspaces.refreshVersion(workspace);
     await this.audit.record({
@@ -1384,7 +1384,7 @@ export class SandboxGateway {
     context: SandboxContext,
     options: Parameters<WorkspaceFilesPort['editText']>[0],
   ): Promise<Awaited<ReturnType<WorkspaceFilesPort['editText']>>> {
-    const { task, workspace, files } = await this.fileContext(context, options.path, 'fs.write', 'edit_file');
+    const { task, workspace, files } = await this.fileContext(context, options.path, 'fs.write', 'edit');
     const result = await files.editText(options);
     await this.workspaces.refreshVersion(workspace);
     await this.audit.record({
@@ -1400,7 +1400,7 @@ export class SandboxGateway {
 
   /** Ask the policy layer whether a file action would be allowed, without doing it. */
   async authorizeFile(context: SandboxContext, action: 'fs.read' | 'fs.write', path: string): Promise<void> {
-    await this.fileContext(context, path, action, action === 'fs.write' ? 'write_file' : 'read_file');
+    await this.fileContext(context, path, action, action === 'fs.write' ? 'write' : 'read');
   }
 
   /** The canonical workspace directory, for tool adapters that need to map paths. */

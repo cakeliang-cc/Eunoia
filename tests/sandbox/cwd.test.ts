@@ -238,7 +238,7 @@ describe('permission modes', () => {
       permission: {
         mode: 'restricted',
         restricted: {
-          allowedTools: ['read_file', 'list_dir', 'run_command', 'change_directory'],
+          allowedTools: ['read', 'list_dir', 'bash', 'change_directory'],
           filesystem: { read: ['/workspace/src'], write: [] },
         },
       },
@@ -265,7 +265,7 @@ describe('permission modes', () => {
   });
 });
 
-describe('run_command uses the task directory', () => {
+describe('bash uses the task directory', () => {
   it('passes the task cwd and workspace root to the runtime', async () => {
     const { platform } = await ready();
     await platform.gateway.changeDirectory(context(), { path: 'src' });

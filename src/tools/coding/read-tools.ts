@@ -2,9 +2,9 @@
  * Read-only coding tools: what the agent looks with.
  *
  * All four are `none` side effect and `readOnly`, so they run concurrently and
- * need no approval. The descriptions spend their length on *when* to call, not
- * on what the schema already says: a tool whose description only restates its
- * parameters gets called at the wrong moments.
+ * need no approval. The descriptions are contracts, not tutorials: what the
+ * tool returns and the one or two constraints the schema cannot express. The
+ * "when to call" rules live in the system prompt (ADR 023).
  */
 
 import { z } from 'zod';
@@ -19,25 +19,36 @@ import {
 import { truncateHead } from '../truncate.ts';
 import { WorkspaceError } from '../workspace.ts';
 
-const PATH = z.string().min(1).describe('要读的路径；相对路径从工作区根目录算。');
 const MAX_READ_LINES = 2_000;
 const MAX_READ_CHARS = 50_000;
 
 export const readFileTool = defineTool({
-  name: 'read_file',
-  description: '读取一个文本文件并返回带行号的内容。大文件用 start/end 分段读；同一段在本轮重复读取时返回指针，而不是再发一遍全文。',
+  name: 'read',
+  description: 'Read a UTF-8 text file and return line-numbered content.',
   parameters: z.object({
-    path: PATH,
-    start: z.number().int().min(1).optional().describe('起始行，从 1 开始，默认 1。'),
-    end: z.number().int().min(1).optional().describe('结束行，含这一行；省略则读到文件结尾。'),
+    file_path: z.string().min(1).describe('Path to read, relative to the workspace root.'),
+    offset: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe('1-based first line to return. Defaults to 1.'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe('Maximum number of lines to return. Defaults to the rest of the file.'),
   }),
   sideEffect: 'none',
   readOnly: true,
-  guidelines: 'read_file：读文本用 read_file，不要用 run_command 读文件。',
-  execute: async ({ path, start, end }, context) => {
+  guidelines: 'Read text with read — not with bash.',
+  execute: async ({ file_path, offset, limit }, context) => {
     return guardToolResult(async () => {
       const workspace = requireWorkspace(context);
-      const slice = await workspace.readLines(path, start ?? 1, end ?? 0);
+      const start = offset ?? 1;
+      const end = limit === undefined ? 0 : start + limit - 1;
+      const slice = await workspace.readLines(file_path, start, end);
 
       const hit = context.ledger.check({
         path: slice.path,
@@ -69,7 +80,7 @@ export const readFileTool = defineTool({
       });
 
       const trailer = kept.truncated
-        ? `\n… [只显示了第 ${deliveredStart}-${deliveredEnd} 行，共 ${slice.totalLines} 行；继续用 start=${deliveredEnd + 1} 读]`
+        ? `\n… [只显示了第 ${deliveredStart}-${deliveredEnd} 行，共 ${slice.totalLines} 行；继续用 offset=${deliveredEnd + 1} 读]`
         : '';
       return toolOk(`${kept.text}${trailer}`, {
         summary: `读取 ${slice.path}:${deliveredStart}-${deliveredEnd}${complete ? '（整份）' : ''}`,
@@ -90,14 +101,15 @@ export const readFileTool = defineTool({
 
 export const listDirTool = defineTool({
   name: 'list_dir',
-  description: '列出一个目录的结构，默认两层、最多四层；超过 500 项会截断。',
+  description:
+    "List a directory's structure, two levels by default and at most four. Results truncate at 500 entries.",
   parameters: z.object({
-    path: z.string().optional().describe('目录路径，默认工作区根目录。'),
-    depth: z.number().int().min(1).max(4).optional().describe('递归层数，默认 2，最多 4。'),
+    path: z.string().optional().describe('Directory path. Defaults to the workspace root.'),
+    depth: z.number().int().min(1).max(4).optional().describe('Recursion depth. Defaults to 2.'),
   }),
   sideEffect: 'none',
   readOnly: true,
-  guidelines: 'list_dir：先看目录结构，再决定读哪个文件。',
+  guidelines: 'List the tree before choosing a file to read.',
   execute: async ({ path, depth }, context) => {
     return guardToolResult(async () => {
       const workspace = requireWorkspace(context);
@@ -113,20 +125,24 @@ export const listDirTool = defineTool({
 
 export const globTool = defineTool({
   name: 'glob',
-  description: '按 glob 模式查找文件（只返回文件，不返回目录）。跳过被忽略的目录和凭据文件；结果按路径排序，最多 200 条。',
+  description:
+    'Find files, not directories, whose paths match a glob pattern, including hidden files. Skips ignored directories and credential files. Returns up to 200 paths, sorted by path.',
   parameters: z.object({
-    pattern: z.string().min(1).describe('glob 模式，例如 **/*.ts 或 src/**/loop.ts。'),
+    pattern: z
+      .string()
+      .min(1)
+      .describe('Glob pattern to match file paths against (e.g. "**/*.ts", "src/**/loop.ts").'),
     max_results: z
       .number()
       .int()
       .min(1)
       .max(1000)
       .optional()
-      .describe('最多返回几个，默认 200，上限 1000。'),
+      .describe('Maximum number of paths to return. Defaults to 200.'),
   }),
   sideEffect: 'none',
   readOnly: true,
-  guidelines: 'glob：按文件名模式找文件，不读内容。',
+  guidelines: 'Discover files by path pattern with glob — not with find.',
   execute: async ({ pattern, max_results }, context) => {
     return guardToolResult(async () => {
       const workspace = requireWorkspace(context);
@@ -147,23 +163,30 @@ export const globTool = defineTool({
 
 export const grepTool = defineTool({
   name: 'grep',
-  description: '用 JavaScript 正则搜索文件内容，返回按文件分组的 路径:行号: 内容，最多 100 处。跳过二进制、被忽略的目录和凭据文件。',
+  description:
+    'Search file contents with a JavaScript regular expression. Returns up to 100 matching lines with line numbers, grouped by file. Skips binary files, ignored directories and credential files.',
   parameters: z.object({
-    pattern: z.string().min(1).describe('JavaScript 正则。'),
-    path: z.string().optional().describe('从哪个文件或目录开始，默认工作区根目录。'),
-    include: z.string().optional().describe('只搜匹配这个 glob 的文件，例如 *.ts。'),
-    case_sensitive: z.boolean().optional().describe('是否区分大小写，默认 true。'),
+    pattern: z.string().min(1).describe('JavaScript regular expression to search for.'),
+    path: z
+      .string()
+      .optional()
+      .describe('File or directory to search. Defaults to the workspace root.'),
+    include: z
+      .string()
+      .optional()
+      .describe('One glob filter for which files to search (e.g. "*.ts"). Not a list.'),
+    case_sensitive: z.boolean().optional().describe('Case-sensitive match. Defaults to true.'),
     max_results: z
       .number()
       .int()
       .min(1)
       .max(500)
       .optional()
-      .describe('最多返回几处，默认 100，上限 500。'),
+      .describe('Maximum number of matches to return. Defaults to 100.'),
   }),
   sideEffect: 'none',
   readOnly: true,
-  guidelines: 'grep：按内容找位置；用 include 缩小范围。',
+  guidelines: 'Search contents with grep — not with shell grep.',
   execute: async ({ pattern, path, include, case_sensitive, max_results }, context) => {
     return guardToolResult(async () => {
       const workspace = requireWorkspace(context);

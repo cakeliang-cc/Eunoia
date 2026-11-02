@@ -36,7 +36,7 @@ BASE_IMAGE=$(docker image inspect --format '{{index .RepoDigests 0}}' alpine:3.2
 
 ## 语言运行时
 
-本仓库没有单独的 `Python Tool` / `Node Tool`：`run_command` 在镜像内执行任意
+本仓库没有单独的 `Python Tool` / `Node Tool`：`bash` 在镜像内执行任意
 命令。因此 Python/Node 是否可用，由镜像决定。参考镜像包含两者；如果只用
 `alpine/curl` 做测试镜像，就只能跑 shell/curl。
 

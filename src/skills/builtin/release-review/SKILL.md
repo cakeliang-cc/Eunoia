@@ -1,7 +1,7 @@
 ---
 name: release-review
 description: 在准备发版、需要判断当前分支是否可以发布时，比较上一个发布 tag 与当前候选版本的差异，检查兼容性、回归、迁移说明和发布说明。用户说“准备发版”“看看能不能发”“release review”时使用。
-allowed-tools: [read_file, grep, glob, list_dir, run_command]
+allowed-tools: [read, grep, glob, list_dir, bash]
 version: 1.0.0
 ---
 

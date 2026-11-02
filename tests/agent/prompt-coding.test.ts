@@ -58,15 +58,15 @@ describe('the coding prompt', () => {
     // A prompt that describes tools the model does not have is worse than one
     // that says nothing: it teaches a call the runtime will refuse.
     for (const tool of [
-      'read_file',
+      'read',
       'list_dir',
-      'write_file',
-      'edit_file',
+      'write',
+      'edit',
       'glob',
       'grep',
-      'run_command',
+      'bash',
       'change_directory',
-      'load_skill',
+      'skill',
       'search_memory',
       'save_memory',
       'update_memory',

@@ -119,7 +119,7 @@ describe('permission modes at the tool boundary', () => {
         mode: 'restricted',
         autoReview: { enabled: true },
         restricted: {
-          allowedTools: ['read_file', 'list_dir', 'write_file', 'edit_file'],
+          allowedTools: ['read', 'list_dir', 'write', 'edit'],
           filesystem: { read: ['/workspace'], write: ['/workspace/tests'] },
           network: { mode: 'none', allowedDomains: [], allowedPorts: [] },
         },
@@ -139,7 +139,7 @@ describe('permission modes at the tool boundary', () => {
         mode: 'restricted',
         autoReview: { enabled: true },
         restricted: {
-          allowedTools: ['read_file', 'list_dir'],
+          allowedTools: ['read', 'list_dir'],
           filesystem: { read: ['/workspace'], write: ['/workspace/tests'] },
           network: { mode: 'none', allowedDomains: [], allowedPorts: [] },
         },

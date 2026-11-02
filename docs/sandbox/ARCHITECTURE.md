@@ -12,7 +12,7 @@ Chat request
     v
 service/chat.ts  ── conversationId = taskId
     |
-    +--> ToolRegistry (memory tools, load_skill, coding tools)
+    +--> ToolRegistry (memory tools, skill, coding tools)
     |
     +--> Sandbox gateway tool adapter (src/sandbox/tool-adapter.ts)
             |                         |
@@ -35,7 +35,7 @@ service/chat.ts  ── conversationId = taskId
 一条命令的实际路径：
 
 ```text
-run_command tool
+bash tool
   -> ToolExecutor.run(command, toolCallId)
   -> Gateway.execute()
        1. validate task ownership and sandbox binding
@@ -184,13 +184,13 @@ approvalId`。
 ## 7. 文件工具
 
 bind 模式下，宿主项目里的 `.env` / `*.pem` / `id_rsa` 等凭据文件会在容器里被
-一个**空的只读文件覆盖挂载**（`maskedCredentials`）：文件工具拒绝它们，`run_command`
+一个**空的只读文件覆盖挂载**（`maskedCredentials`）：文件工具拒绝它们，`bash`
 读到的也是空文件，宿主原件不变。copy 模式不复制这些文件，所以不需要 mask。
 
 文件操作不经过容器，但**经过 Gateway**：
 
 ```text
-read_file -> ToolWorkspacePort.readLines
+read -> ToolWorkspacePort.readLines
           -> Gateway.readFile
           -> policy: fs.read on /workspace/<path>
           -> WorkspaceFiles.readLines

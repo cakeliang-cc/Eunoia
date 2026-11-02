@@ -128,7 +128,7 @@ npm run sandbox -- gc --idle-minutes 60 --checkpoint-days 7
 ```
 
 - 只处理 `READY` / `INTERRUPTED` / `FAILED` 且 heartbeat 超时的 sandbox；
-- `run_command` / `ensureSandbox` 遇到并发上限时也会按需回收 `READY` / `EXPIRED`
+- `bash` / `ensureSandbox` 遇到并发上限时也会按需回收 `READY` / `EXPIRED`
   且没有未完成执行的 sandbox，审计动作为 `sandbox.reclaim`；这只是清容器，
   workspace、checkpoint 和 task cwd 都保留；
 - `SANDBOX_DISK_MB` 是配置项，但 Docker 的 overlay2 不提供 per-container

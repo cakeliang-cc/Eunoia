@@ -48,8 +48,8 @@ WORKSPACE_WRITES + WORKSPACE_COMMANDS 都开 → auto
 `filesystem.write` 清空，`compileRuntimeConfig()` 看见没有可写前缀就给
 `/workspace` 加 `readonly`。因此：
 
-- `write_file` / `edit_file` 在 Permission Manager 被 DENY；
-- `run_command` 可以在只读挂载里运行，但写 `/workspace` 会被内核拒绝；
+- `write` / `edit` 在 Permission Manager 被 DENY；
+- `bash` 可以在只读挂载里运行，但写 `/workspace` 会被内核拒绝；
 - `/tmp` 仍是 tmpfs，命令可以写临时文件；
 - 网络仍受 `SANDBOX_NETWORK_MODE` 限制。
 
@@ -58,7 +58,7 @@ WORKSPACE_WRITES + WORKSPACE_COMMANDS 都开 → auto
 `restricted` 把结构策略收窄到 `SANDBOX_RESTRICTED_*` 白名单：
 
 - 读/写路径取**交集**（`/workspace` ∩ `/workspace/tests` = `/workspace/tests`）；
-- `run_command` 不在 `SANDBOX_RESTRICTED_TOOLS` 时，`process.allowShell=false`；
+- `bash` 不在 `SANDBOX_RESTRICTED_TOOLS` 时，`process.allowShell=false`；
 - 网络模式、域名、端口取交集；
 - 工具名不在白名单时直接进入人工审批（auto-review 被禁止）。
 

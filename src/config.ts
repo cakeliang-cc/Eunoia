@@ -105,7 +105,7 @@ export function agentMaxSteps(env: NodeJS.ProcessEnv = process.env): number {
 /**
  * Whether project and built-in skills are discovered.
  *
- * Default on: skills are instructions, and `load_skill` is a read-only tool
+ * Default on: skills are instructions, and `skill` is a read-only tool
  * that never grants a permission. A process that wants a smaller prompt index
  * can turn it off without touching the workspace or the tool policy.
  */

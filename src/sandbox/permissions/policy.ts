@@ -184,7 +184,7 @@ function orderedLayers(
  * `read-only` removes every writable prefix, which `compileRuntimeConfig` turns
  * into a read-only bind mount — the enforcement is at the mount, not in a list
  * of command names. `restricted` replaces the allow-lists with the explicit
- * whitelist and disables the shell when `run_command` is not whitelisted.
+ * whitelist and disables the shell when `bash` is not whitelisted.
  */
 export function narrowPolicyForMode(
   base: SandboxPolicy,
@@ -201,7 +201,7 @@ export function narrowPolicyForMode(
 
   const read = intersectPrefixes(base.filesystem.read, restricted.filesystem.read);
   const write = intersectPrefixes(base.filesystem.write, restricted.filesystem.write);
-  const allowedShell = restricted.allowedTools.includes('run_command') && base.process.allowShell;
+  const allowedShell = restricted.allowedTools.includes('bash') && base.process.allowShell;
   return {
     ...base,
     filesystem: {
