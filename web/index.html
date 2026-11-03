@@ -602,6 +602,25 @@
   .text pre code {
     padding: 0; border: 0; background: transparent; font-size: inherit;
   }
+  /* A fenced block owns its own copy button, so selecting the code no longer
+     has to include whatever surrounds it. The right padding is what keeps a
+     long first line from running underneath the button. */
+  .code-block { position: relative; margin: 9px 0; }
+  .code-block pre { margin: 0; padding-right: 58px; }
+  .code-copy {
+    position: absolute; top: 6px; right: 6px; z-index: 1;
+    padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--surface); color: var(--muted); font-size: 10.5px;
+    opacity: 0;
+    transition: opacity .14s ease, color .14s ease, border-color .14s ease;
+  }
+  .code-block:hover .code-copy,
+  .code-copy:focus-visible { opacity: 1; }
+  .code-copy:hover { color: var(--ink-2); border-color: var(--line-strong); }
+  .code-copy[data-copied="true"] { opacity: 1; color: var(--accent-strong); }
+  /* No hover to reveal it on touch, and a hidden control is not a control. */
+  @media (hover: none) { .code-copy { opacity: 1; } }
+  .meta button[data-copied="true"] { color: var(--accent-strong); }
   .text .para { white-space: pre-wrap; margin: 0 0 9px; }
   .text .para:last-child { margin-bottom: 0; }
   .text blockquote {

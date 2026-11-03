@@ -27,6 +27,7 @@ export default tseslint.config(
         TextDecoder: 'readonly',
         AbortController: 'readonly',
         crypto: 'readonly',
+        navigator: 'readonly',
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
         console: 'readonly',

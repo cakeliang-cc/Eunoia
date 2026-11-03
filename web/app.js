@@ -51,6 +51,73 @@ function el(tag, className, text) {
 }
 
 /**
+ * Put text on the clipboard.
+ *
+ * `navigator.clipboard` only exists in a secure context. This page can be
+ * opened over plain http on a LAN address the operator allowed, so the old
+ * selection-based command is kept as a fallback rather than making copy depend
+ * on how the page was reached.
+ */
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Permission denied or not focused: try the legacy path before giving up.
+  }
+
+  const body = document.body;
+  if (!body || typeof document.execCommand !== 'function') return false;
+  const helper = document.createElement('textarea');
+  helper.value = text;
+  helper.setAttribute('readonly', '');
+  helper.style.position = 'fixed';
+  helper.style.top = '-1000px';
+  helper.style.opacity = '0';
+  body.append(helper);
+  helper.select();
+  try {
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    helper.remove();
+  }
+}
+
+/**
+ * Copy, then say so on the button itself.
+ *
+ * The label is the feedback: a toast for an action this small would cover the
+ * text the person is about to paste into. The timer is per button so copying a
+ * second block does not reset the first one's label early.
+ */
+async function copyWithFeedback(button, text) {
+  const ok = await copyText(text);
+  button.textContent = ok ? '已复制' : '复制失败';
+  button.dataset.copied = String(ok);
+  if (button.copyReset) clearTimeout(button.copyReset);
+  button.copyReset = setTimeout(() => {
+    button.textContent = '复制';
+    delete button.dataset.copied;
+  }, 1600);
+}
+
+/** A quiet "复制" beside the feedback controls; copies the reply's source. */
+function addCopy(actions, content) {
+  if (!content || content.trim().length === 0) return;
+  const copy = el('button', null, '复制');
+  copy.type = 'button';
+  copy.setAttribute('aria-label', '复制这条回复');
+  copy.onclick = () => void copyWithFeedback(copy, content);
+  // `addFeedback` clears the row when it runs, so copy is prepended afterwards
+  // to keep the reading order: copy, then rate.
+  actions.prepend(copy);
+}
+
+/**
  * Render the assistant's Markdown subset into a container.
  *
  * The model writes headings, quotes, tables, lists, fenced code and inline
@@ -70,9 +137,15 @@ function renderText(container, text) {
       renderProse(container, block.text);
       continue;
     }
+    const wrapper = el('div', 'code-block');
     const pre = el('pre');
     pre.append(el('code', null, block.code));
-    container.append(pre);
+    const copy = el('button', 'code-copy', '复制');
+    copy.type = 'button';
+    copy.setAttribute('aria-label', '复制这段代码');
+    copy.onclick = () => void copyWithFeedback(copy, block.code);
+    wrapper.append(copy, pre);
+    container.append(wrapper);
   }
 }
 
@@ -1328,7 +1401,11 @@ async function send(text, options = {}) {
     // a genuinely cut connection is left as it was rather than guessed at.
     if (!terminal && turn.stopping) finishInterrupted(null);
 
+    // Copy is offered for an interrupted reply too: the half that was said is
+    // still the part someone might want to keep. It runs after feedback
+    // because that clears the row before appending the rating controls.
     if (messageId) addFeedback(actions, messageId);
+    addCopy(actions, reply);
   } catch (error) {
     // A stop also surfaces as an AbortError when the connection had to be cut.
     if (isAbortError(error) && turn.stopping) {
@@ -1460,6 +1537,7 @@ async function loadConversation(id) {
         }
       }
       addFeedback(actions, message.id);
+      addCopy(actions, message.content);
     }
   }
   rememberConversation(id);

@@ -174,6 +174,8 @@ export interface Harness {
   readonly element: (id: string) => El;
   readonly store: Map<string, string>;
   readonly requests: CapturedRequest[];
+  /** Text the client put on the clipboard, in the order it was copied. */
+  readonly copied: string[];
   /** Run one turn by submitting the composer. */
   send(text: string): Promise<void>;
   /** Let queued microtasks and the module's fire-and-forget calls settle. */
@@ -230,6 +232,20 @@ export async function boot(options: {
   const store = new Map<string, string>();
   if (options.stored) store.set('df_conversation', options.stored);
   for (const [key, value] of Object.entries(options.local ?? {})) store.set(key, value);
+
+  const copied: string[] = [];
+  // A clipboard stub. `navigator` is a getter on Node's global in newer
+  // versions, so replace the whole property rather than mutating it.
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: {
+      clipboard: {
+        writeText: async (text: string) => {
+          copied.push(String(text));
+        },
+      },
+    },
+  });
 
   const documentElement = new El('html');
   (globalThis as { window?: unknown }).window = {
@@ -356,6 +372,7 @@ export async function boot(options: {
     element,
     store,
     requests,
+    copied,
     settle,
     async send(text: string) {
       element('input').value = text;

@@ -314,9 +314,9 @@ describe('coming back to a conversation', () => {
     // `meta` holds the note and then the rating buttons; neither carries a class
     // of its own, so this reaches in by position rather than by name.
     const buttons = rated?.child('meta')?.children[1]?.children ?? [];
-    expect(buttons.map((button) => button.textContent)).toEqual(['有帮助', '不太对']);
+    expect(buttons.map((button) => button.textContent)).toEqual(['复制', '有帮助', '不太对']);
 
-    buttons[0]?.onclick?.();
+    buttons[1]?.onclick?.();
     await harness.settle();
     const posted = lastRequest(harness, '/api/feedback');
     expect(posted?.body).toMatchObject({ messageId: 'm2', rating: 'good' });
@@ -713,5 +713,69 @@ describe('interrupt and continue', () => {
     expect(send.dataset.mode).toBe('send');
     expect(send.disabled).toBe(false);
     expect(lastTurn(harness.transcript).note?.textContent).toContain('已打断');
+  });
+});
+
+describe('copying', () => {
+  const ANSWER = '听起来真的很沉。\n\n先坐一会儿也没关系。';
+  const ANSWER_TURN: Frame[] = [
+    { type: 'text_delta', text: ANSWER },
+    { type: 'completed', text: ANSWER, conversationId: 'c1', messageId: 'm1' },
+  ];
+
+  /** The action row of a turn: copy, then the rating buttons. */
+  function actionsOf(node: El | undefined): El | undefined {
+    return node?.child('meta')?.children[1];
+  }
+
+  it('copies the whole reply from its action row', async () => {
+    const harness = await boot({ frames: ANSWER_TURN });
+    await harness.send('今天什么都不想做。');
+
+    const actions = actionsOf(
+      harness.transcript.children.filter((node) => node.classList.contains('turn')).at(-1),
+    );
+    const copy = actions?.children.find((button) => button.textContent === '复制');
+    expect(copy).toBeDefined();
+
+    copy?.onclick?.();
+    await harness.settle();
+
+    expect(harness.copied).toEqual([ANSWER]);
+    expect(copy?.textContent).toBe('已复制');
+  });
+
+  it('copies a fenced block without its fences', async () => {
+    const reply = '先看这段：\n```ts\nconst a = 1;\nconsole.log(a);\n```\n就这样。';
+    const harness = await boot({
+      frames: [
+        { type: 'text_delta', text: reply },
+        { type: 'completed', text: reply, conversationId: 'c1', messageId: 'm1' },
+      ],
+    });
+    await harness.send('给我一个例子');
+
+    const block = harness.transcript.find((node) => node.classList.contains('code-block'))[0];
+    const copy = block?.children.find((node) => node.classList.contains('code-copy'));
+    expect(copy).toBeDefined();
+
+    copy?.onclick?.();
+    await harness.settle();
+
+    expect(harness.copied).toEqual(['const a = 1;\nconsole.log(a);']);
+    expect(copy?.textContent).toBe('已复制');
+  });
+
+  it('offers copy on a restored reply too', async () => {
+    const harness = await boot({ stored: 'c1', routes: messageRoute(STORED_MESSAGES) });
+
+    const turn = harness.transcript.find((node) => node.classList.contains('turn'))[1];
+    const copy = actionsOf(turn)?.children.find((button) => button.textContent === '复制');
+    expect(copy).toBeDefined();
+
+    copy?.onclick?.();
+    await harness.settle();
+
+    expect(harness.copied).toEqual(['嗯，那就先不上的样子。']);
   });
 });
