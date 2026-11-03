@@ -699,6 +699,9 @@ describe('interrupt and continue', () => {
 
     const send = harness.element('send');
     expect(send.dataset.mode).toBe('stop');
+    // A disabled button never receives a click in a browser. This is the exact
+    // bug the first version shipped: the square appeared, and nothing happened.
+    expect(send.disabled).toBe(false);
 
     send.listeners.click?.[0]?.({ preventDefault() {} });
     await new Promise((resolve) => setTimeout(resolve, 200));

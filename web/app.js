@@ -1165,7 +1165,9 @@ async function send(text, options = {}) {
     watchdog: null,
   };
   state.turn = turn;
-  sendButton.disabled = true;
+  // Deliberately *not* disabled: this button is the stop control now, and a
+  // disabled button never receives the click. `type="button"` plus the
+  // `state.sending` guard is what prevents a second turn, not `disabled`.
   setSendMode('stop');
   // A continuation is not what the person was typing; keep any draft.
   if (!options.continue) {

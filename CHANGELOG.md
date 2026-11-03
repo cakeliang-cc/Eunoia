@@ -31,6 +31,11 @@
 
 ### Fixed（边界收尾）
 
+- **停止按钮在流式期间不再被禁用。** 第一版只把发送按钮切成 `type="button"`，
+  却保留了原来的 `disabled = true`；浏览器不会给禁用按钮派发 `click`，于是方块
+  图标出现了、点下去却没有任何反应。现在流式期间按钮保持可点，防止重复发送
+  改由 `state.sending` 负责；只有"正在停止"的瞬间才禁用。web 测试补了一条
+  `expect(send.disabled).toBe(false)`。
 - **截断不再把代理对切成两半。** `truncateMiddle` / `truncateLine` / 单行硬截断
   原来按 UTF-16 code unit 切，切在 emoji 或 astral CJK 中间会留下孤立代理项；
   现在切点落在代理对之前/之后，长度契约不变，并有一条覆盖三种截断的测试。
