@@ -1,9 +1,10 @@
 /**
  * A hand-written DOM and fetch double for the workbench and the chat client.
  *
- * The client is one static file with no build step, so this shim exists instead
- * of jsdom: it proves event routing, ordering, classes and the requests the
- * module makes, not that a browser lays the result out the same way.
+ * The client is one static module (`web/app.js`) with no build step, so this
+ * shim exists instead of jsdom: it proves event routing, ordering, classes and
+ * the requests the module makes, not that a browser lays the result out the same
+ * way.
  *
  * It is shared by `client.test.ts` and `workbench.test.ts` so the two suites see
  * the same DOM. A second copy would drift on the first change to either.
@@ -180,11 +181,13 @@ export interface Harness {
 }
 
 /**
- * Load `web/index.html`'s module against a hand-written DOM.
+ * Load `web/app.js` against a hand-written DOM.
  *
  * The module is compiled with `new Function` rather than imported: it has no
  * imports of its own, and this keeps vitest's module pipeline out of the way of
- * a file that was never meant to go through one.
+ * a file that was never meant to go through one. Reading it from its own file
+ * (rather than from an inline `<script>`) is what lets the client be linted and
+ * keeps `index.html` from being a two-thousand-line surprise.
  *
  * `routes` is the fake server. Anything not routed still answers `200 {}`, so a
  * test only has to describe the requests its subject actually depends on.
@@ -203,9 +206,7 @@ export async function boot(options: {
    */
   token?: string;
 } = {}): Promise<Harness> {
-  const html = readFileSync(join(import.meta.dirname, '..', '..', 'web', 'index.html'), 'utf8');
-  const source = /<script type="module">([\s\S]*?)<\/script>/.exec(html)?.[1];
-  if (!source) throw new Error('web/index.html no longer contains a module script');
+  const source = readFileSync(join(import.meta.dirname, '..', '..', 'web', 'app.js'), 'utf8');
 
   const byId = new Map<string, El>();
   const element = (id: string): El => {
@@ -242,6 +243,15 @@ export async function boot(options: {
     getItem: (key: string) => store.get(key) ?? null,
     setItem: (key: string, value: string) => void store.set(key, String(value)),
     removeItem: (key: string) => void store.delete(key),
+  };
+  // Synchronous, so a render scheduled by the streaming throttle has happened by
+  // the time `send()` resolves. A real browser coalesces; this double only has
+  // to preserve ordering.
+  (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = (
+    callback: (time: number) => void,
+  ) => {
+    callback(0);
+    return 1;
   };
   (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';

@@ -740,6 +740,11 @@ export function createApp(deps: AppDependencies) {
       return true;
     }
 
+    if (req.method === 'GET' && pathname === '/app.js') {
+      await serveWebAsset(res, 'app.js', 'text/javascript; charset=utf-8');
+      return true;
+    }
+
     if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
       await serveIndex(res, localToken);
       return true;
@@ -1290,6 +1295,31 @@ async function serveIndex(res: ServerResponse, token: string): Promise<void> {
     res.end(page);
   } catch {
     sendJson(res, 404, { error: 'web client not found' });
+  }
+}
+
+/**
+ * Serve one file from `web/` with an explicit name.
+ *
+ * There is no path parameter, so this is not a static-file server: the caller
+ * names a literal, and the only way to reach another file is to add a route.
+ * That keeps a `..` in a URL meaningless even before the path guard exists.
+ */
+async function serveWebAsset(
+  res: ServerResponse,
+  name: string,
+  contentType: string,
+): Promise<void> {
+  try {
+    const body = await readFile(join(WEB_DIR, name));
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Cache-Control': 'no-store',
+      'Content-Length': body.byteLength,
+    });
+    res.end(body);
+  } catch {
+    sendJson(res, 404, { error: 'web asset not found' });
   }
 }
 

@@ -2,7 +2,8 @@
 
 ## 状态
 
-已实现。前端在 `web/index.html`，服务在 `src/workspace-ui/`。
+已实现。前端的 HTML/CSS 在 `web/index.html`，客户端模块在 `web/app.js`（无构建步
+骤，服务端按 `/app.js` 原样发出），服务在 `src/workspace-ui/`。
 
 ## 背景
 

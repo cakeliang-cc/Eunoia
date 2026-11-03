@@ -44,6 +44,9 @@ import {
   isTerminalExecution,
 } from './state.ts';
 import type { SandboxController, RuntimeConfigResolver } from './controller.ts';
+import type { SandboxContext } from './context.ts';
+import { GatewayFileOperations, type WorkspaceFilesPort } from './gateway-files.ts';
+import { assertId } from './ids.ts';
 import type { WorkspaceManager } from './workspace-manager.ts';
 import type { AuditLog, SandboxMetrics } from './audit.ts';
 import type { CredentialBroker } from './credentials.ts';
@@ -96,28 +99,15 @@ export interface SandboxGatewayDeps {
   readonly redactor?: Redactor;
 }
 
-export interface SandboxContext {
-  readonly taskId: string;
-  readonly sessionId?: string | null;
-  readonly userId?: string | null;
-  readonly toolCallId?: string | null;
-}
+export type { SandboxContext };
 
 /** Options for one execute call beyond the public `ExecuteInput`. */
 export interface ExecuteOptions {
   readonly signal?: AbortSignal;
 }
 
-export interface FileOpContext extends SandboxContext {
-  readonly path: string;
-  readonly start?: number;
-  readonly end?: number;
-  readonly depth?: number;
-}
-
 const MAX_COMMAND_BYTES = 64 * 1024;
 const MAX_IDEMPOTENCY_KEY = 200;
-const MAX_TASK_ID = 200;
 
 export class SandboxGateway {
   private readonly store: SandboxStore;
@@ -135,6 +125,8 @@ export class SandboxGateway {
   private readonly taskContexts: TaskContextStore;
   private readonly cwdManager: CwdManager;
   private readonly redactor: Redactor;
+  /** File tools; a collaborator rather than another two hundred lines here. */
+  private readonly fileOps: GatewayFileOperations;
   /** Executions currently inside the runtime, per sandbox. */
   private readonly inFlight = new Map<string, number>();
 
@@ -184,6 +176,14 @@ export class SandboxGateway {
     // Credential values are known only after issuance; the audit log has its own
     // redactor, and new values are registered there by the broker's caller.
     for (const secret of deps.credentials.secrets()) this.redactor.addSecret(secret);
+    this.fileOps = new GatewayFileOperations({
+      store: deps.store,
+      workspaces: deps.workspaces,
+      permissions: this.permissions,
+      audit: deps.audit,
+      metrics: deps.metrics,
+      settings: deps.settings,
+    });
   }
 
   // ------------------------------------------------------------------ tasks ---
@@ -1412,128 +1412,50 @@ export class SandboxGateway {
   // -------------------------------------------------------------- file tools ---
 
   async readFile(context: SandboxContext, path: string, start = 1, end = 0): Promise<Awaited<ReturnType<WorkspaceFilesPort['readLines']>>> {
-    const { task, files } = await this.fileContext(context, path, 'fs.read', 'read');
-    const slice = await files.readLines(path, start, end);
-    await this.audit.record({
-      taskId: task.taskId,
-      sessionId: context.sessionId ?? null,
-      toolCallId: context.toolCallId ?? null,
-      action: 'fs.read',
-      outcome: 'succeeded',
-      detail: { path: slice.path, start: slice.start, end: slice.end, bytes: slice.size },
-    });
-    return slice;
+    return this.fileOps.readFile(context, path, start, end);
   }
 
   async listDir(context: SandboxContext, path = '.', depth = 2): Promise<Awaited<ReturnType<WorkspaceFilesPort['listDir']>>> {
-    const { task, files } = await this.fileContext(context, path, 'fs.list', 'list_dir');
-    const listing = await files.listDir(path, depth);
-    await this.audit.record({
-      taskId: task.taskId,
-      sessionId: context.sessionId ?? null,
-      toolCallId: context.toolCallId ?? null,
-      action: 'fs.list',
-      outcome: 'succeeded',
-      detail: { path: listing.path, entries: listing.entries, truncated: listing.truncated },
-    });
-    return listing;
+    return this.fileOps.listDir(context, path, depth);
   }
 
   async glob(context: SandboxContext, pattern: string, maxResults = 200): Promise<Awaited<ReturnType<WorkspaceFilesPort['glob']>>> {
-    const { task, files } = await this.fileContext(context, '.', 'fs.read', 'glob');
-    const found = await files.glob(pattern, maxResults);
-    await this.audit.record({
-      taskId: task.taskId,
-      sessionId: context.sessionId ?? null,
-      toolCallId: context.toolCallId ?? null,
-      action: 'fs.glob',
-      outcome: 'succeeded',
-      detail: { pattern, matches: found.paths.length, truncated: found.truncated },
-    });
-    return found;
+    return this.fileOps.glob(context, pattern, maxResults);
   }
 
   async grep(
     context: SandboxContext,
     options: Parameters<WorkspaceFilesPort['grep']>[0],
   ): Promise<Awaited<ReturnType<WorkspaceFilesPort['grep']>>> {
-    const { task, files } = await this.fileContext(context, options.path ?? '.', 'fs.read', 'grep');
-    const result = await files.grep(options);
-    await this.audit.record({
-      taskId: task.taskId,
-      sessionId: context.sessionId ?? null,
-      toolCallId: context.toolCallId ?? null,
-      action: 'fs.grep',
-      outcome: 'succeeded',
-      detail: { matches: result.matches, files_scanned: result.filesScanned, truncated: result.truncated },
-    });
-    return result;
+    return this.fileOps.grep(context, options);
   }
 
   async writeFile(context: SandboxContext, path: string, content: string): Promise<Awaited<ReturnType<WorkspaceFilesPort['writeText']>>> {
-    const { task, workspace, files } = await this.fileContext(context, path, 'fs.write', 'write');
-    const result = await files.writeText(path, content);
-    await this.workspaces.refreshVersion(workspace);
-    await this.audit.record({
-      taskId: task.taskId,
-      sessionId: context.sessionId ?? null,
-      toolCallId: context.toolCallId ?? null,
-      action: 'fs.write',
-      outcome: 'succeeded',
-      detail: { path: result.path, bytes: result.bytes, created: result.created },
-    });
-    return result;
+    return this.fileOps.writeFile(context, path, content);
   }
 
   async editFile(
     context: SandboxContext,
     options: Parameters<WorkspaceFilesPort['editText']>[0],
   ): Promise<Awaited<ReturnType<WorkspaceFilesPort['editText']>>> {
-    const { task, workspace, files } = await this.fileContext(context, options.path, 'fs.write', 'edit');
-    const result = await files.editText(options);
-    await this.workspaces.refreshVersion(workspace);
-    await this.audit.record({
-      taskId: task.taskId,
-      sessionId: context.sessionId ?? null,
-      toolCallId: context.toolCallId ?? null,
-      action: 'fs.write',
-      outcome: 'succeeded',
-      detail: { path: result.path, replacements: result.replacements, bytes: result.bytes },
-    });
-    return result;
+    return this.fileOps.editFile(context, options);
   }
 
   /** Ask the policy layer whether a file action would be allowed, without doing it. */
   async authorizeFile(context: SandboxContext, action: 'fs.read' | 'fs.write', path: string): Promise<void> {
-    await this.fileContext(context, path, action, action === 'fs.write' ? 'write' : 'read');
+    return this.fileOps.authorizeFile(context, action, path);
   }
 
-  /**
-   * Whether a path exists, for the write tool's read-before-overwrite guard.
-   *
-   * This deliberately does not go through `fileContext`: that path evaluates a
-   * permission and consumes a one-time grant, and a stat is not an operation the
-   * model is being granted — it is a question the tool asks *before* deciding
-   * whether to call `writeFile`, which does evaluate `fs.write`. Consuming an
-   * `fs.read` grant here would let a refused overwrite eat the grant a real
-   * `read` in the same turn needed. Ownership and the path guard still apply.
-   */
   async statFile(
     context: SandboxContext,
     path: string,
   ): Promise<{ path: string; size: number; mtimeMs: number } | null> {
-    const task = await this.loadTask(context);
-    const workspace = await this.store.getWorkspace(task.workspaceId);
-    if (!workspace) throw new SandboxNotFoundError('workspace is missing');
-    return this.workspaces.files(workspace.storageLocation).stat(path);
+    return this.fileOps.statFile(context, path);
   }
 
   /** The canonical workspace directory, for tool adapters that need to map paths. */
   async workspaceLocation(context: SandboxContext): Promise<string | null> {
-    const task = await this.store.getTask(context.taskId);
-    if (!task) return null;
-    const workspace = await this.store.getWorkspace(task.workspaceId);
-    return workspace?.storageLocation ?? null;
+    return this.fileOps.workspaceLocation(context);
   }
 
   /** Used by the Recovery Manager; the same compilation path as normal execution. */
@@ -1545,68 +1467,6 @@ export class SandboxGateway {
   }
 
   // ---------------------------------------------------------------- internal ---
-
-  private async fileContext(
-    context: SandboxContext,
-    path: string,
-    action: 'fs.read' | 'fs.write' | 'fs.list',
-    toolName: string,
-  ): Promise<{ task: Task; workspace: Workspace; files: ReturnType<WorkspaceManager['files']> }> {
-    const task = await this.loadTask(context);
-    const workspace = await this.store.getWorkspace(task.workspaceId);
-    if (!workspace) throw new SandboxNotFoundError('workspace is missing');
-    const files = this.workspaces.files(workspace.storageLocation);
-    const resolved = files.resolve(path);
-    const permissionRequest: PermissionEvaluationRequest = {
-      requestId: `eval_${randomUUID()}`,
-      organizationId: this.settings.permission.organizationId,
-      projectId: this.settings.permission.projectId,
-      sessionId: task.sessionId,
-      taskId: task.taskId,
-      sandboxId: task.sandboxId,
-      executionId: null,
-      principal: { type: 'agent', id: `agent:${task.taskId}` },
-      action: { tool: toolName, operation: action },
-      resource: {
-        type: 'path',
-        identifier: resolved.container,
-        scope: [resolved.container],
-      },
-      context: {
-        metadata: { relative_path: resolved.relative, tool_call_id: context.toolCallId ?? null },
-      },
-    };
-    const decision = await this.permissions.evaluate(permissionRequest);
-    if (decision.effect !== 'allow') {
-      this.metrics.increment(decision.effect === 'deny' ? 'policy_denied' : 'approval_required');
-      await this.audit.record({
-        taskId: task.taskId,
-        sessionId: context.sessionId ?? null,
-        toolCallId: context.toolCallId ?? null,
-        policyVersion: decision.permissionPolicyVersion,
-        action: `execution.authorize:${action}`,
-        outcome: decision.effect === 'deny' ? 'denied' : 'approval_required',
-        detail: { reason: decision.reason, path: resolved.relative, decision_id: decision.decisionId },
-      });
-      if (decision.effect === 'deny') throw new SandboxPolicyError(decision.reason);
-      throw new SandboxApprovalRequiredError(decision.reason, {
-        requestId: decision.requestId,
-        approvalRequestId: decision.approvalRequestId ?? null,
-      });
-    }
-    const revalidated = await this.permissions.revalidate(decision, permissionRequest);
-    if (revalidated.effect !== 'allow') {
-      if (revalidated.effect === 'deny') throw new SandboxPolicyError(revalidated.reason);
-      throw new SandboxApprovalRequiredError(revalidated.reason, {
-        requestId: revalidated.requestId,
-        approvalRequestId: revalidated.approvalRequestId ?? null,
-      });
-    }
-    if (!(await this.permissions.consume(revalidated))) {
-      throw new SandboxApprovalRequiredError('the one-time grant was already consumed');
-    }
-    return { task, workspace, files };
-  }
 
   private async loadTask(context: SandboxContext): Promise<Task> {
     assertId('task id', context.taskId);
@@ -1866,46 +1726,6 @@ export class SandboxGateway {
 
 // ----------------------------------------------------------------- helpers ---
 
-type WorkspaceFilesPort = {
-  readLines: (path: string, start?: number, end?: number) => Promise<{
-    text: string;
-    path: string;
-    start: number;
-    end: number;
-    totalLines: number;
-    complete: boolean;
-    chars: number;
-    mtimeMs: number;
-    size: number;
-  }>;
-  stat: (path: string) => Promise<{ path: string; size: number; mtimeMs: number } | null>;
-  listDir: (path?: string, depth?: number) => Promise<{
-    text: string;
-    path: string;
-    entries: number;
-    truncated: boolean;
-  }>;
-  glob: (pattern: string, maxResults?: number) => Promise<{ paths: string[]; truncated: boolean }>;
-  grep: (options: {
-    pattern: string;
-    path?: string;
-    include?: string;
-    caseSensitive?: boolean;
-    maxResults?: number;
-  }) => Promise<{ text: string; matches: number; filesScanned: number; truncated: boolean }>;
-  writeText: (path: string, content: string) => Promise<{
-    path: string;
-    bytes: number;
-    lines: number;
-    created: boolean;
-  }>;
-  editText: (options: {
-    path: string;
-    oldString: string;
-    newString: string;
-    replaceAll?: boolean;
-  }) => Promise<{ path: string; replacements: number; bytes: number }>;
-};
 
 function stateOfOutcome(outcome: ExecutionResult['status']): ExecutionState {
   switch (outcome) {
@@ -1938,12 +1758,6 @@ function digestCommand(command: readonly string[], cwd: string, shell: boolean):
   return `sha256:${createHash('sha256')
     .update(JSON.stringify({ command, cwd, shell }))
     .digest('hex')}`;
-}
-
-function assertId(label: string, value: string): void {
-  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_TASK_ID) {
-    throw new SandboxPolicyError(`${label} must be a non-empty string`);
-  }
 }
 
 function validateExecuteInput(input: ExecuteInput): void {

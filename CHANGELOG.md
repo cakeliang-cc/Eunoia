@@ -8,6 +8,33 @@
 
 ## [Unreleased]
 
+### Changed（结构、前端与度量）
+
+- **前端模块从 `index.html` 里搬出来了。** 约 2,750 行内联 JavaScript 现在是
+  `web/app.js`，由服务端以 `/app.js`（`text/javascript`，`no-store`）原样发出；
+  `web/index.html` 从 4,743 行降到 2,007 行，只剩 HTML 和 CSS。加载顺序不变，仍
+  没有构建步骤。测试 harness 改为直接读 `web/app.js`，用的还是 `new Function`，
+  所以每个用例仍有独立的模块状态。
+- **客户端终于进了 lint。** 之前 `eslint.config.js` 显式 `ignores: ['web/**']`，
+  2,700 行 JS 没有任何静态检查。现在 `web/app.js` 用浏览器 globals 和
+  recommended 规则跑；顺带删掉了流式回复里一个从未被读取的 `risk` 变量，并给
+  ANSI 转义正则加了唯一一处 `no-control-regex` 豁免说明。
+- **流式渲染从每 delta 全量重绘改成每帧一次。** `send()` 里原来每个
+  `text_delta` 都 `renderText(body, reply)` + `scrollToEnd()`，一条长回复是
+  O(n²) 的 DOM 重建和强制布局；现在用 `requestAnimationFrame` 合并，`completed`
+  仍然同步渲染最终文本，不会把最后一帧丢在队列里。
+- **Gateway 的文件工具拆到 `gateway-files.ts`。** 读/写/列目录/授权这一组
+  （约 200 行）连同 `fileContext`、`WorkspaceFilesPort` 一起搬走，`SandboxGateway`
+  只保留委托；`SandboxContext` 和 `assertId` 分别移到 `context.ts` / `ids.ts`，
+  让 `gateway.ts` 从 1,972 行降到约 1,780 行。公开方法和权限顺序不变。
+- **补了覆盖率基线。** 新增 `@vitest/coverage-v8`、`npm run test:coverage` 和
+  `vitest.config.ts` 的门槛：statements/lines 70%、branches 60%、functions 70%。
+  当前基线是 81.3% / 76.4% / 84.7%，所以门槛是"退步会红"，不是追指标。
+  `web/app.js` 被 `new Function` 执行，V8 看不到，已从覆盖率统计里排除。
+- **Type-aware ESLint 只开了两条。** `no-floating-promises` 和
+  `no-misused-promises` 作为 warning 启用；其余类型感知规则没有一次打开，避免
+  造出一个没人愿意跑的 200 错误闸门。CI 的 test 步骤改为 `test:coverage`。
+
 ### Fixed（代码审查这一轮）
 
 - **DNS rebinding 不再能拿到本机入口。** 只绑 `127.0.0.1` 挡不住"把域名解析到

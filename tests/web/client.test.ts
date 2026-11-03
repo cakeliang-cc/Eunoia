@@ -1,8 +1,8 @@
 /**
  * The web client's rendering of a streamed turn.
  *
- * The client is one static file with no build step (ADR 006), so this drives
- * the real module out of `web/index.html` against a hand-written DOM rather
+ * The client is one static module with no build step (ADR 006), so this drives
+ * the real module out of `web/app.js` against a hand-written DOM rather
  * than a browser. That is a deliberate trade: adding jsdom to test one file is
  * a dependency the project does not otherwise need, and the shim is small
  * enough to read in a sitting.

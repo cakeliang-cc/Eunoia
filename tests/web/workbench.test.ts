@@ -1,7 +1,7 @@
 /**
  * The workbench in the client module.
  *
- * This drives the real module out of `web/index.html` against the shared DOM
+ * This drives the real module out of `web/app.js` against the shared DOM
  * shim. It covers the things that break silently: a panel that opens without
  * its tree, an expanded directory that never lists, a preview that shows the
  * model's line-number gutter instead of the file, a terminal that streams text

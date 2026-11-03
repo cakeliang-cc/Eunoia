@@ -718,6 +718,20 @@ describe('the web client', () => {
     expect(response.status).toBe(200);
     expect(html).toContain('<!doctype html>');
   });
+
+  it('serves the client module as JavaScript, not as the page', async () => {
+    const response = await fetch(`${base}/app.js`);
+    const source = await response.text();
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/javascript');
+    expect(source).toContain("fetch('/api/chat'");
+    expect(source).not.toContain('<!doctype html>');
+  });
+
+  it('does not turn /app.js into a static file server', async () => {
+    const response = await fetch(`${base}/app.js/../../.env`);
+    expect(response.status).toBe(404);
+  });
 });
 
 describe('unknown routes', () => {
