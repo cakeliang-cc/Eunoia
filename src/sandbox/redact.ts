@@ -109,9 +109,3 @@ const SECRET_KEYS = new Set([
 export function isSecretKey(key: string): boolean {
   return SECRET_KEYS.has(key.toLowerCase());
 }
-
-/** A no-op redactor for tests that explicitly do not care. */
-export const NOOP_REDACTOR = {
-  redact: (text: string) => text,
-  redactValue: (value: unknown) => value,
-};

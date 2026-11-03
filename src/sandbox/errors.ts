@@ -111,10 +111,6 @@ export class SandboxQuotaError extends SandboxError {
   }
 }
 
-export function isSandboxError(error: unknown): error is SandboxError {
-  return error instanceof SandboxError;
-}
-
 /** A model-facing rendering; never a stack trace, never a secret. */
 export function sandboxErrorMessage(error: unknown): string {
   if (error instanceof SandboxError) return `${error.message}`;

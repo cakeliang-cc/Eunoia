@@ -572,8 +572,22 @@
     font-size: 15px; line-height: 1.88;
   }
   /* The model writes Markdown; the transcript is the place it becomes prose.
-     Only inline emphasis and code are rendered: no links, no HTML, no images. */
+     Headings, quotes, tables and rules render here. Links and raw HTML stay
+     text, and every node is built with textContent, never innerHTML. */
   .text strong { font-weight: 600; }
+  .text h1, .text h2, .text h3, .text h4, .text h5, .text h6 {
+    margin: 18px 0 8px;
+    font-family: var(--font-display);
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: -.015em;
+    white-space: normal;
+  }
+  .text h1 { font-size: 23px; }
+  .text h2 { font-size: 20px; }
+  .text h3 { font-size: 17.5px; }
+  .text h4, .text h5, .text h6 { font-size: 15.5px; }
+  .text > :first-child { margin-top: 0; }
   .text code {
     padding: 1px 4px; border: 1px solid var(--line); border-radius: 4px;
     background: var(--surface-2);
@@ -588,7 +602,43 @@
   .text pre code {
     padding: 0; border: 0; background: transparent; font-size: inherit;
   }
-  .text .para { white-space: pre-wrap; }
+  .text .para { white-space: pre-wrap; margin: 0 0 9px; }
+  .text .para:last-child { margin-bottom: 0; }
+  .text blockquote {
+    margin: 12px 0; padding: 3px 0 3px 14px;
+    border-left: 2px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    background: linear-gradient(90deg, var(--accent-softer), transparent 72%);
+    color: var(--muted);
+    white-space: normal;
+  }
+  .text blockquote .para { margin: 0 0 6px; }
+  .text blockquote .para:last-child { margin-bottom: 0; }
+  .text hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
+  .text .table-wrap {
+    margin: 12px 0; max-width: 100%; overflow-x: auto;
+    border: 1px solid var(--line); border-radius: 10px;
+    background: var(--surface);
+    -webkit-overflow-scrolling: touch;
+  }
+  .text table {
+    width: 100%; min-width: 360px; border-collapse: collapse;
+    font-size: 13px; line-height: 1.65;
+  }
+  .text th, .text td {
+    padding: 7px 10px; border-bottom: 1px solid var(--line);
+    text-align: left; vertical-align: top; white-space: normal;
+    overflow-wrap: break-word; word-break: normal;
+  }
+  .text th:first-child, .text td:first-child { min-width: 4.5em; }
+  .text th {
+    background: var(--surface-2); color: var(--ink-2); font-weight: 600;
+  }
+  .text tr:last-child td { border-bottom: 0; }
+  .text th[data-align="center"], .text td[data-align="center"] { text-align: center; }
+  .text th[data-align="right"], .text td[data-align="right"] { text-align: right; }
+  .text th[data-align="left"], .text td[data-align="left"] { text-align: left; }
+  .text td code { white-space: nowrap; }
   .text ul, .text ol {
     margin: 8px 0 8px 1.35em; padding: 0;
   }
@@ -1500,6 +1550,9 @@
     .msg-avatar { width: 26px; height: 26px; border-radius: 9px; }
     .msg-avatar svg { width: 23px; height: 23px; }
     .text { font-size: 14.5px; }
+    .text table { font-size: 12px; }
+    .text th, .text td { padding: 6px 8px; }
+    .text th:first-child, .text td:first-child { min-width: 4.8em; }
     .composer-hint .hint-sep,
     .composer-hint .hint-keys { display: none; }
     .composer-foot { display: none; }
@@ -1996,13 +2049,15 @@ function el(tag, className, text) {
 /**
  * Render the assistant's Markdown subset into a container.
  *
- * The model writes `**bold**`, inline code and fenced blocks; without this they
- * reach the page as literal asterisks and backticks. Everything here is built
- * from DOM nodes — never innerHTML — so model output cannot become markup.
+ * The model writes headings, quotes, tables, lists, fenced code and inline
+ * emphasis; without this they reach the page as literal `##`, `>` and `|`.
+ * Everything is built from DOM nodes — never innerHTML — so model output
+ * cannot become markup.
  *
- * Only the subset that reads well in a conversation is handled. Headings,
- * links and tables stay text on purpose: a link is a click target the product
- * has not decided to trust, and a table in a chat bubble is a reading tax.
+ * Deliberately still text: links (a click target the product has not decided
+ * to trust), raw HTML, and images. Lists stay one level deep: indentation-
+ * dependent nesting is where a small renderer starts growing bugs, and a chat
+ * bubble does not reward it.
  */
 function renderText(container, text) {
   container.textContent = '';
@@ -2018,14 +2073,15 @@ function renderText(container, text) {
 }
 
 /**
- * Render one prose run: paragraphs, bullet lists and numbered lists.
+ * Render one prose run: headings, quotes, rules, tables, lists, paragraphs.
  *
- * Lists are the other half of what the model writes — a bullet whose dash shows
- * as text is the same bug as a literal `**`. Nesting is flattened on purpose:
- * one level reads fine in a chat bubble, and indentation-dependent rendering is
- * where a small renderer starts growing bugs.
+ * Streaming calls this on every delta, so a construct is only emitted once its
+ * markers are complete. An incomplete table header stays a paragraph; the next
+ * delta promotes it. That is the flicker the alternative — buffering the whole
+ * reply — would trade for a blank bubble.
  */
-function renderProse(container, text) {
+function renderProse(container, text, depth = 0) {
+  const lines = text.split('\n');
   let paragraph = [];
   let list = null;
 
@@ -2041,8 +2097,70 @@ function renderProse(container, text) {
     container.append(list.node);
     list = null;
   };
+  const flushAll = () => {
+    flushParagraph();
+    flushList();
+  };
 
-  for (const line of text.split('\n')) {
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+
+    if (line.trim() === '') {
+      flushAll();
+      continue;
+    }
+
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading !== null) {
+      flushAll();
+      const content = heading[2].replace(/\s+#+\s*$/, '').trim();
+      const node = el(`h${heading[1].length}`);
+      appendInline(node, content);
+      container.append(node);
+      continue;
+    }
+
+    if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      flushAll();
+      container.append(el('hr'));
+      continue;
+    }
+
+    if (/^\s*>/.test(line)) {
+      flushAll();
+      const quoted = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) {
+        quoted.push(lines[i].replace(/^\s*>\s?/, ''));
+        i += 1;
+      }
+      i -= 1;
+      const quote = el('blockquote');
+      if (depth < 2) renderProse(quote, quoted.join('\n'), depth + 1);
+      else appendInline(quote, quoted.join('\n'));
+      if (quote.children.length > 0) container.append(quote);
+      continue;
+    }
+
+    if (
+      line.includes('|') &&
+      !/^\s*(?:[-*+]\s|\d+[.)]\s|#{1,6}\s|>)/.test(line) &&
+      i + 1 < lines.length &&
+      isTableDelimiter(lines[i + 1])
+    ) {
+      flushAll();
+      const header = splitTableRow(line);
+      const aligns = tableAlignments(lines[i + 1]) ?? [];
+      const rows = [];
+      let j = i + 2;
+      while (j < lines.length && lines[j].trim() !== '' && lines[j].includes('|')) {
+        rows.push(splitTableRow(lines[j]));
+        j += 1;
+      }
+      renderTable(container, header, aligns, rows);
+      i = j - 1;
+      continue;
+    }
+
     const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
     const numbered = /^\s*(\d+)[.)]\s+(.*)$/.exec(line);
     if (bullet === null && numbered === null) {
@@ -2050,12 +2168,13 @@ function renderProse(container, text) {
       paragraph.push(line);
       continue;
     }
+
     flushParagraph();
     const type = bullet === null ? 'ol' : 'ul';
+    const start = numbered === null ? 1 : Number.parseInt(numbered[1], 10);
     if (list === null || list.type !== type) {
       flushList();
       const node = el(type);
-      const start = numbered === null ? 1 : Number.parseInt(numbered[1], 10);
       if (type === 'ol' && Number.isFinite(start) && start !== 1) {
         node.setAttribute('start', String(start));
       }
@@ -2065,8 +2184,80 @@ function renderProse(container, text) {
     appendInline(item, (bullet === null ? numbered[2] : bullet[1]) ?? '');
     list.node.append(item);
   }
-  flushParagraph();
-  flushList();
+  flushAll();
+}
+
+/** Parse one `| a | b |` row, honoring `\|` as a literal pipe. */
+function splitTableRow(line) {
+  const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+  const cells = [];
+  let cell = '';
+  for (let i = 0; i < trimmed.length; i += 1) {
+    if (trimmed[i] === '\\' && trimmed[i + 1] === '|') {
+      cell += '|';
+      i += 1;
+      continue;
+    }
+    if (trimmed[i] === '|') {
+      cells.push(cell.trim());
+      cell = '';
+      continue;
+    }
+    cell += trimmed[i];
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
+/** `|---|:---:|---:|` -> ['left','center','right']; null if not a delimiter. */
+function tableAlignments(line) {
+  if (!line.includes('|')) return null;
+  const aligns = [];
+  for (const raw of splitTableRow(line)) {
+    const cell = raw.replace(/\s+/g, '');
+    if (!/^:?-{3,}:?$/.test(cell)) return null;
+    const left = cell.startsWith(':');
+    const right = cell.endsWith(':');
+    aligns.push(left && right ? 'center' : right ? 'right' : left ? 'left' : null);
+  }
+  return aligns.length > 0 ? aligns : null;
+}
+
+function isTableDelimiter(line) {
+  return tableAlignments(line) !== null;
+}
+
+/** A table is laid out in a scrollable wrapper: chat width is not a page. */
+function renderTable(container, header, aligns, rows) {
+  const wrap = el('div', 'table-wrap');
+  const table = el('table');
+  const thead = el('thead');
+  const head = el('tr');
+  const columns = Math.max(header.length, aligns.length);
+  for (let i = 0; i < columns; i += 1) {
+    const th = el('th');
+    if (aligns[i] !== null && aligns[i] !== undefined) th.setAttribute('data-align', aligns[i]);
+    appendInline(th, header[i] ?? '');
+    head.append(th);
+  }
+  thead.append(head);
+  table.append(thead);
+  if (rows.length > 0) {
+    const tbody = el('tbody');
+    for (const row of rows) {
+      const tr = el('tr');
+      for (let i = 0; i < columns; i += 1) {
+        const td = el('td');
+        if (aligns[i] !== null && aligns[i] !== undefined) td.setAttribute('data-align', aligns[i]);
+        appendInline(td, row[i] ?? '');
+        tr.append(td);
+      }
+      tbody.append(tr);
+    }
+    table.append(tbody);
+  }
+  wrap.append(table);
+  container.append(wrap);
 }
 
 /** Split fenced code blocks from prose. An unclosed fence stays text. */
@@ -4081,7 +4272,11 @@ async function runTerminal(command) {
   try {
     const response = await fetch('/api/workspace/terminal', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Workspace-UI': '1' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Workspace-UI': '1',
+        ...(localToken ? { 'X-Eunoia-Token': localToken } : {}),
+      },
       body: JSON.stringify({ command: value }),
     });
     if (!response.ok || !response.body) {

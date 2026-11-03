@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The suite is offline except for the Docker-gated sandbox integration tests and
+# the live smoke tests. Both are opt-in, so a red build here means a real
+# regression rather than a missing credential.
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+      - name: The build starts and answers /health
+        env:
+          # Startup only checks that a key is present; no model call is made.
+          DEEPSEEK_API_KEY: ci-placeholder
+          STORE: memory
+          HOST: 127.0.0.1
+        run: |
+          set -euo pipefail
+          node --experimental-sqlite --disable-warning=ExperimentalWarning dist/api/server.js &
+          server=$!
+          trap 'kill $server 2>/dev/null || true' EXIT
+          for _ in $(seq 1 50); do
+            if curl --silent --fail http://127.0.0.1:8787/health > /dev/null; then
+              exit 0
+            fi
+            sleep 0.2
+          done
+          echo 'server did not answer /health' >&2
+          exit 1

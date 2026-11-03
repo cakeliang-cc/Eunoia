@@ -12,6 +12,10 @@
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
     "verbatimModuleSyntax": true,
+    /* Node runs these sources by stripping types, not by compiling them. Enums,
+       namespaces and constructor parameter properties cannot be stripped, so the
+       compiler should reject them here rather than at `npm run dev`. */
+    "erasableSyntaxOnly": true,
 
     "strict": true,
     "noUncheckedIndexedAccess": true,

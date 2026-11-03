@@ -248,19 +248,5 @@ export { PROMPT_VERSION };
 export { cacheUsageOf, reasoningChunkOf, textDeltaOf } from './stream-events.ts';
 export type { ReasoningChunk } from './stream-events.ts';
 
-/**
- * The exact prompt the model would receive on this turn.
- *
- * Exported for the evaluation runner and for tests that need to assert ordering
- * without calling a model.
- */
-export function composePrompt(
-  message: string,
-  history: readonly ConversationTurn[] = [],
-  context?: string | null,
-): { instructions: string; input: string | RunInputItem[] } {
-  return { instructions: buildInstructions(), input: buildRunInput(message, history, context) };
-}
-
 /** Build per-turn context in the shape the run expects. */
 export { buildRuntimeContext };

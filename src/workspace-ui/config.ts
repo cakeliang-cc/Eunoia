@@ -67,19 +67,20 @@ export function workspaceUiStatePath(env: NodeJS.ProcessEnv = process.env): stri
 /**
  * Whether the workbench terminal is available.
  *
- * `WORKSPACE_TERMINAL` wins when set. Otherwise the terminal follows the bind
- * address: a process listening only on loopback is a local tool, while one on
- * `0.0.0.0` has no login and must not hand a shell to the network.
+ * Off unless `WORKSPACE_TERMINAL` says otherwise. It used to follow the bind
+ * address — "loopback means local, local means a shell" — but a loopback bind
+ * does not stop DNS rebinding, so "reachable from this machine" was not the
+ * same claim it looked like. The terminal now has to be asked for explicitly,
+ * and the route additionally requires the per-process control token.
  */
-export function workspaceUiTerminalEnabled(
-  loopback: boolean,
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  const explicit = env.WORKSPACE_TERMINAL?.trim();
-  if (explicit !== undefined && explicit.length > 0) return envFlag(explicit);
-  return loopback;
+export function workspaceUiTerminalEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return envFlag(env.WORKSPACE_TERMINAL);
 }
 
+/**
+ * `loopback` is retained in the options for callers that already compute it
+ * (the server logs it), but it no longer turns the terminal on.
+ */
 export function workspaceUiConfig(
   options: { readonly loopback: boolean; readonly env?: NodeJS.ProcessEnv } = { loopback: true },
 ): WorkspaceUiConfig {
@@ -88,7 +89,7 @@ export function workspaceUiConfig(
   const home = homedir();
   return {
     statePath: workspaceUiStatePath(env),
-    terminal: workspaceUiTerminalEnabled(options.loopback, env),
+    terminal: workspaceUiTerminalEnabled(env),
     browseRoots: roots,
     browseStart: roots[0] ?? home,
     allowSensitive: envFlag(env.WORKSPACE_ALLOW_SENSITIVE),

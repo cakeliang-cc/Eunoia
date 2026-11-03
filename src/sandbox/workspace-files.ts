@@ -104,6 +104,25 @@ export class WorkspaceFiles {
   }
 
   /**
+   * Does this path exist, and at what version?
+   *
+   * No content and no `refuseIgnored`/`refuseSensitive` check: the caller uses
+   * this to decide whether a write is a create or an overwrite, and the write
+   * itself still goes through `writeAtomically`, which re-checks the nearest
+   * real ancestor. A missing path is `null`, not an error.
+   */
+  async stat(input: string): Promise<{ path: string; size: number; mtimeMs: number } | null> {
+    const resolved = this.pathGuard.resolve(input);
+    const info = await stat(resolved.host).catch(() => null);
+    if (!info) return null;
+    return {
+      path: resolved.relative,
+      size: Number(info.size),
+      mtimeMs: Number(info.mtimeMs),
+    };
+  }
+
+  /**
    * Read a line range with line numbers.
    *
    * The model needs line numbers to narrow a second read or target an edit;
@@ -333,7 +352,13 @@ export class WorkspaceFiles {
 
     const updated = options.replaceAll === true
       ? normalized.split(oldString).join(newString)
-      : normalized.replace(oldString, newString);
+      // The replacer is a function on purpose. With a string replacement,
+      // `String.prototype.replace` interprets `$&`, `$$`, `` $` `` and `$'` in
+      // `newString` — so editing code whose replacement text contains those
+      // sequences (a regex replacement, a template string, a shell snippet)
+      // would silently insert the matched text or a fragment of the file
+      // instead of the literal string the model asked for.
+      : normalized.replace(oldString, () => newString);
     const restored = crlf ? updated.replace(/\n/g, '\r\n') : updated;
     if (restored === original) {
       return { path: resolved.relative, replacements: 0, bytes: Buffer.byteLength(original, 'utf8') };

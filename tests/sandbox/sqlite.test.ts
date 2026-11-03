@@ -107,7 +107,7 @@ describe('schema and migration', () => {
     open.push(sqlite);
     const version = sqlite.database.prepare('PRAGMA user_version').get() as { user_version: number };
     expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
-    expect(SQLITE_SCHEMA_VERSION).toBe(5);
+    expect(SQLITE_SCHEMA_VERSION).toBe(6);
     const tables = (
       sqlite.database
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -163,12 +163,41 @@ describe('schema and migration', () => {
     open.push(opened);
     const version = opened.database.prepare('PRAGMA user_version').get() as { user_version: number };
     expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
-    expect(SQLITE_SCHEMA_VERSION).toBe(5);
+    expect(SQLITE_SCHEMA_VERSION).toBe(6);
     const columns = opened.database
       .prepare('PRAGMA table_info(sandboxes)')
       .all() as { name: string }[];
     expect(columns.map((column) => column.name)).toContain('resource_profile');
     expect(columns.map((column) => column.name)).toContain('config_digest');
+  });
+
+  it('adds the version-6 indexes to a version-5 database', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'eunoia-migrate6-'));
+    dirs.push(dir);
+    const path = join(dir, 'eunoia.sqlite');
+    const legacy = new DatabaseSync(path);
+    legacy.exec(SQLITE_SCHEMA);
+    const indexes = [
+      'messages_user_time_idx',
+      'memories_user_updated_idx',
+      'agent_runs_user_idx',
+      'agent_runs_conversation_idx',
+      'evaluation_results_case_idx',
+    ];
+    for (const index of indexes) legacy.exec(`DROP INDEX IF EXISTS ${index}`);
+    legacy.exec('PRAGMA user_version = 5');
+    legacy.close();
+
+    const opened = openSqliteStore(path);
+    open.push(opened);
+    const version = opened.database.prepare('PRAGMA user_version').get() as { user_version: number };
+    expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
+    const present = (
+      opened.database
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index'")
+        .all() as { name: string }[]
+    ).map((row) => row.name);
+    for (const index of indexes) expect(present).toContain(index);
   });
 
   it('upgrades an existing version-1 file to the current version without touching its rows', async () => {
@@ -206,7 +235,7 @@ describe('schema and migration', () => {
     open.push(opened);
     const version = opened.database.prepare('PRAGMA user_version').get() as { user_version: number };
     expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
-    expect(SQLITE_SCHEMA_VERSION).toBe(5);
+    expect(SQLITE_SCHEMA_VERSION).toBe(6);
     const user = opened.database.prepare("SELECT id FROM users WHERE id = 'user-1'").get() as
       | { id: string }
       | undefined;
@@ -241,7 +270,7 @@ describe('schema and migration', () => {
     open.push(opened);
     const version = opened.database.prepare('PRAGMA user_version').get() as { user_version: number };
     expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
-    expect(SQLITE_SCHEMA_VERSION).toBe(5);
+    expect(SQLITE_SCHEMA_VERSION).toBe(6);
     const sandboxColumns = (
       opened.database.prepare('PRAGMA table_info(sandboxes)').all() as { name: string }[]
     ).map((column) => column.name);

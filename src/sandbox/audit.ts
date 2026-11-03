@@ -180,8 +180,3 @@ export class SandboxMetrics {
     };
   }
 }
-
-/** A JSON rendering for `/health` and the ops CLI. */
-export function metricsJson(metrics: SandboxMetrics): string {
-  return JSON.stringify(metrics.snapshot());
-}

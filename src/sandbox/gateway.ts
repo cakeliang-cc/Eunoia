@@ -21,7 +21,6 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { posix } from 'node:path';
 import type { SandboxStore } from './store.ts';
 import type {
   ApprovalGrant,
@@ -786,85 +785,11 @@ export class SandboxGateway {
     input: ExecuteInput,
     options: ExecuteOptions = {},
   ): Promise<ExecutionResult> {
-    const task = await this.loadTask(context);
-    const sandbox = await this.requireSandbox(input.sandboxId);
-    if (sandbox.taskId !== task.taskId) {
-      throw new SandboxPolicyError('sandbox belongs to a different task');
-    }
+    const { task, sandbox, taskContext, timeoutMs, commandDigest } =
+      await this.resolveExecutionContext(context, input);
 
-    validateExecuteInput(input);
-
-    // ADR 021 §6.4: the Gateway does not trust the cwd the adapter sends. It
-    // re-reads the task context, confirms the sandbox and workspace still match,
-    // and checks the version it was handed against the version on record. A
-    // mismatch is reported, never repaired by guessing a directory.
-    if (sandbox.workspaceId !== task.workspaceId) {
-      throw new CwdError('EXECUTION_CONTEXT_INVALID', 'the sandbox is bound to a different workspace');
-    }
-    const taskContext = await this.taskContexts.get(task.taskId);
-    if (taskContext.invalidatedAt !== null) {
-      throw new CwdError(
-        'CWD_INVALID',
-        `the task working directory is invalid: ${taskContext.invalidReason ?? 'unknown reason'}`,
-      );
-    }
-    const requestedCwd = normalizeContainerPath(input.cwd || WORKSPACE_MOUNT_PATH);
-    if (input.cwdVersion !== undefined && input.cwdVersion !== taskContext.cwdVersion) {
-      throw new CwdError(
-        'CWD_VERSION_MISMATCH',
-        'the execution was prepared against a different task working directory version',
-      );
-    }
-    if (requestedCwd !== taskContext.cwd) {
-      throw new CwdError(
-        'EXECUTION_CONTEXT_INVALID',
-        'the requested working directory is not the task working directory',
-      );
-    }
-    const contextCwd = taskContext.cwd;
-    if (contextCwd !== WORKSPACE_MOUNT_PATH && !contextCwd.startsWith(`${WORKSPACE_MOUNT_PATH}/`)) {
-      throw new CwdError('PATH_OUTSIDE_WORKSPACE', `cwd must be inside ${WORKSPACE_MOUNT_PATH}`);
-    }
-    const timeoutMs = Math.min(
-      Math.max(input.timeoutMs, 1_000),
-      this.settings.limits.maxExecutionTimeoutMs,
-    );
-    // The digest names the logical cwd, so a retry of the same tool call still
-    // matches even if the physical path was canonicalised identically.
-    const commandDigest = digestCommand(input.command, contextCwd, input.shell === true);
-
-    // An execution id is a client-supplied idempotency handle too. Without this
-    // check a second call with a fresh key and the same id would overwrite the
-    // stored row in the in-memory store (or violate the primary key in SQLite).
-    if (input.executionId) {
-      const sameId = await this.store.getExecution(input.executionId);
-      if (sameId) {
-        if (sameId.sandboxId !== sandbox.sandboxId || sameId.commandDigest !== commandDigest) {
-          throw new SandboxConflictError('executionId was already used for a different execution');
-        }
-        this.metrics.increment('execution_duplicate');
-        if (isTerminalExecution(sameId.status) || sameId.status === 'UNKNOWN') {
-          return toResult(sameId);
-        }
-        throw new SandboxConflictError(`execution ${sameId.executionId} is ${sameId.status}`);
-      }
-    }
-
-    const duplicate = await this.store.findExecutionByKey(sandbox.sandboxId, input.idempotencyKey);
-    if (duplicate) {
-      if (duplicate.commandDigest !== commandDigest) {
-        throw new SandboxConflictError(
-          'idempotency key was already used for a different command in this sandbox',
-        );
-      }
-      this.metrics.increment('execution_duplicate');
-      if (isTerminalExecution(duplicate.status) || duplicate.status === 'UNKNOWN') {
-        return toResult(duplicate);
-      }
-      throw new SandboxConflictError(
-        `execution ${duplicate.executionId} is ${duplicate.status}; refusing to submit it twice`,
-      );
-    }
+    const duplicate = await this.findExistingExecution(sandbox, input, commandDigest);
+    if (duplicate) return duplicate;
 
     // §6.4 step 5: the directory must still exist and still be inside the
     // workspace. This is the last point where refusing is free — after this the
@@ -888,51 +813,14 @@ export class SandboxGateway {
       });
     }
 
-    const permissionRequest: PermissionEvaluationRequest = {
-      requestId: `eval_${randomUUID()}`,
-      organizationId: this.settings.permission.organizationId,
-      projectId: this.settings.permission.projectId,
-      sessionId: task.sessionId,
-      taskId: task.taskId,
-      sandboxId: sandbox.sandboxId,
-      executionId: input.executionId ?? null,
-      principal: { type: 'agent', id: `agent:${task.taskId}` },
-      action: { tool: 'bash', operation: 'process.exec' },
-      resource: { type: 'command', identifier: cwd, scope: [cwd] },
-      context: {
-        command: input.shell ? (input.command[0] ?? '') : input.command.join(' '),
-        cwd,
-        metadata: { tool_call_id: input.toolCallId ?? null },
-      },
-    };
-    const authorization = await this.permissions.evaluate(permissionRequest);
-    if (authorization.effect !== 'allow') {
-      const outcome = authorization.effect === 'deny' ? 'denied' : 'approval_required';
-      this.metrics.increment(outcome === 'denied' ? 'policy_denied' : 'approval_required');
-      await this.audit.record({
-        taskId: task.taskId,
-        sessionId: context.sessionId ?? null,
-        sandboxId: sandbox.sandboxId,
-        toolCallId: input.toolCallId ?? null,
-        policyVersion: authorization.permissionPolicyVersion,
-        action: 'execution.authorize',
-        outcome,
-        detail: {
-          reason: authorization.reason,
-          decision_id: authorization.decisionId,
-          request_id: authorization.requestId,
-          cwd,
-          command_digest: commandDigest,
-        },
-      });
-      if (authorization.effect === 'deny') {
-        throw new SandboxPolicyError(authorization.reason);
-      }
-      throw new SandboxApprovalRequiredError(authorization.reason, {
-        requestId: authorization.requestId,
-        approvalRequestId: authorization.approvalRequestId ?? null,
-      });
-    }
+    const { authorization, permissionRequest } = await this.authorizeExecution({
+      task,
+      sandbox,
+      context,
+      input,
+      cwd,
+      commandDigest,
+    });
 
     const at = this.now().toISOString();
     const execution: Execution = {
@@ -1066,13 +954,13 @@ export class SandboxGateway {
       try {
         const env = await this.executionEnv(task.taskId);
         result = await this.controller.execute(handle, {
-        executionId: running.executionId,
-        command: input.command,
-        shell: input.shell === true,
-        cwd,
-        workspaceRoot: taskContext.workspaceRoot,
-        timeoutMs,
-        maxOutputBytes: this.settings.limits.maxOutputBytes,
+          executionId: running.executionId,
+          command: input.command,
+          shell: input.shell === true,
+          cwd,
+          workspaceRoot: taskContext.workspaceRoot,
+          timeoutMs,
+          maxOutputBytes: this.settings.limits.maxOutputBytes,
           env,
           ...(options.signal ? { signal: options.signal } : {}),
         });
@@ -1082,131 +970,348 @@ export class SandboxGateway {
         else this.inFlight.set(sandbox.sandboxId, remaining);
       }
 
-      const finishedAt = result.finishedAt || this.now().toISOString();
-      const target = stateOfOutcome(result.status);
-      const stdout = this.bound(result.stdout);
-      const stderr = this.bound(result.stderr);
-      const terminal = await this.store.transitionExecution(
-        running.executionId,
-        ['RUNNING'],
-        target,
-        { exitCode: result.exitCode, finishedAt, stdout, stderr },
+      return await this.completeExecution({
+        task,
+        sandbox,
+        context,
+        input,
+        running,
+        result,
+        startedAt,
+        commandDigest,
+      });
+    } catch (error) {
+      return await this.failExecution({
+        task,
+        sandbox,
+        context,
+        input,
+        stored,
+        running,
+        error,
+      });
+    }
+  }
+
+  /**
+   * Validate the ownership, workspace and working directory of one execution.
+   *
+   * This is the part of `execute` that decides whether there is a legal
+   * execution at all; it has no side effects beyond reading the task context.
+   */
+  private async resolveExecutionContext(
+    context: SandboxContext,
+    input: ExecuteInput,
+  ) {
+    const task = await this.loadTask(context);
+    const sandbox = await this.requireSandbox(input.sandboxId);
+    if (sandbox.taskId !== task.taskId) {
+      throw new SandboxPolicyError('sandbox belongs to a different task');
+    }
+
+    validateExecuteInput(input);
+
+    // ADR 021 §6.4: the Gateway does not trust the cwd the adapter sends. It
+    // re-reads the task context, confirms the sandbox and workspace still match,
+    // and checks the version it was handed against the version on record. A
+    // mismatch is reported, never repaired by guessing a directory.
+    if (sandbox.workspaceId !== task.workspaceId) {
+      throw new CwdError('EXECUTION_CONTEXT_INVALID', 'the sandbox is bound to a different workspace');
+    }
+    const taskContext = await this.taskContexts.get(task.taskId);
+    if (taskContext.invalidatedAt !== null) {
+      throw new CwdError(
+        'CWD_INVALID',
+        `the task working directory is invalid: ${taskContext.invalidReason ?? 'unknown reason'}`,
       );
-      if (!terminal) {
-        const current = await this.store.getExecution(running.executionId);
-        if (current && (isTerminalExecution(current.status) || current.status === 'UNKNOWN')) {
-          return toResult(current);
+    }
+    const requestedCwd = normalizeContainerPath(input.cwd || WORKSPACE_MOUNT_PATH);
+    if (input.cwdVersion !== undefined && input.cwdVersion !== taskContext.cwdVersion) {
+      throw new CwdError(
+        'CWD_VERSION_MISMATCH',
+        'the execution was prepared against a different task working directory version',
+      );
+    }
+    if (requestedCwd !== taskContext.cwd) {
+      throw new CwdError(
+        'EXECUTION_CONTEXT_INVALID',
+        'the requested working directory is not the task working directory',
+      );
+    }
+    const contextCwd = taskContext.cwd;
+    if (contextCwd !== WORKSPACE_MOUNT_PATH && !contextCwd.startsWith(`${WORKSPACE_MOUNT_PATH}/`)) {
+      throw new CwdError('PATH_OUTSIDE_WORKSPACE', `cwd must be inside ${WORKSPACE_MOUNT_PATH}`);
+    }
+    const timeoutMs = Math.min(
+      Math.max(input.timeoutMs, 1_000),
+      this.settings.limits.maxExecutionTimeoutMs,
+    );
+    // The digest names the logical cwd, so a retry of the same tool call still
+    // matches even if the physical path was canonicalised identically.
+    const commandDigest = digestCommand(input.command, contextCwd, input.shell === true);
+
+    return { task, sandbox, taskContext, contextCwd, timeoutMs, commandDigest };
+  }
+
+  /**
+   * The idempotency check: an execution that already produced an outcome is
+   * returned instead of being submitted twice. A live duplicate is a conflict.
+   */
+  private async findExistingExecution(
+    sandbox: Sandbox,
+    input: ExecuteInput,
+    commandDigest: string,
+  ): Promise<ExecutionResult | null> {
+    // An execution id is a client-supplied idempotency handle too. Without this
+    // check a second call with a fresh key and the same id would overwrite the
+    // stored row in the in-memory store (or violate the primary key in SQLite).
+    if (input.executionId) {
+      const sameId = await this.store.getExecution(input.executionId);
+      if (sameId) {
+        if (sameId.sandboxId !== sandbox.sandboxId || sameId.commandDigest !== commandDigest) {
+          throw new SandboxConflictError('executionId was already used for a different execution');
         }
-        throw new SandboxConflictError('execution was concurrently modified');
+        this.metrics.increment('execution_duplicate');
+        if (isTerminalExecution(sameId.status) || sameId.status === 'UNKNOWN') {
+          return toResult(sameId);
+        }
+        throw new SandboxConflictError(`execution ${sameId.executionId} is ${sameId.status}`);
       }
+    }
 
-      if (result.detail === 'cwd-rejected') {
-        // The pre-flight check passed and the launcher still refused: a symlink
-        // changed or the directory vanished between the two. Fail closed and mark
-        // the context, so the next call reports `cwd_invalid` instead of running
-        // somewhere else (ADR §4.4, §11.3).
-        await this.cwdManager.markInvalidFromRuntime(task.taskId).catch(() => undefined);
+    const duplicate = await this.store.findExecutionByKey(sandbox.sandboxId, input.idempotencyKey);
+    if (duplicate) {
+      if (duplicate.commandDigest !== commandDigest) {
+        throw new SandboxConflictError(
+          'idempotency key was already used for a different command in this sandbox',
+        );
       }
-      if (stdout.length > 0) {
-        await this.appendEvent(terminal, 'execution/stdout', {
-          bytes: Buffer.byteLength(result.stdout, 'utf8'),
-          retained_bytes: Buffer.byteLength(stdout, 'utf8'),
-        });
+      this.metrics.increment('execution_duplicate');
+      if (isTerminalExecution(duplicate.status) || duplicate.status === 'UNKNOWN') {
+        return toResult(duplicate);
       }
-      if (stderr.length > 0) {
-        await this.appendEvent(terminal, 'execution/stderr', {
-          bytes: Buffer.byteLength(result.stderr, 'utf8'),
-          retained_bytes: Buffer.byteLength(stderr, 'utf8'),
-        });
-      }
-      await this.appendEvent(
-        terminal,
-        target === 'SUCCEEDED' ? 'execution/finished' : 'execution/failed',
-        { exit_code: result.exitCode, status: result.status, detail: result.detail ?? null },
+      throw new SandboxConflictError(
+        `execution ${duplicate.executionId} is ${duplicate.status}; refusing to submit it twice`,
       );
+    }
+    return null;
+  }
 
-      if (target === 'TIMEOUT') {
-        this.metrics.increment('execution_timeout');
-        this.metrics.increment('resource_limit_triggered');
-        await this.store.updateSandbox(sandbox.sandboxId, { status: 'INTERRUPTED' });
-      } else if (target === 'CANCELLED') {
-        this.metrics.increment('execution_cancelled');
-        await this.store.updateSandbox(sandbox.sandboxId, { status: 'INTERRUPTED' });
-      } else {
-        await this.store.updateSandbox(sandbox.sandboxId, { status: 'READY' });
-      }
-      this.metrics.increment('execution_total');
-      if (target === 'SUCCEEDED') this.metrics.increment('execution_succeeded');
-      else if (target === 'FAILED') this.metrics.increment('execution_failed');
-      else if (target === 'UNKNOWN') this.metrics.increment('execution_unknown');
-
+  /**
+   * Ask the permission layer before anything runs, and record a refusal.
+   */
+  private async authorizeExecution(request: {
+    readonly task: Task;
+    readonly sandbox: Sandbox;
+    readonly context: SandboxContext;
+    readonly input: ExecuteInput;
+    readonly cwd: string;
+    readonly commandDigest: string;
+  }): Promise<{
+    readonly authorization: Awaited<ReturnType<PermissionManager['evaluate']>>;
+    readonly permissionRequest: PermissionEvaluationRequest;
+  }> {
+    const { task, sandbox, context, input, cwd, commandDigest } = request;
+    const permissionRequest: PermissionEvaluationRequest = {
+      requestId: `eval_${randomUUID()}`,
+      organizationId: this.settings.permission.organizationId,
+      projectId: this.settings.permission.projectId,
+      sessionId: task.sessionId,
+      taskId: task.taskId,
+      sandboxId: sandbox.sandboxId,
+      executionId: input.executionId ?? null,
+      principal: { type: 'agent', id: `agent:${task.taskId}` },
+      action: { tool: 'bash', operation: 'process.exec' },
+      resource: { type: 'command', identifier: cwd, scope: [cwd] },
+      context: {
+        command: input.shell ? (input.command[0] ?? '') : input.command.join(' '),
+        cwd,
+        metadata: { tool_call_id: input.toolCallId ?? null },
+      },
+    };
+    const authorization = await this.permissions.evaluate(permissionRequest);
+    if (authorization.effect !== 'allow') {
+      const outcome = authorization.effect === 'deny' ? 'denied' : 'approval_required';
+      this.metrics.increment(outcome === 'denied' ? 'policy_denied' : 'approval_required');
       await this.audit.record({
         taskId: task.taskId,
         sessionId: context.sessionId ?? null,
         sandboxId: sandbox.sandboxId,
-        executionId: terminal.executionId,
         toolCallId: input.toolCallId ?? null,
-        policyVersion: sandbox.policyVersion,
-        action: 'execution.complete',
-        outcome: target === 'SUCCEEDED' ? 'succeeded' : target === 'FAILED' ? 'failed' : 'succeeded',
+        policyVersion: authorization.permissionPolicyVersion,
+        action: 'execution.authorize',
+        outcome,
         detail: {
-          status: target,
-          exit_code: result.exitCode,
-          duration_ms: Date.parse(finishedAt) - Date.parse(startedAt),
+          reason: authorization.reason,
+          decision_id: authorization.decisionId,
+          request_id: authorization.requestId,
+          cwd,
           command_digest: commandDigest,
         },
       });
-      return toResult(terminal);
-    } catch (error) {
-      // Where the failure happened decides what it means. Before RUNNING, nothing
-      // was submitted and FAILED is a fact. After RUNNING, the external process
-      // may have run; the honest state is UNKNOWN.
-      const current = running ?? (await this.store.getExecution(stored.executionId));
-      if (current && !isTerminalExecution(current.status) && current.status !== 'UNKNOWN') {
-        const from = current.status === 'RUNNING' || current.status === 'INTERRUPTED'
-          ? (['RUNNING', 'INTERRUPTED'] as const)
-          : ([current.status] as const);
-        await this.store.transitionExecution(
-          current.executionId,
-          from,
-          current.status === 'RUNNING' ? 'UNKNOWN' : 'FAILED',
-          { finishedAt: this.now().toISOString() },
-        );
-        await this.appendEvent(current, 'execution/failed', {
-          error: error instanceof Error ? error.message : String(error),
-          unknown: current.status === 'RUNNING',
-        });
+      if (authorization.effect === 'deny') {
+        throw new SandboxPolicyError(authorization.reason);
       }
-      this.metrics.increment('execution_total');
-      if (running) this.metrics.increment('execution_unknown');
-      else this.metrics.increment('execution_failed');
-      await this.audit.record({
-        taskId: task.taskId,
-        sessionId: context.sessionId ?? null,
-        sandboxId: sandbox.sandboxId,
-        executionId: stored.executionId,
-        toolCallId: input.toolCallId ?? null,
-        policyVersion: sandbox.policyVersion,
-        action: 'execution.complete',
-        outcome: 'failed',
-        detail: {
-          error: error instanceof Error ? error.message : String(error),
-          phase: running ? 'running' : 'submitted',
-        },
+      throw new SandboxApprovalRequiredError(authorization.reason, {
+        requestId: authorization.requestId,
+        approvalRequestId: authorization.approvalRequestId ?? null,
       });
-      await this.store
-        .updateSandbox(sandbox.sandboxId, { status: running ? 'INTERRUPTED' : 'READY' })
-        .catch(() => undefined);
-      if (running) {
-        // The model must be told that the outcome is unknown, not handed a
-        // generic runtime error it might treat as a clean failure and retry.
-        throw new SandboxError(
-          'unknown_execution',
-          `the sandbox lost the result of this execution (${error instanceof Error ? error.message : String(error)}); do not retry it blindly`,
-        );
-      }
-      throw error;
     }
+    return { authorization, permissionRequest };
+  }
+
+  /**
+   * Turn the runtime result into a terminal execution row, then finish the
+   * metrics, the events and the audit entry. Extracted from `execute` so the
+   * failure path can be read next to the success path without scrolling past
+   * two hundred lines of orchestration.
+   */
+  private async completeExecution(request: {
+    readonly task: Task;
+    readonly sandbox: Sandbox;
+    readonly context: SandboxContext;
+    readonly input: ExecuteInput;
+    readonly running: Execution;
+    readonly result: Awaited<ReturnType<SandboxController["execute"]>>;
+    readonly startedAt: string;
+    readonly commandDigest: string;
+  }): Promise<ExecutionResult> {
+    const { task, sandbox, context, input, running, result, startedAt, commandDigest } = request;
+    const finishedAt = result.finishedAt || this.now().toISOString();
+    const target = stateOfOutcome(result.status);
+    const stdout = this.bound(result.stdout);
+    const stderr = this.bound(result.stderr);
+    const terminal = await this.store.transitionExecution(
+      running.executionId,
+      ['RUNNING'],
+      target,
+      { exitCode: result.exitCode, finishedAt, stdout, stderr },
+    );
+    if (!terminal) {
+      const current = await this.store.getExecution(running.executionId);
+      if (current && (isTerminalExecution(current.status) || current.status === 'UNKNOWN')) {
+        return toResult(current);
+      }
+      throw new SandboxConflictError('execution was concurrently modified');
+    }
+
+    if (result.detail === 'cwd-rejected') {
+      // The pre-flight check passed and the launcher still refused: a symlink
+      // changed or the directory vanished between the two. Fail closed and mark
+      // the context, so the next call reports `cwd_invalid` instead of running
+      // somewhere else (ADR §4.4, §11.3).
+      await this.cwdManager.markInvalidFromRuntime(task.taskId).catch(() => undefined);
+    }
+    if (stdout.length > 0) {
+      await this.appendEvent(terminal, 'execution/stdout', {
+        bytes: Buffer.byteLength(result.stdout, 'utf8'),
+        retained_bytes: Buffer.byteLength(stdout, 'utf8'),
+      });
+    }
+    if (stderr.length > 0) {
+      await this.appendEvent(terminal, 'execution/stderr', {
+        bytes: Buffer.byteLength(result.stderr, 'utf8'),
+        retained_bytes: Buffer.byteLength(stderr, 'utf8'),
+      });
+    }
+    await this.appendEvent(
+      terminal,
+      target === 'SUCCEEDED' ? 'execution/finished' : 'execution/failed',
+      { exit_code: result.exitCode, status: result.status, detail: result.detail ?? null },
+    );
+
+    if (target === 'TIMEOUT') {
+      this.metrics.increment('execution_timeout');
+      this.metrics.increment('resource_limit_triggered');
+      await this.store.updateSandbox(sandbox.sandboxId, { status: 'INTERRUPTED' });
+    } else if (target === 'CANCELLED') {
+      this.metrics.increment('execution_cancelled');
+      await this.store.updateSandbox(sandbox.sandboxId, { status: 'INTERRUPTED' });
+    } else {
+      await this.store.updateSandbox(sandbox.sandboxId, { status: 'READY' });
+    }
+    this.metrics.increment('execution_total');
+    if (target === 'SUCCEEDED') this.metrics.increment('execution_succeeded');
+    else if (target === 'FAILED') this.metrics.increment('execution_failed');
+    else if (target === 'UNKNOWN') this.metrics.increment('execution_unknown');
+
+    await this.audit.record({
+      taskId: task.taskId,
+      sessionId: context.sessionId ?? null,
+      sandboxId: sandbox.sandboxId,
+      executionId: terminal.executionId,
+      toolCallId: input.toolCallId ?? null,
+      policyVersion: sandbox.policyVersion,
+      action: 'execution.complete',
+      outcome: target === 'SUCCEEDED' ? 'succeeded' : target === 'FAILED' ? 'failed' : 'succeeded',
+      detail: {
+        status: target,
+        exit_code: result.exitCode,
+        duration_ms: Date.parse(finishedAt) - Date.parse(startedAt),
+        command_digest: commandDigest,
+      },
+    });
+    return toResult(terminal);
+  }
+
+  /**
+   * Fail an execution honestly: FAILED before RUNNING, UNKNOWN after it.
+   */
+  private async failExecution(request: {
+    readonly task: Task;
+    readonly sandbox: Sandbox;
+    readonly context: SandboxContext;
+    readonly input: ExecuteInput;
+    readonly stored: Execution;
+    readonly running: Execution | null;
+    readonly error: unknown;
+  }): Promise<never> {
+    const { task, sandbox, context, input, stored, running, error } = request;
+    const current = running ?? (await this.store.getExecution(stored.executionId));
+    if (current && !isTerminalExecution(current.status) && current.status !== 'UNKNOWN') {
+      const from = current.status === 'RUNNING' || current.status === 'INTERRUPTED'
+        ? (['RUNNING', 'INTERRUPTED'] as const)
+        : ([current.status] as const);
+      await this.store.transitionExecution(
+        current.executionId,
+        from,
+        current.status === 'RUNNING' ? 'UNKNOWN' : 'FAILED',
+        { finishedAt: this.now().toISOString() },
+      );
+      await this.appendEvent(current, 'execution/failed', {
+        error: error instanceof Error ? error.message : String(error),
+        unknown: current.status === 'RUNNING',
+      });
+    }
+    this.metrics.increment('execution_total');
+    if (running) this.metrics.increment('execution_unknown');
+    else this.metrics.increment('execution_failed');
+    await this.audit.record({
+      taskId: task.taskId,
+      sessionId: context.sessionId ?? null,
+      sandboxId: sandbox.sandboxId,
+      executionId: stored.executionId,
+      toolCallId: input.toolCallId ?? null,
+      policyVersion: sandbox.policyVersion,
+      action: 'execution.complete',
+      outcome: 'failed',
+      detail: {
+        error: error instanceof Error ? error.message : String(error),
+        phase: running ? 'running' : 'submitted',
+      },
+    });
+    await this.store
+      .updateSandbox(sandbox.sandboxId, { status: running ? 'INTERRUPTED' : 'READY' })
+      .catch(() => undefined);
+    if (running) {
+      // The model must be told that the outcome is unknown, not handed a
+      // generic runtime error it might treat as a clean failure and retry.
+      throw new SandboxError(
+        'unknown_execution',
+        `the sandbox lost the result of this execution (${error instanceof Error ? error.message : String(error)}); do not retry it blindly`,
+      );
+    }
+    throw error;
   }
 
   /**
@@ -1401,6 +1506,26 @@ export class SandboxGateway {
   /** Ask the policy layer whether a file action would be allowed, without doing it. */
   async authorizeFile(context: SandboxContext, action: 'fs.read' | 'fs.write', path: string): Promise<void> {
     await this.fileContext(context, path, action, action === 'fs.write' ? 'write' : 'read');
+  }
+
+  /**
+   * Whether a path exists, for the write tool's read-before-overwrite guard.
+   *
+   * This deliberately does not go through `fileContext`: that path evaluates a
+   * permission and consumes a one-time grant, and a stat is not an operation the
+   * model is being granted — it is a question the tool asks *before* deciding
+   * whether to call `writeFile`, which does evaluate `fs.write`. Consuming an
+   * `fs.read` grant here would let a refused overwrite eat the grant a real
+   * `read` in the same turn needed. Ownership and the path guard still apply.
+   */
+  async statFile(
+    context: SandboxContext,
+    path: string,
+  ): Promise<{ path: string; size: number; mtimeMs: number } | null> {
+    const task = await this.loadTask(context);
+    const workspace = await this.store.getWorkspace(task.workspaceId);
+    if (!workspace) throw new SandboxNotFoundError('workspace is missing');
+    return this.workspaces.files(workspace.storageLocation).stat(path);
   }
 
   /** The canonical workspace directory, for tool adapters that need to map paths. */
@@ -1753,6 +1878,7 @@ type WorkspaceFilesPort = {
     mtimeMs: number;
     size: number;
   }>;
+  stat: (path: string) => Promise<{ path: string; size: number; mtimeMs: number } | null>;
   listDir: (path?: string, depth?: number) => Promise<{
     text: string;
     path: string;
@@ -1843,9 +1969,4 @@ function validateExecuteInput(input: ExecuteInput): void {
   if (input.executionId && !/^[A-Za-z0-9_-]{1,80}$/.test(input.executionId)) {
     throw new SandboxPolicyError('executionId contains an unsupported character');
   }
-}
-
-/** Normalise a workspace path for policy checks; exposed for the adapter/tests. */
-export function containerPathOf(relativePath: string): string {
-  return relativePath === '.' ? WORKSPACE_MOUNT_PATH : posix.join(WORKSPACE_MOUNT_PATH, relativePath);
 }

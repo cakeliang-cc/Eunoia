@@ -16,12 +16,21 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { timingSafeEqual } from 'node:crypto';
 import { contentFingerprint, log } from '../observability/logging.ts';
 import { WorkspaceUiError } from './types.ts';
 import type { WorkspaceUiService } from './service.ts';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_COMMAND_CHARS = 8_000;
+
+/** Constant-time comparison for the per-process control token. */
+function tokenMatches(given: string | undefined, expected: string): boolean {
+  if (typeof given !== 'string') return false;
+  const left = Buffer.from(given);
+  const right = Buffer.from(expected);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -101,12 +110,18 @@ function numberParam(url: URL, key: string, fallback: number): number {
  *
  * Returns true when the path belongs to this adapter, so the server's route
  * chain can keep its "first match wins" shape.
+ *
+ * `options.token` is the per-process control token. The terminal requires it in
+ * addition to the same-origin and `X-Workspace-UI` checks: the terminal is the
+ * one route here that runs a host process, so "the browser thinks this is
+ * same-origin" is not a strong enough claim on its own.
  */
 export async function handleWorkspaceRoute(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
   service: WorkspaceUiService,
+  options: { readonly token: string },
 ): Promise<boolean> {
   const { pathname } = url;
   if (!pathname.startsWith('/api/workspace')) return false;
@@ -166,7 +181,7 @@ export async function handleWorkspaceRoute(
     }
 
     if (req.method === 'POST' && pathname === '/api/workspace/terminal') {
-      await handleTerminal(req, res, service);
+      await handleTerminal(req, res, service, options.token);
       return true;
     }
 
@@ -184,6 +199,7 @@ async function handleTerminal(
   req: IncomingMessage,
   res: ServerResponse,
   service: WorkspaceUiService,
+  token: string,
 ): Promise<void> {
   if (!service.state().terminal) {
     throw new WorkspaceUiError(
@@ -194,6 +210,9 @@ async function handleTerminal(
   }
   if (!hasUiHeader(req)) {
     throw new WorkspaceUiError('terminal-disabled', 'missing workspace UI header', 403);
+  }
+  if (!tokenMatches(req.headers['x-eunoia-token'] as string | undefined, token)) {
+    throw new WorkspaceUiError('terminal-disabled', 'missing or invalid local token', 403);
   }
 
   const body = await readJson(req);

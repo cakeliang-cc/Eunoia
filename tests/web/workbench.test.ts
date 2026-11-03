@@ -124,6 +124,9 @@ async function openWorkbench(routes: Record<string, Route> = ROUTES): Promise<Ha
   const harness = await boot({
     local: { df_workbench_open: 'true' },
     routes,
+    // The terminal requires the per-process token the server injects into the
+    // page; the fake server here only checks that the client sends it.
+    token: 'test-token',
   });
   await waitFor(() => harness.element('wb-tree').children.length > 0, 'the tree never rendered');
   return harness;
@@ -314,6 +317,9 @@ describe('the terminal', () => {
     expect(
       harness.requests.find((request) => request.url === '/api/workspace/terminal')?.body,
     ).toMatchObject({ command: 'printf hello' });
+    expect(
+      harness.requests.find((request) => request.url === '/api/workspace/terminal')?.headers,
+    ).toMatchObject({ 'X-Eunoia-Token': 'test-token' });
   });
 });
 

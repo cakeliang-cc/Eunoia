@@ -12,7 +12,7 @@
  */
 
 import { z } from 'zod';
-import { defineTool, toolOk } from '../types.ts';
+import { defineTool, toolError, toolOk } from '../types.ts';
 import { guardToolResult, requireWorkspace } from './read-tools.ts';
 
 export const writeFileTool = defineTool({
@@ -24,10 +24,20 @@ export const writeFileTool = defineTool({
   }),
   sideEffect: 'workspace_write',
   readOnly: false,
-  guidelines: 'Create or fully replace a file with write; prefer edit for targeted changes.',
+  guidelines: 'Read the whole file before overwriting it with write; prefer edit for targeted changes.',
   execute: async ({ file_path, content }, context) => {
     return guardToolResult(async () => {
       const workspace = requireWorkspace(context);
+      // Overwriting a file the model has never read is how a "small change"
+      // becomes a lost document. A new path is a create and needs no read; an
+      // existing one needs a complete read of the version still on disk.
+      const target = await workspace.stat(file_path);
+      if (target && !context.ledger.hasComplete(target.path, target)) {
+        return toolError(
+          `refusing to overwrite ${target.path}: read the whole file first, then write it. ` +
+            'For a targeted change, use edit with the exact old_string instead.',
+        );
+      }
       const result = await workspace.writeText(file_path, content);
       return toolOk(
         `已${result.created ? '创建' : '写入'} ${result.path}（${result.bytes} 字节，${result.lines} 行）。`,

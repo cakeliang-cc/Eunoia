@@ -90,7 +90,17 @@ function parseCookies(header: string | undefined): Record<string, string> {
   for (const part of header.split(';')) {
     const index = part.indexOf('=');
     if (index < 0) continue;
-    out[part.slice(0, index).trim()] = decodeURIComponent(part.slice(index + 1).trim());
+    const raw = part.slice(index + 1).trim();
+    // A malformed percent-escape (`df_uid=%`) is a client bug, not a reason to
+    // fail the request: `decodeURIComponent` throws URIError, and without this
+    // guard every route that resolves an identity answers 500.
+    let value = raw;
+    try {
+      value = decodeURIComponent(raw);
+    } catch {
+      // Keep the raw value; the UUID check below rejects it.
+    }
+    out[part.slice(0, index).trim()] = value;
   }
   return out;
 }

@@ -46,6 +46,19 @@ export class TurnReadLedger implements ReadLedger {
     this.entries.set(record.path, current);
   }
 
+  has(path: string): boolean {
+    return (this.entries.get(path)?.length ?? 0) > 0;
+  }
+
+  hasComplete(path: string, version?: { mtimeMs: number; size: number }): boolean {
+    return (this.entries.get(path) ?? []).some(
+      (entry) =>
+        entry.complete &&
+        (version === undefined ||
+          (entry.mtimeMs === version.mtimeMs && entry.size === version.size)),
+    );
+  }
+
   /** Tests and the `/api` trace can ask what the turn has already paid for. */
   size(): number {
     let total = 0;

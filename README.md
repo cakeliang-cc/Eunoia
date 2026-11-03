@@ -14,7 +14,9 @@ cp .env.example .env       # 填 DEEPSEEK_API_KEY
 npm run dev                # http://127.0.0.1:8787
 ```
 
-需要 Node **>= 22.5**。数据库是一个文件，默认 `data/eunoia.sqlite`，不需要 Docker 或 Postgres。
+需要 Node **>= 22.9**（类型擦除运行源码、`--env-file-if-exists` 和 `node:sqlite`）。
+数据库是一个文件，默认 `data/eunoia.sqlite`，不需要 Docker 或 Postgres。Node 版本也写在
+`.nvmrc` 里，`nvm use` 即可。
 
 ## 文档
 

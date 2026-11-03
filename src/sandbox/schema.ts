@@ -32,8 +32,6 @@
  *       retries.
  */
 
-export const SANDBOX_SCHEMA_VERSION = 5;
-
 /**
  * Task working directory (ADR 021).
  *

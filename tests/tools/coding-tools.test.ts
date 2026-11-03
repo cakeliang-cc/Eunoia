@@ -158,6 +158,58 @@ describe('write and edit', () => {
     expect(await readFile(join(base, 'src/a.ts'), 'utf8')).toBe('const a = 2;\n');
   });
 
+  it('refuses to overwrite a file the model has not read', async () => {
+    await writeFile(join(base, 'a.ts'), 'original\n');
+    const result = await writeFileTool.execute(
+      { file_path: 'a.ts', content: 'replacement\n' },
+      context,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('read the whole file first');
+    expect(await readFile(join(base, 'a.ts'), 'utf8')).toBe('original\n');
+  });
+
+  it('allows an overwrite after a complete read', async () => {
+    await writeFile(join(base, 'a.ts'), 'original\n');
+    const read = await readFileTool.execute({ file_path: 'a.ts' }, context);
+    expect(read.ok).toBe(true);
+    const result = await writeFileTool.execute(
+      { file_path: 'a.ts', content: 'replacement\n' },
+      context,
+    );
+    expect(result.ok).toBe(true);
+    expect(await readFile(join(base, 'a.ts'), 'utf8')).toBe('replacement\n');
+  });
+
+  it('refuses when the file changed after it was read', async () => {
+    await writeFile(join(base, 'a.ts'), 'one\n');
+    await readFileTool.execute({ file_path: 'a.ts' }, context);
+    await writeFile(join(base, 'a.ts'), 'somebody else changed this\n');
+    const result = await writeFileTool.execute(
+      { file_path: 'a.ts', content: 'replacement\n' },
+      context,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('read the whole file first');
+  });
+
+  it('treats replacement patterns literally', async () => {
+    await writeFile(join(base, 'regex.ts'), 'const s = x.replace(re, y);\n');
+    const edited = await editFileTool.execute(
+      {
+        file_path: 'regex.ts',
+        old_string: 'x.replace(re, y)',
+        // `$&` is a replacement pattern to String.replace, not text to insert.
+        new_string: 'x.replace(re, `$&`)',
+      },
+      context,
+    );
+    expect(edited.ok).toBe(true);
+    expect(await readFile(join(base, 'regex.ts'), 'utf8')).toBe(
+      'const s = x.replace(re, `$&`);\n',
+    );
+  });
+
   it('reports a non-unique edit as a tool error the model can act on', async () => {
     await writeFile(join(base, 'a.ts'), 'x\nx\n');
     const result = await editFileTool.execute(

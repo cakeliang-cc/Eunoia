@@ -121,6 +121,18 @@ export interface ReadLedger {
     readonly size: number;
   }): ReadRecord | null;
   record(record: ReadRecord): void;
+  /** Whether any part of this path was delivered in this turn. */
+  has(path: string): boolean;
+  /**
+   * Whether the whole file was delivered in this turn.
+   *
+   * `write` replaces the entire content, so a partial read is not enough to
+   * justify it: the model has seen some of the file, not the file. When a
+   * version is given, the record must match it — a complete read of the version
+   * that was on disk a moment ago does not justify overwriting a file somebody
+   * else has changed since.
+   */
+  hasComplete(path: string, version?: { readonly mtimeMs: number; readonly size: number }): boolean;
 }
 
 /**
@@ -183,6 +195,15 @@ export interface ToolWorkspacePort {
   /** Host path → workspace-relative path, for skill resource paths. */
   relative(hostPath: string): string;
   readLines(input: string, start?: number, end?: number): Promise<ToolFileSlice>;
+  /**
+   * Resolve a path and report whether it exists, without reading its content.
+   *
+   * `write` needs this before it overwrites anything: the guard is "an existing
+   * file must have been read this turn", and deciding that requires knowing
+   * whether the target exists. A path that does not exist is a create, which
+   * needs no prior read.
+   */
+  stat(input: string): Promise<ToolFileStat | null>;
   listDir(input?: string, depth?: number): Promise<ToolDirectoryListing>;
   glob(pattern: string, maxResults?: number): Promise<{ paths: string[]; truncated: boolean }>;
   grep(options: {
@@ -211,6 +232,14 @@ export interface ToolFileSlice {
   readonly chars: number;
   readonly mtimeMs: number;
   readonly size: number;
+}
+
+/** What `stat` returns for a path that exists; `null` means it does not. */
+export interface ToolFileStat {
+  /** Workspace-relative path, already normalised by the path guard. */
+  readonly path: string;
+  readonly size: number;
+  readonly mtimeMs: number;
 }
 
 export interface ToolDirectoryListing {

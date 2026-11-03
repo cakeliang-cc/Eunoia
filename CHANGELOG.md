@@ -8,6 +8,69 @@
 
 ## [Unreleased]
 
+### Fixed（代码审查这一轮）
+
+- **DNS rebinding 不再能拿到本机入口。** 只绑 `127.0.0.1` 挡不住"把域名解析到
+  loopback"：那种请求里 `Origin` 和 `Host` 都是攻击者的名字，工作台的同源检查会
+  通过，`GET /` 里的 token 也能读走。现在每个请求先校验 `Host`，默认只接受
+  `127.0.0.1` / `localhost` / `[::1]`，其他名字必须由 `EUNOIA_ALLOWED_HOSTS` 显式
+  列出，否则一律 403（`src/api/server.ts`）。终端同时改成默认关闭
+  （`WORKSPACE_TERMINAL=1` 才开），并要求 `X-Eunoia-Token`；此前它只有同源判断和
+  一个自定义头。`tests/api/host.test.ts` 钉住三种 Host 情况，`workspace-ui.test.ts`
+  钉住终端的四种拒绝。
+- **`edit` 不再破坏含 `$` 的替换文本。** `String.replace` 的字符串替换会解释
+  `$&`、`$$`、`` $` ``、`$'`，于是替换文本里带这些序列时，写进去的可能是匹配到的
+  原文。改成函数替换（`src/sandbox/workspace-files.ts`），并加了回归测试。
+- **`zod` 升到 `^4.6.7`。** `4.6.5` 命中 GHSA-mrhx-c7xc-m3w5（约束集合校验可耗尽
+  内存，high）；工具参数正是用它校验模型输出。`npm audit` 的 8 个 high 降到 1 个
+  传递依赖（`@modelcontextprotocol/client`，本项目没有 MCP 调用路径）。
+- **畸形 Cookie 不再让请求 500。** `df_uid=%` 会让 `decodeURIComponent` 抛
+  `URIError`；解析失败的 cookie 现在按原始值处理，随后被 UUID 校验拒绝
+  （`src/api/identity.ts`）。
+- **版本号与实际运行时对齐。** `engines` 从 `>=22.5.0` 改为 `>=22.9.0`：
+  `--experimental-strip-types` 是 22.6 才有的，`--env-file-if-exists` 更晚。
+  加 `.nvmrc`（22）。
+
+### Changed
+
+- **每轮的记忆读取和访问记账。** 候选从 200 条降到 120 条并只取 `active` /
+  `unconfirmed`；`markAccessed` 和 `memory_events` 合并成一次
+  `recordRetrieval`，SQLite 在一个事务里提交，省掉每轮第二次 WAL 提交
+  （`src/service/context.ts`、两个 store）。
+- **`write` 覆盖已存在文件前要求本轮完整读过它。** 读记录带 mtime/size 校验，
+  文件在这期间被改过也会拒绝；新文件仍然直接创建。`ToolWorkspacePort` 因此增加
+  `stat`，ledger 增加 `has` / `hasComplete`。这让 DSH 的
+  "read before write" 从提示词纪律变成工具层的拒绝。
+- **网关的 `execute` 拆成四个私有步骤**（`resolveExecutionContext`、
+  `findExistingExecution`、`authorizeExecution`、`completeExecution` /
+  `failExecution`），从 430 多行降到约 180 行；`handleRoutes` 从 487 行拆成五个
+  `handle*Routes` 组，外层只剩一个循环。
+- **SQLite 语句缓存。** `SqliteStore` 和 `SqliteSandboxStore` 共用一个有界的
+  `StatementCache`，不再每次查询重新 `prepare`。
+
+### Architecture
+
+- **schema v6：补上热查询和级联索引。** `messages(user_id, created_at)`、
+  `memories(user_id, updated_at)`、`agent_runs(user_id)`、
+  `agent_runs(conversation_id)`、`evaluation_results(case_id)`。迁移前
+  `EXPLAIN QUERY PLAN` 对 `historyStats` 是两次 `SCAN messages`，对
+  `listMemories` 是 `USE TEMP B-TREE FOR ORDER BY`，对删除用户是
+  `SCAN agent_runs`；迁移后全部变成索引查找。
+- **新增 sandbox store 契约测试。** 同一组场景跑 `MemorySandboxStore` 和
+  `SqliteSandboxStore`（`tests/sandbox/store-contract.ts`）。第一次运行就抓到
+  `ensureTask` 的差异：SQLite 先执行 INSERT，CHECK 约束会在 `ON CONFLICT` 之前
+  失败。现在先读再插，和内存实现一致。
+- **工具链：** 新增 `.github/workflows/ci.yml`（Node 22/24 跑 typecheck、lint、
+  test、build，再起一次 `dist` 并请求 `/health`）、`npm run check`、
+  `.editorconfig`；`tsconfig` 打开 `erasableSyntaxOnly`，防止 enum/namespace/
+  参数属性这类 Node 类型擦除跑不了的语法再被写进来。
+- **删除 11 个无人引用的导出**（`CONTENT_EVENT_TYPES`、`DECISIONS`、
+  `NOOP_REDACTOR`、`SANDBOX_SCHEMA_VERSION`、`asMemoryStore`、`assertAllowed`、
+  `composePrompt`、`isSandboxError`、`containerPathOf`、`metricsJson`、
+  `modeRank`），以及 `ContainerCli` 里从未被读取的 `allowNonZero`。重复的
+  `SANDBOX_SCHEMA_VERSION` 与 `SQLITE_SCHEMA_VERSION` 是迁移时最容易漂移的两个
+  手写常量，后者现在是唯一的一个。
+
 ### Added
 
 - **小芽接替字母头像。** 助手每一轮的左侧、空状态、侧栏角标、工作区空态和
@@ -345,11 +408,13 @@
 
 ### Changed
 
-- **回复里的 Markdown 现在会被渲染。** 模型写的 `**加粗**`、行内代码、围栏代码块
-  和无序/有序列表以前会原样显示成星号、反引号和短横线；聊天页现在把它们渲染成
-  `<strong>`、`<code>`、`<pre>` 和 `<ul>`/`<ol>`（有序列表保留起始编号），用户自己
-  发的文本保持字面。渲染只用 DOM 节点（不用 innerHTML），并且只支持这个子集：
-  链接、标题和表格仍是纯文本。新增 `tests/web/markdown.test.ts`。
+- **回复里的 Markdown 现在会被渲染。** 模型写的 `**加粗**`、行内代码、围栏代码块、
+  标题、引用、分隔线、表格和无序/有序列表以前会原样显示成星号、反引号、井号、竖线
+  和短横线；聊天页现在把它们渲染成 `<strong>`、`<code>`、`<pre>`、`<h1>`-`<h6>`、
+  `<blockquote>`、`<hr>`、`<table>` 和 `<ul>`/`<ol>`（有序列表保留起始编号）。表格
+  支持 `:---` / `:---:` / `---:` 对齐，窄屏放在横向滚动容器里，不撑破气泡。用户
+  自己发的文本保持字面。渲染只用 DOM 节点（不用 innerHTML）；链接和原始 HTML 仍是
+  纯文本。扩展 `tests/web/markdown.test.ts`。
 - **工具层完全对齐 DSH（ADR 023）。** 工具名改为 `read` / `write` / `edit` / `bash`，
   `load_skill` 改为 `skill`；描述改成英文契约（DSH 原文，仅在语义不同处改写），参数名
   对齐为 `file_path` / `offset` / `limit` / `timeout`。`list_dir`、`change_directory`

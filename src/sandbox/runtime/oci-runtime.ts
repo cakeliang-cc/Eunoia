@@ -140,12 +140,12 @@ export class OciRuntime implements SandboxRuntime {
     const existingLabel = await this.cli
       .run(
         ['inspect', '--format', '{{index .Config.Labels "eunoia.managed"}}', containerName],
-        { timeoutMs: 10_000, allowNonZero: true, maxOutputBytes: 4_096 },
+        { timeoutMs: 10_000, maxOutputBytes: 4_096 },
       )
       .catch(() => null);
     if (existingLabel?.code === 0 && existingLabel.stdout.trim() === 'true') {
       await this.cli
-        .run(buildDestroyArgs(containerName), { timeoutMs: 30_000, allowNonZero: true })
+        .run(buildDestroyArgs(containerName), { timeoutMs: 30_000 })
         .catch(() => undefined);
     }
 
@@ -307,7 +307,7 @@ export class OciRuntime implements SandboxRuntime {
     // is heavier than targeting one PID, but it cannot be evaded by a child that
     // re-parents itself, and the sandbox is cheap to recreate.
     await this.cli
-      .run(buildInterruptArgs(handle.runtimeId), { timeoutMs: 15_000, allowNonZero: true })
+      .run(buildInterruptArgs(handle.runtimeId), { timeoutMs: 15_000 })
       .catch(() => undefined);
   }
 
@@ -329,7 +329,7 @@ export class OciRuntime implements SandboxRuntime {
 
   async destroy(handle: SandboxHandle): Promise<void> {
     await this.cli
-      .run(buildDestroyArgs(handle.runtimeId), { timeoutMs: 30_000, allowNonZero: true })
+      .run(buildDestroyArgs(handle.runtimeId), { timeoutMs: 30_000 })
       .catch(() => undefined);
   }
 }

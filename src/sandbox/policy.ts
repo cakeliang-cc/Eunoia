@@ -28,7 +28,6 @@ import {
   SYSTEM_DENY_PATHS,
   WORKSPACE_MOUNT_PATH,
   type ApprovalGrant,
-  type PolicyDecision,
   type PolicyEvaluation,
   type ResourceLimits,
   type RuntimeSandboxConfig,
@@ -653,16 +652,6 @@ export function runtimeConfigDigest(
   return `sha256:${createHash('sha256').update(JSON.stringify(normalised)).digest('hex')}`;
 }
 
-/** Convenience for the Gateway: a decision that is not `ALLOW` is an error. */
-export function assertAllowed(decision: PolicyEvaluation): void {
-  if (decision.decision === 'DENY') {
-    throw new SandboxPolicyError(decision.reason);
-  }
-  if (decision.decision === 'APPROVAL_REQUIRED') {
-    throw new SandboxApprovalRequiredError(decision.reason);
-  }
-}
-
 /** The names of the tools the platform owns, for policy checks and docs. */
 export const SANDBOX_TOOL_NAMES = [
   'read',
@@ -675,6 +664,3 @@ export const SANDBOX_TOOL_NAMES = [
 ] as const;
 
 export type SandboxToolName = (typeof SANDBOX_TOOL_NAMES)[number];
-
-/** A decision value for tests and docs; `DENY` is never widened. */
-export const DECISIONS: readonly PolicyDecision[] = ['ALLOW', 'APPROVAL_REQUIRED', 'DENY'];

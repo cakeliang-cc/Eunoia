@@ -36,10 +36,12 @@ workbench 的读文件和 git 检查在服务进程里做，不经过 agent 的 
   调用；
 - 因此 workbench 不能替模型执行命令，也不能绕过工具策略。
 
-终端默认只在服务绑定 loopback 时开启；`HOST=0.0.0.0` 时默认关闭，需要显式
-`WORKSPACE_TERMINAL=1`。它不是 PTY，也不保留 shell 状态：每条命令独立运行，
-`cd` 不会延续到下一条。需要真正的交互式终端时再引入 PTY，而不是把这里慢慢
-长成一个半成品 shell。
+终端默认关闭，需要显式 `WORKSPACE_TERMINAL=1`。它曾经跟着绑定地址走——"只绑
+loopback 就默认开"——但 loopback 绑定挡不住 DNS rebinding，所以那个默认值把
+宿主机 shell 暴露给了任意网页。现在开启后仍要求 loopback 请求、`Host` 白名单、
+`X-Workspace-UI` 头和每进程生成的 `X-Eunoia-Token`。它不是 PTY，也不保留 shell
+状态：每条命令独立运行，`cd` 不会延续到下一条。需要真正的交互式终端时再引入
+PTY，而不是把这里慢慢长成一个半成品 shell。
 
 ### 路径和凭据
 

@@ -10,6 +10,10 @@ backups/
 .DS_Store
 *.log
 
+# Editor and tool state that is not part of the project.
+.idea/
+.vscode/
+
 # Vendored study material: a 500 MB clone of an unrelated project, with its own
 # git history. It is not source this repository maintains — eslint ignores it
 # for the same reason. Keeping it out of the index means `git status` and

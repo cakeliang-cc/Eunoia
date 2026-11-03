@@ -9,6 +9,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { StatementCache } from '../db/statements.ts';
 import type {
   ApprovalGrant,
   AuditEvent,
@@ -285,14 +286,24 @@ const SANDBOX_MUTABLE = new Set([
 
 export class SqliteSandboxStore implements SandboxStore {
   readonly #db: DatabaseSync;
+  readonly #statements: StatementCache;
 
   constructor(db: DatabaseSync) {
     this.#db = db;
+    this.#statements = new StatementCache(db);
   }
 
   // ------------------------------------------------------------------ tasks ---
 
   async ensureTask(task: Task): Promise<Task> {
+    // Read first, like the memory store does. `INSERT … ON CONFLICT DO NOTHING`
+    // is not enough on its own: SQLite checks the NOT NULL/CHECK constraints
+    // before it resolves the conflict, so a caller that passed a status this
+    // build does not know would throw on an idempotent call instead of getting
+    // the row that is already there.
+    const existing = await this.getTask(task.taskId);
+    if (existing) return existing;
+
     this.#run(
       `INSERT INTO sandbox_tasks (${TASK_COLUMNS})
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1329,15 +1340,15 @@ export class SqliteSandboxStore implements SandboxStore {
   // ---------------------------------------------------------------- internals ---
 
   #all<T>(sql: string, ...params: SqlValue[]): T[] {
-    return this.#db.prepare(sql).all(...params) as T[];
+    return this.#statements.get(sql).all(...params) as T[];
   }
 
   #get<T>(sql: string, ...params: SqlValue[]): T | undefined {
-    return this.#db.prepare(sql).get(...params) as T | undefined;
+    return this.#statements.get(sql).get(...params) as T | undefined;
   }
 
   #run(sql: string, ...params: SqlValue[]): { changes: number } {
-    const result = this.#db.prepare(sql).run(...params);
+    const result = this.#statements.get(sql).run(...params);
     return { changes: Number(result.changes) };
   }
 }

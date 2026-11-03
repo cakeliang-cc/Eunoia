@@ -35,10 +35,6 @@ const MODE_RANK: Readonly<Record<PermissionMode, number>> = {
   auto: 3,
 };
 
-export function modeRank(mode: PermissionMode): number {
-  return MODE_RANK[mode];
-}
-
 export function isNarrowerOrEqual(mode: PermissionMode, parent: PermissionMode): boolean {
   return MODE_RANK[mode] <= MODE_RANK[parent];
 }

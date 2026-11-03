@@ -35,7 +35,10 @@ export class El {
   disabled = false;
   onclick: (() => void) | null = null;
 
-  constructor(readonly tagName = 'div') {
+  readonly tagName: string;
+
+  constructor(tagName = 'div') {
+    this.tagName = tagName;
     // Arrow functions rather than methods, so `this` stays the element. Each
     // one reads the live set: assigning `className` replaces it, and a
     // captured reference would then be answering about a stale one.

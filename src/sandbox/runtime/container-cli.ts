@@ -21,8 +21,6 @@ export interface CliRunOptions {
   readonly timeoutMs?: number;
   readonly signal?: AbortSignal;
   readonly maxOutputBytes?: number;
-  /** Treat a non-zero exit as a value rather than an exception. */
-  readonly allowNonZero?: boolean;
 }
 
 export interface CliResult {
@@ -120,7 +118,7 @@ export class ContainerCli {
 
   /** Run and throw on a non-zero exit; used by lifecycle calls. */
   async runChecked(args: readonly string[], options: CliRunOptions = {}): Promise<CliResult> {
-    const result = await this.run(args, { ...options, allowNonZero: true });
+    const result = await this.run(args, options);
     if (result.timedOut) {
       throw new SandboxRuntimeUnavailableError(`${this.binary} ${args[0] ?? ''} timed out`);
     }

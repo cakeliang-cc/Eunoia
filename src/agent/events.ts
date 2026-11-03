@@ -176,4 +176,3 @@ export type AgentEvent =
  * deliberately *not* in any list of things to persist: reasoning is never
  * written to the conversation, only to the person watching it arrive.
  */
-export const CONTENT_EVENT_TYPES = ['text_delta', 'thinking_delta', 'completed'] as const;

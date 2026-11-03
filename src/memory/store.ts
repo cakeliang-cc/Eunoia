@@ -125,6 +125,19 @@ export interface MemoryStore {
   /** Increments access counts and refreshes `last_accessed_at` in one statement. */
   markAccessed(userId: string, ids: readonly string[]): Promise<void>;
   logMemoryEvent(event: MemoryEvent): Promise<void>;
+  /**
+   * Access accounting for one retrieval, in one round trip.
+   *
+   * Retrieval happens on the read path of every turn, and doing it as two
+   * separate calls meant two WAL commits per turn. A store that can do both
+   * writes in one transaction should; the in-memory store simply does them in
+   * order. Failure is still non-fatal to the turn (see `buildTurnContext`).
+   */
+  recordRetrieval(input: {
+    readonly userId: string;
+    readonly memoryIds: readonly string[];
+    readonly event: MemoryEvent;
+  }): Promise<void>;
 }
 
 /**

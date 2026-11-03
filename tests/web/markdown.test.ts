@@ -1,10 +1,10 @@
 /**
  * The transcript renders the model's Markdown subset.
  *
- * The model writes `**bold**`, inline code and fenced blocks; before this it
- * reached the page as literal asterisks and backticks. What is checked here is
- * the boundary: the subset renders, the user's own text does not, and nothing
- * model-authored can become markup.
+ * The model writes `**bold**`, inline code, fenced blocks, headings, quotes,
+ * rules, tables and lists; before this they reached the page as literal
+ * markers. What is checked here is the boundary: the subset renders, the
+ * user's own text does not, and nothing model-authored can become markup.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -120,5 +120,134 @@ describe('markdown in the transcript', () => {
     expect(body.find((node) => node.tagName === 'img')).toHaveLength(0);
     expect(body.textContent).toContain('<img');
     expect(body.find((node) => node.tagName === 'strong')).toHaveLength(1);
+  });
+});
+
+describe('markdown block constructs', () => {
+  it('renders headings without leaking the hash markers', async () => {
+    const md = '## 它是什么\n\n一句话。\n\n### 技术栈\n\n细节。';
+    const body = await reply([
+      { type: 'text_delta', text: md },
+      { type: 'completed', text: md },
+    ]);
+
+    expect(body.find((node) => node.tagName === 'h2')).toHaveLength(1);
+    expect(body.find((node) => node.tagName === 'h3')).toHaveLength(1);
+    expect(body.textContent).toContain('它是什么');
+    expect(body.textContent).toContain('技术栈');
+    expect(body.textContent).not.toContain('##');
+  });
+
+  it('keeps a hash that belongs to the heading text', async () => {
+    const body = await reply([
+      { type: 'text_delta', text: '## C# 与 Node' },
+      { type: 'completed', text: '## C# 与 Node' },
+    ]);
+
+    const heading = body.find((node) => node.tagName === 'h2')[0];
+    expect(heading?.textContent).toBe('C# 与 Node');
+  });
+
+  it('renders a horizontal rule instead of three dashes', async () => {
+    const md = '上面。\n\n---\n\n下面。';
+    const body = await reply([
+      { type: 'text_delta', text: md },
+      { type: 'completed', text: md },
+    ]);
+
+    expect(body.find((node) => node.tagName === 'hr')).toHaveLength(1);
+    expect(body.textContent).toContain('上面。');
+    expect(body.textContent).toContain('下面。');
+    expect(body.textContent).not.toContain('---');
+  });
+
+  it('renders blockquotes, including their inline emphasis', async () => {
+    const md = '> **每一个功能** 都是被失效驱动出来的。\n> 第二条。\n\n正文。';
+    const body = await reply([
+      { type: 'text_delta', text: md },
+      { type: 'completed', text: md },
+    ]);
+
+    const quote = body.find((node) => node.tagName === 'blockquote');
+    expect(quote).toHaveLength(1);
+    expect(quote[0]?.textContent).toContain('每一个功能');
+    expect(quote[0]?.find((node) => node.tagName === 'strong')).toHaveLength(1);
+    expect(body.textContent).not.toContain('>');
+  });
+
+  it('renders a table with a header, rows and wrapped cells', async () => {
+    const md = [
+      '| 层 | 作用域 | 关键规则 |',
+      '| --- | --- | --- |',
+      '| working | 单会话 | 进程内 |',
+      '| semantic | 长期 | **可更新** |',
+    ].join('\n');
+    const body = await reply([
+      { type: 'text_delta', text: md },
+      { type: 'completed', text: md },
+    ]);
+
+    const table = body.find((node) => node.tagName === 'table');
+    expect(table).toHaveLength(1);
+    expect(table[0]?.find((node) => node.tagName === 'th')).toHaveLength(3);
+    expect(table[0]?.find((node) => node.tagName === 'td')).toHaveLength(6);
+    expect(table[0]?.find((node) => node.tagName === 'tr')).toHaveLength(3);
+    expect(body.find((node) => node.classList.contains('table-wrap'))).toHaveLength(1);
+    expect(body.find((node) => node.tagName === 'strong')).toHaveLength(1);
+    expect(body.textContent).not.toContain('|');
+  });
+
+  it('applies the alignment of the delimiter row', async () => {
+    const md = [
+      '| 左 | 中 | 右 |',
+      '| :--- | :---: | ---: |',
+      '| a | b | c |',
+    ].join('\n');
+    const body = await reply([
+      { type: 'text_delta', text: md },
+      { type: 'completed', text: md },
+    ]);
+
+    const headers = body.find((node) => node.tagName === 'th');
+    expect(headers[0]?.getAttribute('data-align')).toBe('left');
+    expect(headers[1]?.getAttribute('data-align')).toBe('center');
+    expect(headers[2]?.getAttribute('data-align')).toBe('right');
+
+    const cells = body.find((node) => node.tagName === 'td');
+    expect(cells[0]?.getAttribute('data-align')).toBe('left');
+    expect(cells[1]?.getAttribute('data-align')).toBe('center');
+    expect(cells[2]?.getAttribute('data-align')).toBe('right');
+  });
+
+  it('keeps raw HTML in a table cell as text', async () => {
+    const md = [
+      '| 内容 | 状态 |',
+      '| --- | --- |',
+      '| <img src=x onerror=alert(1)> | **ok** |',
+    ].join('\n');
+    const body = await reply([
+      { type: 'text_delta', text: md },
+      { type: 'completed', text: md },
+    ]);
+
+    expect(body.find((node) => node.tagName === 'img')).toHaveLength(0);
+    expect(body.textContent).toContain('<img');
+    expect(body.find((node) => node.tagName === 'strong')).toHaveLength(1);
+  });
+
+  it('does not eat a literal pipe inside inline code', async () => {
+    const md = [
+      '| 写法 | 说明 |',
+      '| --- | --- |',
+      '| `a \\| b` | 管道 |',
+    ].join('\n');
+    const body = await reply([
+      { type: 'text_delta', text: md },
+      { type: 'completed', text: md },
+    ]);
+
+    const cells = body.find((node) => node.tagName === 'td');
+    expect(cells[0]?.textContent).toBe('a | b');
+    expect(cells[0]?.find((node) => node.tagName === 'code')).toHaveLength(1);
   });
 });

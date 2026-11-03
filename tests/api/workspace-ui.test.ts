@@ -33,6 +33,9 @@ let server: Server;
 let service: WorkspaceUiService;
 let http: string;
 
+/** The per-process token `createApp` normally mints; tests pin one. */
+const TOKEN = 'test-token';
+
 const hasGit = spawnSync('git', ['--version'], { encoding: 'utf8' }).status === 0;
 
 interface ApiResponse {
@@ -73,7 +76,7 @@ async function start(options: { terminal?: boolean; browseRoots?: string; git?: 
     config: workspaceUiConfig({ loopback: true, env }),
     git: options.git ?? true,
   });
-  server = createApp({ store: new InMemoryStore(), workspaceUi: service });
+  server = createApp({ store: new InMemoryStore(), workspaceUi: service, localToken: TOKEN });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   http = `http://127.0.0.1:${port}`;
@@ -126,7 +129,7 @@ describe('workspace state', () => {
       config: workspaceUiConfig({ loopback: true, env: { WORKSPACE_UI_STATE: statePath } }),
       git: false,
     });
-    server = createApp({ store: new InMemoryStore(), workspaceUi: service });
+    server = createApp({ store: new InMemoryStore(), workspaceUi: service, localToken: TOKEN });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const { port } = server.address() as AddressInfo;
     http = `http://127.0.0.1:${port}`;
@@ -348,6 +351,22 @@ describe('the terminal', () => {
     expect(response.status).toBe(403);
   });
 
+  it('is refused without the local token', async () => {
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+      server.closeAllConnections?.();
+    });
+    await start({ terminal: true });
+
+    const response = await jsonRequest('/api/workspace/terminal', {
+      method: 'POST',
+      body: { command: 'printf hello' },
+      headers: { 'x-workspace-ui': '1' },
+    });
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('terminal-disabled');
+  });
+
   it('streams output and an exit code when enabled', async () => {
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
@@ -357,7 +376,11 @@ describe('the terminal', () => {
 
     const response = await fetch(`${http}/api/workspace/terminal`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-workspace-ui': '1' },
+      headers: {
+        'content-type': 'application/json',
+        'x-workspace-ui': '1',
+        'x-eunoia-token': TOKEN,
+      },
       body: JSON.stringify({ command: "printf 'hello'; printf 'oops' >&2" }),
     });
     expect(response.status).toBe(200);
@@ -372,7 +395,7 @@ describe('the terminal', () => {
     const response = await jsonRequest('/api/workspace/terminal', {
       method: 'POST',
       body: { command: 'printf hello' },
-      headers: { 'x-workspace-ui': '1' },
+      headers: { 'x-workspace-ui': '1', 'x-eunoia-token': TOKEN },
     });
     expect(response.status).toBe(403);
     expect(response.body.code).toBe('terminal-disabled');

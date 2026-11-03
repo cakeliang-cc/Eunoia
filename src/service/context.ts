@@ -40,6 +40,16 @@ import { describeRelationship, renderRelationship } from '../session/relationshi
 import { selectNarratives, renderNarratives } from '../memory/narrative.ts';
 import { assessRisk, type RiskAssessment } from '../safety/risk.ts';
 
+/**
+ * How many recently updated memories are read per turn before scoring.
+ *
+ * Scoring happens in JavaScript and the budget selects at most four items, so
+ * this is not a quality knob — it is a bound on the row parse. It used to be
+ * 200; 120 keeps years of history in the candidate set while halving the work,
+ * and the query now asks only for statuses retrieval can actually use.
+ */
+const MEMORY_CANDIDATE_LIMIT = 120;
+
 export interface TurnContext {
   /**
    * When this turn is happening. Never empty: a turn always has a now.
@@ -126,7 +136,10 @@ export async function buildTurnContext(
     };
   }
 
-  const candidates = await store.listMemories(userId, { limit: 200 });
+  const candidates = await store.listMemories(userId, {
+    limit: MEMORY_CANDIDATE_LIMIT,
+    statuses: ['active', 'unconfirmed'],
+  });
 
   // Chosen before retrieval, and taken *out* of it. A narrative that passes the
   // similarity gate would otherwise be rendered twice — once as a theme and once
@@ -144,20 +157,22 @@ export async function buildTurnContext(
   if (selected.length > 0) {
     // Access accounting is fire-and-forget: it feeds the Phase 5 memory panel
     // ("recalled 4 times"), not ranking, so a failure here must not cost a turn.
+    //
+    // It is one store call rather than `markAccessed` + `logMemoryEvent` so the
+    // SQLite store can commit both writes together: retrieval happens on every
+    // turn, and two commits meant two WAL fsyncs for data the reply does not
+    // depend on.
     await store
-      .markAccessed(
+      .recordRetrieval({
         userId,
-        selected.map((entry) => entry.memory.id),
-      )
-      .catch(() => undefined);
-
-    await store
-      .logMemoryEvent({
-        memoryId: null,
-        userId,
-        action: 'retrieved',
-        actor: 'system',
-        detail: { count: selected.length, ids: selected.map((entry) => entry.memory.id) },
+        memoryIds: selected.map((entry) => entry.memory.id),
+        event: {
+          memoryId: null,
+          userId,
+          action: 'retrieved',
+          actor: 'system',
+          detail: { count: selected.length, ids: selected.map((entry) => entry.memory.id) },
+        },
       })
       .catch(() => undefined);
   }

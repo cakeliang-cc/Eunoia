@@ -56,6 +56,20 @@ describe('singleUserId', () => {
   });
 });
 
+describe('cookie identities', () => {
+  it('ignores a malformed percent-escape instead of throwing', () => {
+    delete process.env[SINGLE_USER_ENV];
+    // Before the guard this threw URIError from decodeURIComponent, which the
+    // HTTP layer could only answer with a 500.
+    expect(readIdentity(request({ cookie: `${IDENTITY_COOKIE}=%` }))).toBeNull();
+  });
+
+  it('still accepts a well-formed cookie', () => {
+    delete process.env[SINGLE_USER_ENV];
+    expect(readIdentity(request({ cookie: `${IDENTITY_COOKIE}=${USER}` }))).toBe(USER);
+  });
+});
+
 describe('resolveIdentity in single-user mode', () => {
   it('always returns the fixed user', () => {
     process.env[SINGLE_USER_ENV] = USER;

@@ -24,11 +24,16 @@ import { SANDBOX_SCHEMA } from '../sandbox/schema.ts';
  * resource profile on each sandbox so recovery rebuilds with the same limits;
  * version 4 adds the permission layer (ADR 020) and `sandboxes.config_digest`;
  * version 5 adds the task-scoped working directory (ADR 021): cwd columns on
- * `sandbox_tasks`, `cwd_version` on `executions` and `task_cwd_operations`.
+ * `sandbox_tasks`, `cwd_version` on `executions` and `task_cwd_operations`;
+ * version 6 adds the foreign-key and hot-query indexes that were missing from
+ * the first schema (`messages(user_id, created_at)`, `memories(user_id,
+ * updated_at)`, and the cascade columns on `agent_runs`, `message_feedback` and
+ * `evaluation_results`). Without them `historyStats` scanned `messages` twice
+ * per turn and `EXPLAIN QUERY PLAN` showed `SCAN agent_runs` on user deletion.
  * The base schema is idempotent, so a version-1 file gets the tables by executing
  * the full schema; later files get the new columns by `ALTER TABLE`.
  */
-export const SQLITE_SCHEMA_VERSION = 5;
+export const SQLITE_SCHEMA_VERSION = 6;
 
 export const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -76,6 +81,10 @@ CREATE INDEX IF NOT EXISTS messages_conversation_time_idx
   ON messages (conversation_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS messages_conversation_seq_idx
   ON messages (conversation_id, seq);
+-- historyStats counts and time-bounds a user's messages every turn; without
+-- the leading user_id column that is a full table scan.
+CREATE INDEX IF NOT EXISTS messages_user_time_idx
+  ON messages (user_id, created_at);
 
 CREATE TABLE IF NOT EXISTS conversation_summaries (
   conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
@@ -110,6 +119,11 @@ CREATE INDEX IF NOT EXISTS memories_user_status_idx ON memories (user_id, status
 CREATE INDEX IF NOT EXISTS memories_user_type_idx   ON memories (user_id, type);
 CREATE INDEX IF NOT EXISTS memories_user_importance_idx
   ON memories (user_id, importance DESC, created_at DESC);
+-- Retrieval lists a user's most recently updated memories before scoring them.
+-- Without this the query uses an arbitrary user_id index and sorts every row in
+-- a temp B-tree (USE TEMP B-TREE FOR ORDER BY in EXPLAIN QUERY PLAN).
+CREATE INDEX IF NOT EXISTS memories_user_updated_idx
+  ON memories (user_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS memory_events (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,6 +181,10 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 );
 
 CREATE INDEX IF NOT EXISTS agent_runs_time_idx ON agent_runs (started_at DESC);
+-- Both columns are ON DELETE SET NULL. SQLite only uses an index for that
+-- lookup when one exists, so deleting a person scanned this table.
+CREATE INDEX IF NOT EXISTS agent_runs_user_idx ON agent_runs (user_id);
+CREATE INDEX IF NOT EXISTS agent_runs_conversation_idx ON agent_runs (conversation_id);
 
 CREATE TABLE IF NOT EXISTS evaluation_cases (
   id                  TEXT PRIMARY KEY,
@@ -196,6 +214,7 @@ CREATE TABLE IF NOT EXISTS evaluation_results (
 );
 
 CREATE INDEX IF NOT EXISTS evaluation_results_run_idx ON evaluation_results (run_id);
+CREATE INDEX IF NOT EXISTS evaluation_results_case_idx ON evaluation_results (case_id);
 
 ${SANDBOX_SCHEMA}
 `;
@@ -203,4 +222,20 @@ ${SANDBOX_SCHEMA}
 /** Applied to a version-2 database that already has the sandbox tables. */
 export const SQLITE_MIGRATION_3 = `
 ALTER TABLE sandboxes ADD COLUMN resource_profile TEXT NOT NULL DEFAULT 'default';
+`;
+
+/**
+ * Version 5 → 6: the hot-query and cascade indexes.
+ *
+ * Only indexes, so this is safe to re-run and safe to interrupt; `IF NOT EXISTS`
+ * also makes it a no-op for a database created from the current base schema.
+ */
+export const SQLITE_MIGRATION_6 = `
+CREATE INDEX IF NOT EXISTS messages_user_time_idx
+  ON messages (user_id, created_at);
+CREATE INDEX IF NOT EXISTS memories_user_updated_idx
+  ON memories (user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS agent_runs_user_idx ON agent_runs (user_id);
+CREATE INDEX IF NOT EXISTS agent_runs_conversation_idx ON agent_runs (conversation_id);
+CREATE INDEX IF NOT EXISTS evaluation_results_case_idx ON evaluation_results (case_id);
 `;

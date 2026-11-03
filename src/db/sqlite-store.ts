@@ -56,10 +56,12 @@ import type {
 import type { Store } from '../store.ts';
 import {
   SQLITE_MIGRATION_3,
+  SQLITE_MIGRATION_6,
   SQLITE_SCHEMA,
   SQLITE_SCHEMA_VERSION,
 } from './sqlite-schema.ts';
 import { CWD_SCHEMA, PERMISSION_SCHEMA } from '../sandbox/schema.ts';
+import { StatementCache } from './statements.ts';
 
 type SqlValue = string | number | null;
 
@@ -148,10 +150,12 @@ export class SqliteStore implements Store {
    */
   readonly database: DatabaseSync;
   readonly #db: DatabaseSync;
+  readonly #statements: StatementCache;
 
   constructor(db: DatabaseSync) {
     this.database = db;
     this.#db = db;
+    this.#statements = new StatementCache(db);
   }
 
   // --------------------------------------------------------------- users -----
@@ -309,6 +313,43 @@ export class SqliteStore implements Store {
       event.reason ?? null,
       JSON.stringify(event.detail ?? {}),
     );
+  }
+
+  async recordRetrieval(input: {
+    userId: string;
+    memoryIds: readonly string[];
+    event: MemoryEvent;
+  }): Promise<void> {
+    // One transaction for the access counters and the audit row. Retrieval runs
+    // on every turn, and two independent commits meant two WAL fsyncs per turn
+    // for data nothing in the reply depends on.
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      if (input.memoryIds.length > 0) {
+        this.#run(
+          `UPDATE memories
+              SET access_count = access_count + 1, last_accessed_at = ?
+            WHERE user_id = ? AND id IN (${placeholders(input.memoryIds.length)})`,
+          nowIso(),
+          input.userId,
+          ...input.memoryIds,
+        );
+      }
+      this.#run(
+        `INSERT INTO memory_events (memory_id, user_id, action, actor, reason, detail)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        input.event.memoryId,
+        input.event.userId,
+        input.event.action,
+        input.event.actor,
+        input.event.reason ?? null,
+        JSON.stringify(input.event.detail ?? {}),
+      );
+      this.#db.exec('COMMIT');
+    } catch (error) {
+      this.#db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   // ------------------------------------------------------- conversations -----
@@ -772,7 +813,7 @@ export class SqliteStore implements Store {
 
   async ping(): Promise<boolean> {
     try {
-      this.#db.prepare('SELECT 1').get();
+      this.#statements.get('SELECT 1').get();
       return true;
     } catch {
       return false;
@@ -780,21 +821,22 @@ export class SqliteStore implements Store {
   }
 
   async close(): Promise<void> {
+    this.#statements.clear();
     this.#db.close();
   }
 
   // ------------------------------------------------------------ internals ----
 
   #all<T>(sql: string, ...params: SqlValue[]): T[] {
-    return this.#db.prepare(sql).all(...params) as T[];
+    return this.#statements.get(sql).all(...params) as T[];
   }
 
   #get<T>(sql: string, ...params: SqlValue[]): T | undefined {
-    return this.#db.prepare(sql).get(...params) as T | undefined;
+    return this.#statements.get(sql).get(...params) as T | undefined;
   }
 
   #run(sql: string, ...params: SqlValue[]): { changes: number } {
-    const result = this.#db.prepare(sql).run(...params);
+    const result = this.#statements.get(sql).run(...params);
     return { changes: Number(result.changes) };
   }
 }
@@ -829,6 +871,9 @@ export function openSqliteStore(path: string): SqliteStore {
     }
     if (version < 5) {
       migrateToVersion5(db);
+    }
+    if (version < 6) {
+      db.exec(SQLITE_MIGRATION_6);
     }
   }
   if (version < SQLITE_SCHEMA_VERSION) {

@@ -21,7 +21,6 @@ import type {
   EvaluationResultRecord,
   FeedbackRecord,
   MemoryListOptions,
-  MemoryStore,
   PreferenceStore,
   RunStore,
 } from '../memory/store.ts';
@@ -224,6 +223,15 @@ export class InMemoryStore implements Store {
 
   async logMemoryEvent(event: MemoryEvent): Promise<void> {
     this.events.push(event);
+  }
+
+  async recordRetrieval(input: {
+    userId: string;
+    memoryIds: readonly string[];
+    event: MemoryEvent;
+  }): Promise<void> {
+    await this.markAccessed(input.userId, input.memoryIds);
+    await this.logMemoryEvent(input.event);
   }
 
   // ----------------------------------------------------- conversations -----
@@ -501,9 +509,6 @@ export class InMemoryStore implements Store {
 }
 
 /** Narrow the composite to its parts, for tests that only need one. */
-export function asMemoryStore(store: Store): MemoryStore {
-  return store;
-}
 export function asSessionStore(store: Store): SessionStore {
   return store;
 }

@@ -138,6 +138,50 @@ function isJsonContentType(value: string | undefined): boolean {
 }
 
 /**
+ * Hostnames this process answers to.
+ *
+ * Loopback names are always accepted. Anything else has to be named by the
+ * operator in `EUNOIA_ALLOWED_HOSTS`, or be the address the process was
+ * explicitly told to bind.
+ *
+ * This exists because binding to `127.0.0.1` does not stop DNS rebinding: an
+ * attacker's domain can resolve to loopback, and the browser then treats a
+ * request to that domain as same-origin. `Origin` and `Host` are both the
+ * attacker's name, so a same-origin check passes and the local token is
+ * readable from `GET /`. Validating `Host` against a name the operator chose is
+ * what makes "reachable from this machine" mean something again.
+ */
+const LOOPBACK_HOSTNAMES = ['127.0.0.1', 'localhost', '::1', '[::1]'] as const;
+
+function allowedHostnames(env: NodeJS.ProcessEnv = process.env): ReadonlySet<string> {
+  const names = new Set<string>(LOOPBACK_HOSTNAMES);
+  for (const entry of (env.EUNOIA_ALLOWED_HOSTS ?? '').split(',')) {
+    const name = entry.trim().toLowerCase();
+    if (name.length > 0) names.add(name);
+  }
+  const bound = bindHost(env).trim().toLowerCase();
+  if (bound.length > 0 && bound !== '0.0.0.0' && bound !== '::') names.add(bound);
+  return names;
+}
+
+/** The hostname a request addressed, or null when the header is absent/invalid. */
+function requestHostname(req: IncomingMessage): string | null {
+  const raw = req.headers.host;
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  try {
+    // `URL` strips the port and normalises bracketed IPv6 literals.
+    return new URL(`http://${raw}`).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function hostAllowed(req: IncomingMessage, env: NodeJS.ProcessEnv = process.env): boolean {
+  const hostname = requestHostname(req);
+  return hostname !== null && allowedHostnames(env).has(hostname);
+}
+
+/**
  * Constant-time token comparison.
  *
  * The token is not a password and the socket is local, but comparing secrets
@@ -647,11 +691,34 @@ export function createApp(deps: AppDependencies) {
     res: ServerResponse,
     url: URL,
   ): Promise<boolean> {
-    const { pathname } = url;
-
-    if (deps.workspaceUi && (await handleWorkspaceRoute(req, res, url, deps.workspaceUi))) {
+    if (
+      deps.workspaceUi &&
+      (await handleWorkspaceRoute(req, res, url, deps.workspaceUi, { token: localToken }))
+    ) {
       return true;
     }
+
+    // Each group owns a disjoint set of paths, so first-match-wins is a
+    // property of the list, not of the order inside one 480-line function.
+    for (const group of [
+      handleStatusRoutes,
+      handlePermissionRoutes,
+      handleConversationRoutes,
+      handleMemoryRoutes,
+      handlePreferenceRoutes,
+    ]) {
+      if (await group(req, res, url)) return true;
+    }
+
+    return false;
+  }
+
+  async function handleStatusRoutes(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+  ): Promise<boolean> {
+    const { pathname } = url;
 
     if (req.method === 'GET' && pathname === '/health') {
       const ok = await store.ping();
@@ -731,6 +798,16 @@ export function createApp(deps: AppDependencies) {
       });
       return true;
     }
+
+    return false;
+  }
+
+  async function handlePermissionRoutes(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+  ): Promise<boolean> {
+    const { pathname } = url;
 
     // ------------------------------------------------------- permissions -----
 
@@ -911,6 +988,16 @@ export function createApp(deps: AppDependencies) {
       return true;
     }
 
+    return false;
+  }
+
+  async function handleConversationRoutes(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+  ): Promise<boolean> {
+    const { pathname } = url;
+
     // ---------------------------------------------------------- history -----
 
     if (req.method === 'POST' && pathname === '/api/conversations') {
@@ -1012,6 +1099,16 @@ export function createApp(deps: AppDependencies) {
       return true;
     }
 
+    return false;
+  }
+
+  async function handleMemoryRoutes(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+  ): Promise<boolean> {
+    const { pathname } = url;
+
     // ----------------------------------------------------------- memory -----
 
     if (req.method === 'GET' && pathname === '/api/memory') {
@@ -1076,6 +1173,16 @@ export function createApp(deps: AppDependencies) {
       return true;
     }
 
+    return false;
+  }
+
+  async function handlePreferenceRoutes(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+  ): Promise<boolean> {
+    const { pathname } = url;
+
     // ------------------------------------------------------- preferences -----
 
     if (req.method === 'GET' && pathname === '/api/preferences') {
@@ -1132,6 +1239,15 @@ export function createApp(deps: AppDependencies) {
   }
 
   return createServer((req, res) => {
+    // Before parsing a URL or reading a cookie: a request addressed to a name
+    // this process does not answer to is not from this application, whatever
+    // its Origin header claims. See `allowedHostnames` for the DNS-rebinding
+    // reasoning.
+    if (!hostAllowed(req)) {
+      sendJson(res, 403, { error: 'host not allowed' });
+      return;
+    }
+
     const url = new URL(req.url ?? '/', 'http://localhost');
 
     void (async () => {
