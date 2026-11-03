@@ -1001,32 +1001,56 @@ function finishApprovalCard(card, approved) {
  * mini-program client has to do, so this logic transfers rather than being
  * thrown away.
  */
+/**
+ * Parse an SSE byte stream by hand.
+ *
+ * `EventSource` cannot be used: it only issues GET, and the chat endpoint is
+ * POST — putting a person's message in a URL would leak it into access logs and
+ * browser history. Reading the body as a stream is also exactly what the
+ * mini-program client has to do, so this logic transfers rather than being
+ * thrown away.
+ *
+ * Line endings are accepted as either LF or CRLF (a proxy may normalise them),
+ * multiple `data:` lines are joined as the SSE spec says, and a final frame
+ * without the trailing blank line is still parsed. A malformed payload is
+ * dropped rather than killing the stream; the next frame is probably fine.
+ */
 async function* readFrames(response) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+
+  const parseFrame = (frame) => {
+    const data = frame
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).replace(/^ /, ''))
+      .join('\n');
+    if (!data) return null;
+    try {
+      return JSON.parse(data);
+    } catch {
+      return null;
+    }
+  };
 
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
-    let boundary = buffer.indexOf('\n\n');
-    while (boundary >= 0) {
-      const frame = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      const line = frame.split('\n').find((l) => l.startsWith('data: '));
-      if (line) {
-        try {
-          yield JSON.parse(line.slice(6));
-        } catch {
-          // A malformed frame is dropped rather than killing the stream; the
-          // next one is probably fine.
-        }
-      }
-      boundary = buffer.indexOf('\n\n');
+    let match = /\r?\n\r?\n/.exec(buffer);
+    while (match) {
+      const event = parseFrame(buffer.slice(0, match.index));
+      buffer = buffer.slice(match.index + match[0].length);
+      if (event) yield event;
+      match = /\r?\n\r?\n/.exec(buffer);
     }
   }
+
+  buffer += decoder.decode();
+  const tail = parseFrame(buffer);
+  if (tail) yield tail;
 }
 
 async function send(text) {

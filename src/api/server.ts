@@ -66,8 +66,15 @@ import {
   workspaceUiConfig,
 } from '../workspace-ui/index.ts';
 
-/** Reject absurd bodies rather than buffering them. */
-const MAX_BODY_BYTES = 32 * 1024;
+/**
+ * Reject absurd bodies rather than buffering them.
+ *
+ * Must stay above the worst-case encoding of `MAX_MESSAGE_CHARS`: 8,000 astral
+ * characters are 32 KB of UTF-8 before JSON escaping, so a 32 KB body cap would
+ * reject a message the message validator explicitly allows and report the wrong
+ * reason.
+ */
+const MAX_BODY_BYTES = 64 * 1024;
 
 /** Reject absurd messages. A companion turn is not a document. */
 const MAX_MESSAGE_CHARS = 8_000;
@@ -1271,6 +1278,11 @@ export function createApp(deps: AppDependencies) {
   });
 }
 
+/** A missing file is a 404; a permissions or I/O failure is not. */
+function isMissingFile(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
+}
+
 /**
  * Serve the page with the local permission token in a meta tag.
  *
@@ -1293,8 +1305,14 @@ async function serveIndex(res: ServerResponse, token: string): Promise<void> {
       'Content-Length': Buffer.byteLength(page),
     });
     res.end(page);
-  } catch {
-    sendJson(res, 404, { error: 'web client not found' });
+  } catch (error) {
+    // A missing client is a 404; an unreadable one (EACCES, EIO) is a server
+    // failure, and pretending it is "not found" hides the thing to fix.
+    log.error('web.index_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    if (isMissingFile(error)) sendJson(res, 404, { error: 'web client not found' });
+    else sendJson(res, 500, { error: 'web client unavailable' });
   }
 }
 
@@ -1318,8 +1336,13 @@ async function serveWebAsset(
       'Content-Length': body.byteLength,
     });
     res.end(body);
-  } catch {
-    sendJson(res, 404, { error: 'web asset not found' });
+  } catch (error) {
+    log.error('web.asset_failed', {
+      asset: name,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    if (isMissingFile(error)) sendJson(res, 404, { error: 'web asset not found' });
+    else sendJson(res, 500, { error: 'web asset unavailable' });
   }
 }
 

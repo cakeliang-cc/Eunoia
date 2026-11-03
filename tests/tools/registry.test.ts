@@ -114,4 +114,25 @@ describe('truncation', () => {
     const line = 'x'.repeat(20);
     expect(truncateLine(line, 5)).toBe('xxxxx… [+15 chars]');
   });
+
+  it('never cuts a surrogate pair in half', () => {
+    const emoji = '😀'.repeat(20);
+    const lone = (text: string): boolean => {
+      for (let i = 0; i < text.length; i += 1) {
+        const code = text.charCodeAt(i);
+        if (code >= 0xd800 && code <= 0xdbff) {
+          const next = text.charCodeAt(i + 1);
+          if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+          i += 1;
+        } else if (code >= 0xdc00 && code <= 0xdfff) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    expect(lone(truncateLine(emoji, 5))).toBe(false);
+    expect(lone(truncateMiddle(emoji, 41))).toBe(false);
+    expect(lone(truncateTail([emoji], 1, 31).text)).toBe(false);
+  });
 });

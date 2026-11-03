@@ -616,3 +616,23 @@ describe('deleting everything', () => {
     expect(harness.requests.some((request) => request.method === 'DELETE')).toBe(false);
   });
 });
+
+describe('the SSE parser', () => {
+  it('accepts CRLF frames and a final frame without a trailing blank line', async () => {
+    // A proxy may normalise line endings, and a stream that ends without the
+    // last blank line is legal enough that dropping its final `completed` would
+    // lose the persisted message id.
+    const delta = { type: 'text_delta', text: '好' };
+    const completed = { type: 'completed', text: '好', conversationId: null, messageId: 'm1' };
+    const raw =
+      `event: text_delta\r\ndata: ${JSON.stringify(delta)}\r\n\r\n` +
+      `event: completed\r\ndata: ${JSON.stringify(completed)}`;
+
+    const harness = await boot({ rawFrames: raw });
+    await harness.send('在吗');
+
+    const turn = harness.transcript.find((node) => node.classList.contains('assistant')).at(-1);
+    const body = turn?.child('bubble')?.child('text') as El;
+    expect(body.textContent).toBe('好');
+  });
+});

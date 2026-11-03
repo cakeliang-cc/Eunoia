@@ -8,6 +8,22 @@
 
 ## [Unreleased]
 
+### Fixed（边界收尾）
+
+- **截断不再把代理对切成两半。** `truncateMiddle` / `truncateLine` / 单行硬截断
+  原来按 UTF-16 code unit 切，切在 emoji 或 astral CJK 中间会留下孤立代理项；
+  现在切点落在代理对之前/之后，长度契约不变，并有一条覆盖三种截断的测试。
+- **SSE 解析接受 CRLF 和没有尾随空行的最后一帧。** 之前只认 `\n\n`，代理改写
+  行尾或流在最后一条 `completed` 后直接结束时，回复会缺最后一帧（`messageId`
+  随之丢失）。现在按 `\r?\n\r?\n` 分帧、按规范合并多行 `data:`、结束时冲刷
+  buffer；新增一条原始帧测试。
+- **页面/脚本读取失败不再一律 404。** `serveIndex` 和 `/app.js` 的 catch 现在
+  区分 ENOENT 与权限/IO 错误：缺文件是 404，读不了是 500 并写日志。之前
+  EACCES 也会被报成 "web client not found"。
+- **请求体上限与消息上限对齐。** `MAX_BODY_BYTES` 从 32 KB 提到 64 KB：
+  8,000 个 astral 字符在 JSON 转义前就是 32 KB，旧上限会拒绝一个消息校验器
+  明确允许的消息，并给出错误的原因。
+
 ### Changed（结构、前端与度量）
 
 - **前端模块从 `index.html` 里搬出来了。** 约 2,750 行内联 JavaScript 现在是

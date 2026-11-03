@@ -48,16 +48,41 @@ export function truncateTail(
  * Keep both ends. Only for text shown to a person, never for tool output a model
  * has to act on: the model cannot ask for "the middle".
  */
+/**
+ * Slice without splitting a surrogate pair.
+ *
+ * `String.prototype.slice` counts UTF-16 code units, so a cut at an odd offset
+ * through an emoji or an astral CJK character leaves half a pair. The half is
+ * not valid text: it renders as a replacement character and round-tripping it
+ * through an edit would write that half back. Backing off one unit is cheaper
+ * than a code-point split and preserves the "at most N units" contract.
+ */
+function safePrefix(text: string, limit: number): string {
+  if (limit >= text.length) return text;
+  let end = Math.max(0, limit);
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return text.slice(0, end);
+}
+
+function safeSuffix(text: string, limit: number): string {
+  if (limit >= text.length) return text;
+  let start = Math.max(0, text.length - limit);
+  const first = text.charCodeAt(start);
+  if (first >= 0xdc00 && first <= 0xdfff) start += 1;
+  return text.slice(start);
+}
+
 export function truncateMiddle(text: string, limit = 60_000): string {
   if (text.length <= limit) return text;
   const half = Math.floor(limit / 2);
-  return `${text.slice(0, half)}\n… [truncated ${text.length - limit} chars] …\n${text.slice(-half)}`;
+  return `${safePrefix(text, half)}\n… [truncated ${text.length - limit} chars] …\n${safeSuffix(text, half)}`;
 }
 
 /** Bound one line — a grep hit from a minified file is not a readable match. */
 export function truncateLine(text: string, limit = 500): string {
   if (text.length <= limit) return text;
-  return `${text.slice(0, limit)}… [+${text.length - limit} chars]`;
+  return `${safePrefix(text, limit)}… [+${text.length - limit} chars]`;
 }
 
 function cut(
@@ -110,7 +135,7 @@ function cut(
     // Whole-line granularity is a preference, not a licence to blow the budget:
     // one minified line can be megabytes.
     const first = out[0] as string;
-    out = [fromEnd ? first.slice(-charLimit) : first.slice(0, charLimit)];
+    out = [fromEnd ? safeSuffix(first, charLimit) : safePrefix(first, charLimit)];
     by = 'chars';
   }
 

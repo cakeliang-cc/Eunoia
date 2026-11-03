@@ -194,6 +194,8 @@ export interface Harness {
  */
 export async function boot(options: {
   frames?: Frame[];
+  /** Raw SSE text for `/api/chat`, for parser edge cases the frame builder cannot express. */
+  rawFrames?: string;
   routes?: Record<string, Route>;
   stored?: string;
   /** Extra localStorage entries, written before the module runs. */
@@ -262,6 +264,7 @@ export async function boot(options: {
     // The stream the turn is read from, for whatever asked for the chat route.
     if (url === '/api/chat') {
       const frames = options.frames ?? [];
+      const raw = options.rawFrames;
       return {
         ok: true,
         status: 200,
@@ -269,11 +272,15 @@ export async function boot(options: {
         body: new ReadableStream({
           start(controller) {
             const encoder = new TextEncoder();
-            for (const frame of frames) {
-              const type = String(frame.type);
-              controller.enqueue(
-                encoder.encode(`event: ${type}\ndata: ${JSON.stringify(frame)}\n\n`),
-              );
+            if (raw !== undefined) {
+              controller.enqueue(encoder.encode(raw));
+            } else {
+              for (const frame of frames) {
+                const type = String(frame.type);
+                controller.enqueue(
+                  encoder.encode(`event: ${type}\ndata: ${JSON.stringify(frame)}\n\n`),
+                );
+              }
             }
             controller.close();
           },
