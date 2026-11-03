@@ -102,7 +102,12 @@ async function api(
 /** Post a message and read the SSE frames back. */
 async function chat(
   message: string,
-  options: { cookie?: string; conversationId?: string | null } = {},
+  options: {
+    cookie?: string;
+    conversationId?: string | null;
+    turnId?: string;
+    resume?: boolean;
+  } = {},
 ): Promise<{ frames: { event: string; data: any }[]; cookie: string }> {
   const response = await fetch(`${base}/api/chat`, {
     method: 'POST',
@@ -110,7 +115,12 @@ async function chat(
       'content-type': 'application/json',
       ...(options.cookie ? { cookie: options.cookie } : {}),
     },
-    body: JSON.stringify({ message, conversationId: options.conversationId ?? null }),
+    body: JSON.stringify({
+      message,
+      conversationId: options.conversationId ?? null,
+      ...(options.turnId ? { turnId: options.turnId } : {}),
+      ...(options.resume ? { continue: true } : {}),
+    }),
   });
 
   expect(response.headers.get('content-type')).toContain('text/event-stream');
@@ -751,5 +761,127 @@ describe('parseChatRequest', () => {
     expect(parseChatRequest({})).toContain('message');
     expect(parseChatRequest({ message: 'x', conversationId: 7 })).toContain('conversationId');
     expect(parseChatRequest(null)).toContain('JSON object');
+  });
+
+  it('accepts a turn id and a continuation, and omits them when absent', () => {
+    const turnId = '0192f0aa-2222-7000-8000-000000000000';
+    expect(
+      parseChatRequest({ message: '继续', conversationId: 'c1', turnId, continue: true }),
+    ).toEqual({
+      message: '继续',
+      conversationId: 'c1',
+      turnId,
+      continue: true,
+    });
+    expect(parseChatRequest({ message: '在吗' })).toEqual({ message: '在吗', conversationId: null });
+  });
+
+  it('rejects a turn id that cannot address a turn', () => {
+    expect(parseChatRequest({ message: '在吗', turnId: 'turn-1' })).toContain('turnId');
+    expect(parseChatRequest({ message: '在吗', continue: 'yes' })).toContain('continue');
+  });
+});
+
+describe('stopping a turn', () => {
+  const TURN_ID = '0192f0aa-2222-7000-8000-000000000000';
+
+  it('answers for a turn that is not running rather than failing', async () => {
+    // The client may press stop a moment after the turn ended. "It is not
+    // running" is the state it asked for, not an error.
+    const { status, body } = await api('/api/chat/stop', {
+      method: 'POST',
+      body: JSON.stringify({ turnId: TURN_ID }),
+    });
+    expect(status).toBe(200);
+    expect(body.stopped).toBe(false);
+  });
+
+  it('rejects a body that cannot identify a turn', async () => {
+    const { status, body } = await api('/api/chat/stop', {
+      method: 'POST',
+      body: JSON.stringify({ turnId: 'not-a-uuid' }),
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('turnId');
+  });
+
+  it('stops the running turn and persists what had been shown', async () => {
+    let reached!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    // Streams one delta, parks (the real loop would still be generating), then
+    // unwinds as cancelled once the stop has been delivered.
+    await start(async function* () {
+      yield { type: 'text_delta', text: '听起来' };
+      reached();
+      await gate;
+      yield { type: 'error', message: 'cancelled', retryable: false };
+    });
+
+    const cookie = await newIdentity();
+    const pending = chat('今天什么都不想做。', { cookie, turnId: TURN_ID });
+    await blocked;
+
+    const stopped = await api('/api/chat/stop', {
+      method: 'POST',
+      body: JSON.stringify({ turnId: TURN_ID }),
+    });
+    expect(stopped.status).toBe(200);
+    expect(stopped.body.stopped).toBe(true);
+
+    release();
+    const { frames } = await pending;
+    const last = frames.at(-1);
+    expect(last?.event).toBe('interrupted');
+    expect(last?.data.text).toBe('听起来');
+    const conversationId = last?.data.conversationId as string;
+    expect(conversationId).toBeTruthy();
+
+    const stored = await api(`/api/conversations/${conversationId}/messages`, { cookie });
+    expect(stored.body.messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      content: '听起来',
+      interrupted: true,
+    });
+  });
+
+  it('accepts a continuation and gives it the interrupted reply as history', async () => {
+    // One server and one store: the continuation must find the partial reply
+    // that the interrupted turn stored.
+    let phase: 'interrupt' | 'continue' = 'interrupt';
+    let seen: { role: string; content: string }[] = [];
+    await start(async function* (_agent, _message, options) {
+      if (phase === 'interrupt') {
+        yield { type: 'text_delta', text: '睡不着的时候，' };
+        yield { type: 'error', message: 'cancelled', retryable: false };
+        return;
+      }
+      seen = (options?.history ?? []).map((turn) => ({ role: turn.role, content: turn.content }));
+      yield { type: 'completed', text: '我会先陪你坐一会儿。' };
+    });
+
+    const cookie = await newIdentity();
+    const first = await chat('我最近睡不好。', { cookie });
+    expect(first.frames.at(-1)?.event).toBe('interrupted');
+    const interrupted = first.frames.at(-1)?.data;
+
+    phase = 'continue';
+    const second = await chat('继续', {
+      cookie,
+      conversationId: interrupted.conversationId as string,
+      resume: true,
+    });
+
+    expect(second.frames.at(-1)?.event).toBe('completed');
+    expect(seen).toEqual([
+      { role: 'user', content: '我最近睡不好。' },
+      { role: 'assistant', content: '睡不着的时候，' },
+    ]);
   });
 });

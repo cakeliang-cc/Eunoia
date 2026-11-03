@@ -636,3 +636,79 @@ describe('the SSE parser', () => {
     expect(body.textContent).toBe('好');
   });
 });
+
+describe('interrupt and continue', () => {
+  const INTERRUPTED: Frame[] = [
+    { type: 'text_delta', text: '听起来' },
+    { type: 'interrupted', text: '听起来', conversationId: 'c1', messageId: 'm1' },
+  ];
+
+  it('keeps the partial reply on screen and marks it as stopped', async () => {
+    const harness = await boot({ frames: INTERRUPTED });
+    await harness.send('今天什么都不想做。');
+
+    const { reply, bubble, note } = lastTurn(harness.transcript);
+    expect(reply?.textContent).toBe('听起来');
+    expect(note?.textContent).toContain('已打断');
+    // A stop is not an error: nothing was replaced with a failure message.
+    expect(bubble?.textContent).not.toContain('出错了');
+  });
+
+  it('continues the same conversation rather than starting a new one', async () => {
+    const harness = await boot({ frames: INTERRUPTED });
+    await harness.send('今天什么都不想做。');
+
+    const again = lastTurn(harness.transcript).note?.find(
+      (node) => node.tagName === 'button',
+    )[0];
+    expect(again?.textContent).toBe('继续');
+    again?.onclick?.();
+    await harness.settle();
+
+    const sent = harness.requests.filter((request) => request.url === '/api/chat').at(-1);
+    expect(sent?.body).toMatchObject({ message: '继续', conversationId: 'c1', continue: true });
+    // The turn id is what a stop request would address, so every turn carries one.
+    expect(typeof sent?.body?.turnId).toBe('string');
+  });
+
+  it('marks a stored interrupted reply and offers continue only on the last one', async () => {
+    const harness = await boot({
+      stored: 'c1',
+      routes: messageRoute({
+        messages: [
+          { id: 'm1', role: 'assistant', content: '上一次断在这里', interrupted: true, createdAt: '2026-09-28T09:00:00.000Z' },
+          { id: 'm2', role: 'user', content: '然后呢', createdAt: '2026-09-28T09:01:00.000Z' },
+          { id: 'm3', role: 'assistant', content: '还没说完', interrupted: true, createdAt: '2026-09-28T09:02:00.000Z' },
+        ],
+      }),
+    });
+    await harness.settle();
+
+    const turns = harness.transcript.children.filter((node) => node.classList.contains('turn'));
+    const notes = turns
+      .filter((turn) => turn.classList.contains('assistant'))
+      .map((turn) => turn.child('meta')?.children[0]);
+    expect(notes[0]?.textContent).toContain('已打断');
+    expect(notes[0]?.find((node) => node.tagName === 'button')).toHaveLength(0);
+    expect(notes.at(-1)?.find((node) => node.tagName === 'button')).toHaveLength(1);
+  });
+
+  it('turns the composer button into stop for the duration of a turn', async () => {
+    const harness = await boot({ frames: INTERRUPTED, frameDelayMs: 40 });
+    await harness.send('今天什么都不想做。');
+
+    const send = harness.element('send');
+    expect(send.dataset.mode).toBe('stop');
+
+    send.listeners.click?.[0]?.({ preventDefault() {} });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const stop = harness.requests.find((request) => request.url === '/api/chat/stop');
+    const chat = harness.requests.find((request) => request.url === '/api/chat');
+    expect(stop?.body).toEqual({ turnId: chat?.body?.turnId });
+    // Back to sending once nothing is arriving.
+    expect(send.dataset.mode).toBe('send');
+    expect(send.disabled).toBe(false);
+    expect(lastTurn(harness.transcript).note?.textContent).toContain('已打断');
+  });
+});

@@ -58,6 +58,21 @@ import { renderArchivedSummary } from '../session/summary.ts';
 import type { Message } from '../session/types.ts';
 import type { Store } from '../store.ts';
 
+/**
+ * What the model is told when the person resumes an interrupted reply.
+ *
+ * The interrupted assistant message is replayed as history, so the model can
+ * see where it stopped. Without this instruction it tends to restart from the
+ * opening sentence, which makes "继续" produce a near-duplicate instead of a
+ * continuation.
+ */
+const CONTINUATION_DIRECTIVE = [
+  '# 继续被打断的回复',
+  '上一条回复是你在生成途中被用户停下的，它还没有说完。请从断点处接着说，',
+  '保持同样的语气、人称和话题。不要重新开头，不要重复已经写过的内容，',
+  '也不用说明你被打断了——直接继续就好。',
+].join('\n');
+
 export type TurnRunner = (
   agent: ReturnType<typeof createCompanionAgent>,
   message: string,
@@ -119,6 +134,14 @@ export interface TurnRequest {
   readonly conversationId?: string | null;
   readonly message: string;
   readonly signal?: AbortSignal;
+  /**
+   * The person pressed "continue" on an interrupted reply.
+   *
+   * The instruction is added to the trailing context rather than to the stored
+   * user message: the transcript should keep saying what the person said
+   * ("继续"), and how to resume is a per-turn instruction, not a fact.
+   */
+  readonly continue?: boolean;
   /**
    * Whether to write the user message, the reply and the run row. Evaluation
    * turns set this false: they are not part of anyone's conversation, and
@@ -271,11 +294,21 @@ export async function* runTurn(
     skillsBlock: skills?.indexBlock() ?? '',
     toolGuidelines: toolRegistry.guidelines(),
     memoryBlock: context.memoryBlock,
+    ...(request.continue ? { continuationBlock: CONTINUATION_DIRECTIVE } : {}),
     safetyDirective: safetyDirectiveFor(riskLevel),
   });
 
   const buffer = riskLevel === 'crisis';
   let reply = '';
+  /**
+   * What the client has actually been shown.
+   *
+   * `reply` only becomes meaningful at `completed`, which never arrives for an
+   * interrupted turn. These deltas are the half-finished reply, and they are
+   * what gets persisted so "continue" has something to continue from.
+   */
+  let streamed = '';
+  let interrupted = false;
   let usedTools = false;
   const toolCalls: string[] = [];
   let failed: string | null = null;
@@ -291,6 +324,13 @@ export async function* runTurn(
       continue;
     }
     if (event.type === 'error') {
+      // A stop is not a failure. The runner reports cancellation as an error
+      // because that is how the loop unwinds; here it ends the turn normally,
+      // with the partial reply kept.
+      if (request.signal?.aborted === true || event.message === 'cancelled') {
+        interrupted = true;
+        break;
+      }
       failed = event.message;
       yield event;
       break;
@@ -306,7 +346,41 @@ export async function* runTurn(
     // nothing.
     if (buffer && (event.type === 'text_delta' || event.type === 'thinking_delta')) continue;
     if (buffer && event.type === 'thinking_done') continue;
+    if (event.type === 'text_delta') streamed += event.text;
     yield event;
+  }
+
+  if (interrupted) {
+    const partial = streamed.trim();
+    let assistantMessageId: string | null = null;
+    if (persist) {
+      assistantMessageId = await persistTurn(deps.store, session, {
+        runId,
+        userId: request.userId,
+        conversationId,
+        message,
+        reply: partial,
+        interrupted: true,
+        riskLevel,
+        usedTools,
+        toolCalls,
+        status: 'interrupted',
+        durationMs: Date.now() - startedAt,
+      });
+    }
+    log.info('turn.interrupted', {
+      duration_ms: Date.now() - startedAt,
+      reply_chars: partial.length,
+      used_tools: usedTools,
+      tool_calls: toolCalls.length,
+    });
+    yield {
+      type: 'interrupted',
+      text: partial,
+      conversationId: persist ? conversationId : null,
+      messageId: assistantMessageId,
+    };
+    return;
   }
 
   if (failed !== null) {
@@ -359,6 +433,7 @@ export async function* runTurn(
       conversationId,
       message,
       reply: outcome.reply,
+      interrupted: false,
       riskLevel,
       usedTools,
       toolCalls,
@@ -385,20 +460,28 @@ async function persistTurn(
     conversationId: string;
     message: string;
     reply: string;
+    /** True when `reply` is the part generated before the person pressed stop. */
+    interrupted: boolean;
     riskLevel: 'none' | 'elevated' | 'crisis';
     usedTools: boolean;
     toolCalls: readonly string[];
-    status: 'completed' | 'safety_replaced';
+    status: 'completed' | 'safety_replaced' | 'interrupted';
     durationMs: number;
   },
 ): Promise<string | null> {
   try {
-    const stored = await session.append({
-      conversationId: turn.conversationId,
-      userId: turn.userId,
-      role: 'assistant',
-      content: turn.reply,
-    });
+    // A stop before the first visible character has produced nothing to keep;
+    // the run row still records that the turn was interrupted.
+    const stored =
+      turn.status === 'interrupted' && turn.reply.length === 0
+        ? null
+        : await session.append({
+            conversationId: turn.conversationId,
+            userId: turn.userId,
+            role: 'assistant',
+            content: turn.reply,
+            ...(turn.interrupted ? { interrupted: true } : {}),
+          });
     await store.recordRun({
       id: turn.runId,
       userId: turn.userId,
@@ -414,7 +497,7 @@ async function persistTurn(
       durationMs: turn.durationMs,
       error: null,
     });
-    return stored.id;
+    return stored?.id ?? null;
   } catch (error) {
     // The reply is already on the person's screen. Failing the turn now would
     // take it away over a bookkeeping problem.
@@ -437,6 +520,7 @@ export async function collectTurn(
   for await (const event of runTurn(deps, { ...request, persist: request.persist ?? false })) {
     events.push(event);
     if (event.type === 'completed') reply = event.text;
+    else if (event.type === 'interrupted') reply = event.text;
     else if (event.type === 'error') reply = '';
     else if (event.type === 'safety_notice') riskLevel = maxRisk(riskLevel, event.level);
   }

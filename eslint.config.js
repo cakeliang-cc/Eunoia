@@ -25,6 +25,8 @@ export default tseslint.config(
         fetch: 'readonly',
         requestAnimationFrame: 'readonly',
         TextDecoder: 'readonly',
+        AbortController: 'readonly',
+        crypto: 'readonly',
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
         console: 'readonly',

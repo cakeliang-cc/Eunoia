@@ -136,6 +136,7 @@ export class SessionService {
     userId: string;
     role: Message['role'];
     content: string;
+    interrupted?: boolean;
   }): Promise<Message> {
     return this.#store.appendMessage(message);
   }

@@ -8,6 +8,27 @@
 
 ## [Unreleased]
 
+### Added（打断与继续，ADR 025）
+
+- **生成可以中途停止，并从断点继续。** 流式期间发送按钮变成「停止」（`Esc` 也可），
+  点下后由 `POST /api/chat/stop` 按客户端生成的 `turnId` 结束本轮；服务端把已经
+  显示出来的半截回复以 `interrupted=true` 落库，再通过原来的 SSE 流发一条
+  `interrupted` 事件。回合旁边的「已打断 · 继续」会用同一个 `conversationId` 发
+  `{ message: "继续", continue: true }`，下一轮把半截回复作为历史，并附加一条
+  "从断点接着说、不要重开/复述"的尾部上下文。
+- **停止是一条正常结束路径，不是失败。** 新事件 `interrupted`（携带 `text`、
+  `conversationId`、`messageId`）与 `error` 分开；运行记录新增
+  `agent_runs.status = 'interrupted'`。中断前一个字都没生成时只记运行、不写空消息。
+- **历史回放保留被打断的回复。** `messages.interrupted` 随 `GET /messages` 返回，
+  刷新后仍显示「已打断」，并只给最后一条 interrupted 消息「继续」按钮。
+- **schema v7。** 新增 `messages.interrupted`；`agent_runs.status` 的 CHECK 扩为
+  接受 `'interrupted'`。CHECK 不能 `ALTER`，迁移改为重建 `agent_runs` 并保留所有行、
+  重建三个索引，且能从"已 DROP 未 RENAME"的半截状态收敛。
+- **测试。** service 覆盖落库、空半截、续写历史与指令；API 覆盖参数校验、
+  `stopped:false`、真实慢流停止后的 SSE 末帧与落库、续写；SQLite 覆盖字段往返和
+  v6→v7 迁移；web 覆盖半截保留、继续请求、历史回放和停止按钮。
+- ADR：`docs/adr/025-interrupt-and-continue.md`。
+
 ### Fixed（边界收尾）
 
 - **截断不再把代理对切成两半。** `truncateMiddle` / `truncateLine` / 单行硬截断

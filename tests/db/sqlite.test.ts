@@ -17,7 +17,9 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { openSqliteStore, type SqliteStore } from '../../src/db/sqlite-store.ts';
+import { runTurn } from '../../src/service/chat.ts';
 import { MODEL_IDS } from '../../src/config.ts';
 import type { AgentRunRecord } from '../../src/memory/store.ts';
 
@@ -212,6 +214,33 @@ describe('SqliteStore', () => {
     const listed = await store.listConversations(userId);
     expect(listed[0]?.turnCount).toBe(2);
     expect(listed[0]?.lastTurnAt).toBeInstanceOf(Date);
+  });
+
+  it('round-trips an interrupted reply without losing its flag', async () => {
+    // The flag is what tells the UI, and the next turn, that this reply stops
+    // mid-thought rather than being the whole answer.
+    const userId = await freshUser();
+    const conversation = await store.ensureConversation(userId);
+
+    const stopped = await store.appendMessage({
+      conversationId: conversation.id,
+      userId,
+      role: 'assistant',
+      content: '听起来',
+      interrupted: true,
+    });
+    await store.appendMessage({
+      conversationId: conversation.id,
+      userId,
+      role: 'assistant',
+      content: '完整的回复。',
+    });
+
+    const listed = await store.listMessages(userId, conversation.id);
+    expect(listed.map((message) => message.interrupted)).toEqual([true, false]);
+    const recent = await store.recentMessages(conversation.id, 2);
+    expect(recent[0]?.id).toBe(stopped.id);
+    expect(recent[0]?.interrupted).toBe(true);
   });
 
   it('derives history stats with numbers, not concatenated strings', async () => {
@@ -434,7 +463,6 @@ describe('SqliteStore', () => {
   });
 
   it('a real turn creates its own user first', async () => {
-    const { runTurn } = await import('../../src/service/chat.ts');
     const userId = randomUUID();
     const events: string[] = [];
     for await (const event of runTurn(
@@ -548,5 +576,105 @@ describe('SqliteStore', () => {
     await store.ensureUser(id, mark);
     await store.ensureUser(id);
     expect(get<{ external_id: string }>('SELECT external_id FROM users WHERE id = ?', id)?.external_id).toBe(mark);
+  });
+});
+
+describe('schema version 7 (interrupt and continue)', () => {
+  /**
+   * A version-6 file: no `messages.interrupted`, and an `agent_runs.status`
+   * CHECK that does not accept `'interrupted'`.
+   *
+   * The CHECK is the reason this migration is not a plain ALTER: SQLite cannot
+   * edit one, so the table has to be rebuilt and its rows copied.
+   */
+  async function version6File(): Promise<string> {
+    scratch = await mkdtemp(join(tmpdir(), 'eunoia-v6-'));
+    const path = join(scratch, 'v6.sqlite');
+    const legacy = new DatabaseSync(path);
+    legacy.exec(`
+      CREATE TABLE users (id TEXT PRIMARY KEY);
+      CREATE TABLE conversations (id TEXT PRIMARY KEY, user_id TEXT);
+      CREATE TABLE messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        token_estimate INTEGER,
+        seq INTEGER NOT NULL
+      );
+      CREATE TABLE agent_runs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        conversation_id TEXT,
+        model TEXT NOT NULL,
+        prompt_version TEXT NOT NULL,
+        started_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00.000Z',
+        ended_at TEXT,
+        duration_ms INTEGER,
+        status TEXT NOT NULL DEFAULT 'running'
+          CHECK (status IN ('running', 'completed', 'failed', 'safety_replaced')),
+        used_tools INTEGER NOT NULL DEFAULT 0,
+        tool_calls TEXT NOT NULL DEFAULT '[]',
+        input_fingerprint TEXT,
+        output_fingerprint TEXT,
+        risk_level TEXT,
+        error TEXT
+      );
+      INSERT INTO users (id) VALUES ('u1');
+      INSERT INTO conversations (id, user_id) VALUES ('c1', 'u1');
+      INSERT INTO messages
+        (id, conversation_id, user_id, role, content, created_at, seq)
+      VALUES ('m1', 'c1', 'u1', 'assistant', '旧回复', '2026-01-01T00:00:00.000Z', 1);
+      INSERT INTO agent_runs
+        (id, user_id, conversation_id, model, prompt_version, status)
+      VALUES ('r1', 'u1', 'c1', 'test-model', 'v6', 'completed');
+      PRAGMA user_version = 6;
+    `);
+    legacy.close();
+    return path;
+  }
+
+  it('adds the interrupted flag and keeps existing rows', async () => {
+    const path = await version6File();
+    const opened = openSqliteStore(path);
+    try {
+      const columns = (
+        opened.database.prepare('PRAGMA table_info(messages)').all() as { name: string }[]
+      ).map((column) => column.name);
+      expect(columns).toContain('interrupted');
+
+      const message = opened.database
+        .prepare('SELECT content, interrupted FROM messages WHERE id = ?')
+        .get('m1') as { content: string; interrupted: number } | undefined;
+      expect(message).toEqual({ content: '旧回复', interrupted: 0 });
+    } finally {
+      await opened.close();
+    }
+  });
+
+  it('widens the run status CHECK and preserves the rows it copied', async () => {
+    const path = await version6File();
+    const opened = openSqliteStore(path);
+    try {
+      const kept = opened.database
+        .prepare('SELECT model, prompt_version, status FROM agent_runs WHERE id = ?')
+        .get('r1') as { model: string; prompt_version: string; status: string } | undefined;
+      expect(kept).toEqual({ model: 'test-model', prompt_version: 'v6', status: 'completed' });
+
+      // The whole point of the rebuild: a stopped turn is its own status, not
+      // a failure and not a completion.
+      expect(() =>
+        opened.database
+          .prepare(
+            `INSERT INTO agent_runs (id, model, prompt_version, status)
+             VALUES ('r2', 'test-model', 'v7', 'interrupted')`,
+          )
+          .run(),
+      ).not.toThrow();
+    } finally {
+      await opened.close();
+    }
   });
 });

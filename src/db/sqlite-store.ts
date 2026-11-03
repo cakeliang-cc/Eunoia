@@ -89,6 +89,7 @@ interface MessageRow {
   user_id: string;
   role: string;
   content: string;
+  interrupted: number;
   created_at: string;
   seq: number;
 }
@@ -127,7 +128,7 @@ const MEMORY_COLUMNS = `
   superseded_by, source_message_id, created_at, updated_at, last_accessed_at, access_count
 `;
 
-const MESSAGE_COLUMNS = `id, conversation_id, user_id, role, content, created_at, seq`;
+const MESSAGE_COLUMNS = `id, conversation_id, user_id, role, content, interrupted, created_at, seq`;
 
 const CONVERSATION_COLUMNS =
   'id, user_id, title, started_at, last_turn_at, turn_count, archived_at, model_id';
@@ -460,6 +461,7 @@ export class SqliteStore implements Store {
     userId: string;
     role: Message['role'];
     content: string;
+    interrupted?: boolean;
   }): Promise<Message> {
     this.#db.exec('BEGIN IMMEDIATE');
     try {
@@ -480,8 +482,8 @@ export class SqliteStore implements Store {
 
       this.#run(
         `INSERT INTO messages
-           (id, conversation_id, user_id, role, content, token_estimate, seq, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, conversation_id, user_id, role, content, token_estimate, seq, created_at, interrupted)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         message.conversationId,
         message.userId,
@@ -490,6 +492,7 @@ export class SqliteStore implements Store {
         Math.ceil(message.content.length / 4),
         seq,
         now,
+        message.interrupted === true ? 1 : 0,
       );
 
       this.#run(
@@ -593,7 +596,8 @@ export class SqliteStore implements Store {
 
   async listMessages(userId: string, conversationId: string, limit = 200): Promise<Message[]> {
     return this.#all<MessageRow>(
-      `SELECT m.id, m.conversation_id, m.user_id, m.role, m.content, m.created_at, m.seq
+      `SELECT m.id, m.conversation_id, m.user_id, m.role, m.content, m.interrupted,
+              m.created_at, m.seq
          FROM messages m
          JOIN conversations c ON c.id = m.conversation_id
         WHERE m.conversation_id = ? AND c.user_id = ?
@@ -875,6 +879,9 @@ export function openSqliteStore(path: string): SqliteStore {
     if (version < 6) {
       db.exec(SQLITE_MIGRATION_6);
     }
+    if (version < 7) {
+      migrateToVersion7(db);
+    }
   }
   if (version < SQLITE_SCHEMA_VERSION) {
     db.exec(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
@@ -911,6 +918,7 @@ function toMessage(row: MessageRow): Message {
     userId: row.user_id,
     role: row.role as Message['role'],
     content: row.content,
+    interrupted: Number(row.interrupted) === 1,
     createdAt: new Date(row.created_at),
     seq: Number(row.seq),
   };
@@ -1034,6 +1042,99 @@ function migrateToVersion5(db: DatabaseSync): void {
             current_cwd = COALESCE(current_cwd, workspace_root, '/workspace'),
             cwd_version = COALESCE(cwd_version, 1)`,
   );
+}
+
+/**
+ * Version 6 → 7.
+ *
+ * Two changes, and only one of them is an ordinary column addition. Widening
+ * `agent_runs.status` means editing a CHECK constraint, which SQLite cannot do
+ * in place, so that table is rebuilt: create the new shape beside the old one,
+ * copy every row, drop the original, rename. The indexes go with the dropped
+ * table and are recreated by name.
+ *
+ * A crash between the drop and the rename leaves `agent_runs_v7` as the only
+ * copy. The next open finishes the rename instead of rebuilding from a table
+ * that no longer exists, which is the difference between a migration and a
+ * data-loss bug.
+ */
+function migrateToVersion7(db: DatabaseSync): void {
+  if (!hasColumn(db, 'messages', 'interrupted')) {
+    db.exec('ALTER TABLE messages ADD COLUMN interrupted INTEGER NOT NULL DEFAULT 0');
+  }
+
+  const existing = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_runs'")
+    .get() as { sql?: string } | undefined;
+  if (existing?.sql?.includes("'interrupted'")) return;
+
+  if (!existing) {
+    if (hasTable(db, 'agent_runs_v7')) {
+      db.exec('ALTER TABLE agent_runs_v7 RENAME TO agent_runs');
+      createAgentRunIndexes(db);
+    }
+    return;
+  }
+
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    // A leftover from an interrupted attempt is never the source of truth while
+    // the original table is still here.
+    db.exec('DROP TABLE IF EXISTS agent_runs_v7');
+    db.exec(`
+      CREATE TABLE agent_runs_v7 (
+        id                 TEXT PRIMARY KEY,
+        user_id            TEXT REFERENCES users(id) ON DELETE SET NULL,
+        conversation_id    TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+        model              TEXT NOT NULL,
+        prompt_version     TEXT NOT NULL,
+        started_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        ended_at           TEXT,
+        duration_ms        INTEGER,
+        status             TEXT NOT NULL DEFAULT 'running'
+                             CHECK (status IN ('running', 'completed', 'failed',
+                                               'safety_replaced', 'interrupted')),
+        used_tools         INTEGER NOT NULL DEFAULT 0,
+        tool_calls         TEXT NOT NULL DEFAULT '[]',
+        input_fingerprint  TEXT,
+        output_fingerprint TEXT,
+        risk_level         TEXT CHECK (risk_level IN ('none', 'elevated', 'crisis')),
+        error              TEXT
+      );
+    `);
+    db.exec(`
+      INSERT INTO agent_runs_v7
+        (id, user_id, conversation_id, model, prompt_version, started_at, ended_at,
+         duration_ms, status, used_tools, tool_calls, input_fingerprint,
+         output_fingerprint, risk_level, error)
+      SELECT id, user_id, conversation_id, model, prompt_version, started_at, ended_at,
+             duration_ms, status, used_tools, tool_calls, input_fingerprint,
+             output_fingerprint, risk_level, error
+        FROM agent_runs;
+    `);
+    db.exec('DROP TABLE agent_runs');
+    db.exec('ALTER TABLE agent_runs_v7 RENAME TO agent_runs');
+    createAgentRunIndexes(db);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+function createAgentRunIndexes(db: DatabaseSync): void {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS agent_runs_time_idx ON agent_runs (started_at DESC);
+    CREATE INDEX IF NOT EXISTS agent_runs_user_idx ON agent_runs (user_id);
+    CREATE INDEX IF NOT EXISTS agent_runs_conversation_idx ON agent_runs (conversation_id);
+  `);
+}
+
+function hasTable(db: DatabaseSync, table: string): boolean {
+  const row = db
+    .prepare("SELECT 1 AS one FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(table);
+  return row !== undefined;
 }
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {

@@ -317,6 +317,7 @@ export class InMemoryStore implements Store {
     userId: string;
     role: Message['role'];
     content: string;
+    interrupted?: boolean;
   }): Promise<Message> {
     const conversation = this.#conversations.get(message.conversationId);
     if (!conversation || conversation.userId !== message.userId) {
@@ -329,6 +330,7 @@ export class InMemoryStore implements Store {
       userId: message.userId,
       role: message.role,
       content: message.content,
+      interrupted: message.interrupted ?? false,
       createdAt: new Date(),
       seq: (conversation.messages.at(-1)?.seq ?? 0) + 1,
     };

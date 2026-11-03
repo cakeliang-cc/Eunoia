@@ -84,6 +84,8 @@ export interface SessionStore {
     userId: string;
     role: Message['role'];
     content: string;
+    /** Marks a reply the person stopped mid-generation. Defaults to false. */
+    interrupted?: boolean;
   }): Promise<Message>;
 
   recentMessages(conversationId: string, limit: number): Promise<Message[]>;

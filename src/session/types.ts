@@ -18,6 +18,15 @@ export interface Message {
   readonly userId: string;
   readonly role: 'user' | 'assistant' | 'system';
   readonly content: string;
+  /**
+   * The person stopped the turn while this reply was still being generated.
+   *
+   * The content is what had been shown up to that point, kept rather than
+   * discarded: it is the thing the next "continue" picks up from, and replaying
+   * it is how the model knows it was in the middle of a thought. False for
+   * every complete message, including user turns.
+   */
+  readonly interrupted: boolean;
   readonly createdAt: Date;
   /**
    * Monotonic position inside the conversation.

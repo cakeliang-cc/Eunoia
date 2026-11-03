@@ -600,3 +600,119 @@ describe('collectTurn', () => {
     expect(result.reply).toBe('');
   });
 });
+
+describe('interrupt and continue', () => {
+  /**
+   * A runner that streams a partial reply and then unwinds the way the real
+   * loop does when its signal fires: an `error` saying "cancelled".
+   */
+  function interruptedRunner(pieces: string[]): TurnRunner {
+    return async function* () {
+      for (const piece of pieces) yield { type: 'text_delta', text: piece };
+      yield { type: 'error', message: 'cancelled', retryable: false };
+    };
+  }
+
+  it('keeps the part that was shown and records the turn as interrupted', async () => {
+    const events = await drain(
+      { store, runner: interruptedRunner(['听起来', '真的很沉。']) },
+      { userId: USER, message: '今天什么都不想做。' },
+    );
+
+    // A stop is a normal ending; it must not reach the client as an error.
+    expect(events.some((event) => event.type === 'error')).toBe(false);
+    const last = events.at(-1);
+    expect(last?.type).toBe('interrupted');
+    if (last?.type !== 'interrupted') throw new Error('expected an interrupted turn');
+
+    expect(last.text).toBe('听起来真的很沉。');
+    const conversationId = last.conversationId as string;
+    const messages = await store.listMessages(USER, conversationId);
+    expect(
+      messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+        interrupted: message.interrupted,
+      })),
+    ).toEqual([
+      { role: 'user', content: '今天什么都不想做。', interrupted: false },
+      { role: 'assistant', content: '听起来真的很沉。', interrupted: true },
+    ]);
+    expect(last.messageId).toBe(messages[1]?.id);
+
+    expect(store.runs).toHaveLength(1);
+    expect(store.runs[0]?.status).toBe('interrupted');
+    expect(store.runs[0]?.outputFingerprint).toContain('len=8');
+  });
+
+  it('stores nothing when the stop lands before the first visible character', async () => {
+    const events = await drain(
+      { store, runner: interruptedRunner([]) },
+      { userId: USER, message: '在吗' },
+    );
+
+    const last = events.at(-1);
+    expect(last?.type).toBe('interrupted');
+    expect(last?.type === 'interrupted' && last.text).toBe('');
+    expect(last?.type === 'interrupted' && last.messageId).toBeNull();
+
+    const conversationId = (last?.type === 'interrupted' && last.conversationId) as string;
+    const messages = await store.listMessages(USER, conversationId);
+    expect(messages.map((message) => message.role)).toEqual(['user']);
+    expect(store.runs[0]?.status).toBe('interrupted');
+  });
+
+  it('continues from the break, with the partial reply as history', async () => {
+    const first = await drain(
+      { store, runner: interruptedRunner(['睡不着的时候，']) },
+      { userId: USER, message: '我最近睡不好。' },
+    );
+    const interrupted = first.at(-1);
+    if (interrupted?.type !== 'interrupted') throw new Error('expected an interrupted turn');
+    const conversationId = interrupted.conversationId as string;
+
+    let seen: { role: string; content: string }[] = [];
+    let context = '';
+    const capturing: TurnRunner = async function* (_agent, _message, options) {
+      seen = (options?.history ?? []).map((turn) => ({ role: turn.role, content: turn.content }));
+      context = options?.context ?? '';
+      yield { type: 'text_delta', text: '我会先陪你坐一会儿。' };
+      yield { type: 'completed', text: '我会先陪你坐一会儿。' };
+    };
+
+    const second = await drain(
+      { store, runner: capturing },
+      { userId: USER, conversationId, message: '继续', continue: true },
+    );
+
+    // The model sees the half-finished reply immediately before the new turn;
+    // that adjacency is what makes it a continuation instead of a restart.
+    expect(seen).toEqual([
+      { role: 'user', content: '我最近睡不好。' },
+      { role: 'assistant', content: '睡不着的时候，' },
+    ]);
+    expect(context).toContain('继续被打断的回复');
+    expect(context).toContain('不要重新开头');
+
+    expect(second.at(-1)?.type).toBe('completed');
+    const messages = await store.listMessages(USER, conversationId);
+    expect(messages.map((message) => message.content)).toEqual([
+      '我最近睡不好。',
+      '睡不着的时候，',
+      '继续',
+      '我会先陪你坐一会儿。',
+    ]);
+  });
+
+  it('does not tell an ordinary turn that it is continuing anything', async () => {
+    let context = '';
+    const capturing: TurnRunner = async function* (_agent, _message, options) {
+      context = options?.context ?? '';
+      yield { type: 'completed', text: '嗯。' };
+    };
+
+    await drain({ store, runner: capturing }, { userId: USER, message: '在吗' });
+
+    expect(context).not.toContain('继续被打断的回复');
+  });
+});

@@ -232,6 +232,14 @@ function permissionErrorStatus(error: unknown): number {
 export interface ChatPayload {
   readonly message: string;
   readonly conversationId: string | null;
+  /**
+   * Client-generated id for this turn, so it can be stopped from a second
+   * request while the first one is still streaming. Optional for callers that
+   * never stop (scripts, the evaluator).
+   */
+  readonly turnId?: string;
+  /** The person pressed "continue" on an interrupted reply. */
+  readonly continue?: boolean;
 }
 
 export function parseChatRequest(raw: unknown): ChatPayload | string {
@@ -251,7 +259,24 @@ export function parseChatRequest(raw: unknown): ChatPayload | string {
     return 'field "conversationId" must be a string or null';
   }
 
-  return { message: trimmed, conversationId: (conversationId as string | null) ?? null };
+  const turnId = body.turnId;
+  if (turnId !== undefined && turnId !== null) {
+    if (typeof turnId !== 'string' || !isUuid(turnId)) {
+      return 'field "turnId" must be a uuid';
+    }
+  }
+
+  const resume = body.continue;
+  if (resume !== undefined && typeof resume !== 'boolean') {
+    return 'field "continue" must be a boolean';
+  }
+
+  return {
+    message: trimmed,
+    conversationId: (conversationId as string | null) ?? null,
+    ...(typeof turnId === 'string' ? { turnId } : {}),
+    ...(resume === true ? { continue: true } : {}),
+  };
 }
 
 export interface CreateConversationPayload {
@@ -410,6 +435,16 @@ export function createApp(deps: AppDependencies) {
   const store = deps.store;
   const sessions = deps.sessions ?? new SessionService(store);
   const localToken = deps.localToken ?? randomUUID();
+
+  /**
+   * The turns currently streaming, so a second request can stop one.
+   *
+   * Keyed by a client-generated turn id rather than by conversation: the first
+   * turn of a conversation has no id until the server creates it, and the
+   * person should be able to stop that one too. The entry exists only while its
+   * request is being served.
+   */
+  const activeTurns = new Map<string, { readonly controller: AbortController }>();
 
   /**
    * Resolve the caller, and make sure their row exists.
@@ -644,53 +679,71 @@ export function createApp(deps: AppDependencies) {
     }
 
     const userId = await identify(req, res);
+    const turnId = parsed.turnId ?? randomUUID();
     const controller = new AbortController();
+    activeTurns.set(turnId, { controller });
+    // Two ways to abort: the person pressed stop (a second request finds this
+    // entry), or the connection went away. Both end the turn the same way, but
+    // only the first can keep the stream open long enough to receive the
+    // `interrupted` event and the stored partial reply.
     res.on('close', () => controller.abort());
 
     log.info('chat.request', {
       message_fingerprint: `len=${parsed.message.length}`,
       conversation_id: parsed.conversationId,
+      continued: parsed.continue === true,
     });
 
-    const retrieve = await retrievalEnabled(userId);
+    try {
+      const retrieve = await retrievalEnabled(userId);
 
-    // A chat can start a conversation implicitly. When it does, create it here
-    // instead of letting `runTurn` do it, because the remembered mode has to be
-    // written before the first tool call — afterwards is too late to matter for
-    // the turn that needed it. `runTurn` still names the conversation from the
-    // message; `nameConversation` only fills a null title.
-    let conversationId = parsed.conversationId;
-    if (conversationId === null) {
-      const conversation = await sessions.create(userId);
-      conversationId = conversation.id;
-      await applyDefaultPermissionMode(userId, conversationId);
+      // A chat can start a conversation implicitly. When it does, create it here
+      // instead of letting `runTurn` do it, because the remembered mode has to be
+      // written before the first tool call — afterwards is too late to matter for
+      // the turn that needed it. `runTurn` still names the conversation from the
+      // message; `nameConversation` only fills a null title.
+      let conversationId = parsed.conversationId;
+      if (conversationId === null) {
+        const conversation = await sessions.create(userId);
+        conversationId = conversation.id;
+        await applyDefaultPermissionMode(userId, conversationId);
+      }
+
+      await pipeEventsAsSse(
+        runTurn(
+          {
+            store,
+            session: sessions,
+            modelProvider: deps.modelProvider,
+            runner: deps.runner,
+            ...(deps.sandbox ? { sandbox: deps.sandbox.provider } : {}),
+            ...(deps.toolPolicy ? { toolPolicy: deps.toolPolicy } : {}),
+            ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
+            ...(deps.skills ? { skills: deps.skills } : {}),
+          },
+          {
+            userId,
+            conversationId,
+            message: parsed.message,
+            signal: controller.signal,
+            ...(parsed.continue ? { continue: true } : {}),
+            // Retrieval happens inside `runTurn`; turning it off here means the
+            // promise is not made rather than made and ignored.
+            ...(retrieve ? {} : { retrieve: false }),
+          },
+        ),
+        res,
+        { onClose: () => controller.abort() },
+      );
+    } catch (error) {
+      // An abort can land while the turn is still preparing (retrieval, the
+      // replay query). There is nothing to report and no partial reply yet; the
+      // client sees the stream end and treats it as stopped.
+      if (!isAbortError(error)) throw error;
+      log.info('chat.aborted_before_stream', { turn_id: turnId });
+    } finally {
+      activeTurns.delete(turnId);
     }
-
-    await pipeEventsAsSse(
-      runTurn(
-        {
-          store,
-          session: sessions,
-          modelProvider: deps.modelProvider,
-          runner: deps.runner,
-          ...(deps.sandbox ? { sandbox: deps.sandbox.provider } : {}),
-          ...(deps.toolPolicy ? { toolPolicy: deps.toolPolicy } : {}),
-          ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
-          ...(deps.skills ? { skills: deps.skills } : {}),
-        },
-        {
-          userId,
-          conversationId,
-          message: parsed.message,
-          signal: controller.signal,
-          // Retrieval happens inside `runTurn`; turning it off here means the
-          // promise is not made rather than made and ignored.
-          ...(retrieve ? {} : { retrieve: false }),
-        },
-      ),
-      res,
-      { onClose: () => controller.abort() },
-    );
   }
 
   async function handleRoutes(
@@ -759,6 +812,36 @@ export function createApp(deps: AppDependencies) {
 
     if (req.method === 'POST' && pathname === '/api/chat') {
       await handleChat(req, res);
+      return true;
+    }
+
+    // Stop is a second request so it can arrive while the chat response is
+    // still streaming. It answers as soon as the abort is delivered; the
+    // partial reply and the `interrupted` event arrive on the chat stream
+    // itself, which is what lets the client continue from exactly what it saw.
+    if (req.method === 'POST' && pathname === '/api/chat/stop') {
+      let raw: unknown;
+      try {
+        raw = await readJsonBody(req);
+      } catch (error) {
+        sendJson(res, 400, { error: error instanceof Error ? error.message : 'bad request' });
+        return true;
+      }
+      const body = asObject(raw);
+      const turnId = body?.turnId;
+      if (typeof turnId !== 'string' || !isUuid(turnId)) {
+        sendJson(res, 400, { error: 'field "turnId" must be a uuid' });
+        return true;
+      }
+      const turn = activeTurns.get(turnId);
+      if (!turn) {
+        // Already finished, or never started here. Either way it is not running,
+        // which is the state the caller asked for.
+        sendJson(res, 200, { stopped: false });
+        return true;
+      }
+      turn.controller.abort();
+      sendJson(res, 200, { stopped: true });
       return true;
     }
 
@@ -1281,6 +1364,12 @@ export function createApp(deps: AppDependencies) {
 /** A missing file is a 404; a permissions or I/O failure is not. */
 function isMissingFile(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
+}
+
+/** A stop, wherever in the turn it landed. Never an error to report. */
+function isAbortError(error: unknown): boolean {
+  const named = error as { name?: string; code?: string } | undefined;
+  return named?.name === 'AbortError' || named?.code === 'ABORT_ERR';
 }
 
 /**

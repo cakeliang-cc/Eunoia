@@ -50,6 +50,7 @@ describe('renderSummaryPrompt', () => {
           userId: 'u1',
           role: 'user',
           content: '新消息',
+          interrupted: false,
           createdAt: new Date(),
           seq: 1,
         },

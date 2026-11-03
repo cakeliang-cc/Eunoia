@@ -20,6 +20,13 @@ export interface RuntimeContextOptions {
   readonly skillsBlock?: string | null;
   readonly toolGuidelines?: string | null;
   readonly memoryBlock?: string | null;
+  /**
+   * The person pressed "continue" on an interrupted reply.
+   *
+   * It sits with the instructions rather than with the background because it is
+   * a request about how to answer, not a fact about the person.
+   */
+  readonly continuationBlock?: string | null;
   readonly safetyDirective?: string | null;
 }
 
@@ -58,6 +65,9 @@ export function buildRuntimeContext(options: RuntimeContextOptions = {}): string
   if (guidelines) {
     blocks.push(['# 工具使用', guidelines].join('\n\n'));
   }
+
+  const continuation = options.continuationBlock?.trim();
+  if (continuation) blocks.push(continuation);
 
   const directive = options.safetyDirective?.trim();
   if (directive) blocks.push(directive);

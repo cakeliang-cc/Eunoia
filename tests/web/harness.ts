@@ -196,6 +196,14 @@ export async function boot(options: {
   frames?: Frame[];
   /** Raw SSE text for `/api/chat`, for parser edge cases the frame builder cannot express. */
   rawFrames?: string;
+  /**
+   * Delay before each streamed frame, in ms.
+   *
+   * Zero (the default) delivers the whole turn synchronously. A delay is what
+   * lets a test observe the client *during* a turn — the stop button exists
+   * only while the stream is open.
+   */
+  frameDelayMs?: number;
   routes?: Record<string, Route>;
   stored?: string;
   /** Extra localStorage entries, written before the module runs. */
@@ -265,6 +273,7 @@ export async function boot(options: {
     if (url === '/api/chat') {
       const frames = options.frames ?? [];
       const raw = options.rawFrames;
+      const delay = options.frameDelayMs ?? 0;
       return {
         ok: true,
         status: 200,
@@ -272,17 +281,35 @@ export async function boot(options: {
         body: new ReadableStream({
           start(controller) {
             const encoder = new TextEncoder();
+            const send = (type: string, frame: Frame) => {
+              controller.enqueue(
+                encoder.encode(`event: ${type}\ndata: ${JSON.stringify(frame)}\n\n`),
+              );
+            };
             if (raw !== undefined) {
-              controller.enqueue(encoder.encode(raw));
-            } else {
-              for (const frame of frames) {
-                const type = String(frame.type);
-                controller.enqueue(
-                  encoder.encode(`event: ${type}\ndata: ${JSON.stringify(frame)}\n\n`),
-                );
-              }
+              const rawSend = () => {
+                controller.enqueue(encoder.encode(raw));
+                controller.close();
+              };
+              if (delay > 0) setTimeout(rawSend, delay);
+              else rawSend();
+              return;
             }
-            controller.close();
+            if (delay <= 0) {
+              for (const frame of frames) send(String(frame.type), frame);
+              controller.close();
+              return;
+            }
+            if (frames.length === 0) {
+              controller.close();
+              return;
+            }
+            frames.forEach((frame, index) => {
+              setTimeout(() => {
+                send(String(frame.type), frame);
+                if (index === frames.length - 1) controller.close();
+              }, delay * (index + 1));
+            });
           },
         }),
       };

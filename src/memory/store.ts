@@ -31,7 +31,7 @@ export interface AgentRunRecord {
   readonly conversationId: string | null;
   readonly model: string;
   readonly promptVersion: string;
-  readonly status: 'running' | 'completed' | 'failed' | 'safety_replaced';
+  readonly status: 'running' | 'completed' | 'failed' | 'safety_replaced' | 'interrupted';
   readonly usedTools: boolean;
   readonly toolCalls: readonly string[];
   readonly inputFingerprint: string | null;

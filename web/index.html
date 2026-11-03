@@ -666,6 +666,9 @@
   }
   .meta button:hover { color: var(--ink-2); background: var(--surface-2); }
   .meta button[aria-pressed="true"] { color: var(--accent-strong); background: var(--accent-soft); }
+  /* A reply the person stopped is a state, not an error, so it uses the normal
+     muted text and keeps "继续" as an ordinary quiet button beside it. */
+  .meta .interrupted-note { color: var(--ink-2); }
 
   /* ------------------------------------------------------------ thinking ---
      A margin note, not the reply: separate muted tone, collapsed as soon as the
@@ -835,6 +838,14 @@
   .send:disabled { opacity: .5; transform: none; }
   .send .icon { width: 18px; height: 18px; stroke-width: 1.9; }
   .composer.has-text .send { background: var(--accent-strong); }
+  /* One button, two jobs: the arrow sends, the square stops. The mode is set by
+     the client for the duration of a turn, so the same click target never does
+     both at once. */
+  .send .icon-stop { display: none; }
+  .send[data-mode="stop"] { background: var(--ink-2); box-shadow: none; }
+  .send[data-mode="stop"]:hover { background: var(--ink); }
+  .send[data-mode="stop"] .icon-send { display: none; }
+  .send[data-mode="stop"] .icon-stop { display: block; }
   .composer-foot {
     margin: 7px 0 0; text-align: center;
     font-size: 10px; color: var(--faint);
@@ -1832,7 +1843,8 @@
               <span class="perm-count" id="perm-count"></span>
             </button>
             <button class="send" id="send" type="submit" aria-label="发送">
-              <svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+              <svg class="icon icon-send" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+              <svg class="icon icon-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/></svg>
             </button>
           </div>
         </form>

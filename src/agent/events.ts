@@ -148,6 +148,31 @@ export interface CompletedEvent {
   readonly messageId?: string | null;
 }
 
+/**
+ * The person stopped the turn while it was generating.
+ *
+ * This is a normal ending, not a failure: what was already streamed stays on
+ * screen, and it has been persisted as an interrupted assistant message so the
+ * next turn can continue from the break instead of starting over. `text` is the
+ * part that was actually shown — a client that never rendered the deltas can
+ * still draw it.
+ *
+ * It is a separate event from `error` because the two lead to opposite UI: an
+ * error is something to report, an interruption is something to continue.
+ */
+export interface InterruptedEvent {
+  readonly type: 'interrupted';
+  /** The reply as it stood when the turn stopped; empty if nothing was shown. */
+  readonly text: string;
+  /**
+   * The conversation the partial reply belongs to, so a first turn that was
+   * interrupted can still be continued. Null when the turn was not persisted.
+   */
+  readonly conversationId?: string | null;
+  /** The stored interrupted message, when there was text to store. */
+  readonly messageId?: string | null;
+}
+
 /** The run failed. `retryable` distinguishes a transient fault from a real error. */
 export interface ErrorEvent {
   readonly type: 'error';
@@ -165,6 +190,7 @@ export type AgentEvent =
   | MemoryRetrievedEvent
   | SafetyNoticeEvent
   | CompletedEvent
+  | InterruptedEvent
   | ErrorEvent;
 
 /**

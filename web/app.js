@@ -10,6 +10,14 @@ const root = document.documentElement;
 const state = {
   conversationId: null,
   sending: false,
+  /**
+   * The turn currently streaming, or null.
+   *
+   * `controller` is the fallback stop (cut the connection); `stopping` records
+   * that the person asked, which is what tells an intentional stop apart from
+   * a dropped network when the stream ends without a terminal frame.
+   */
+  turn: null,
   memoryEnabled: true,
   showArchived: false,
   feedback: new Map(),
@@ -1053,12 +1061,117 @@ async function* readFrames(response) {
   if (tail) yield tail;
 }
 
-async function send(text) {
+/** The two states of the composer's one button. */
+const SEND_LABELS = { send: '发送', stop: '停止生成' };
+
+function setSendMode(mode) {
+  sendButton.dataset.mode = mode;
+  // While a turn is running the button must not submit the form — it stops the
+  // turn instead. The type flip is what makes one element able to do both.
+  sendButton.type = mode === 'stop' ? 'button' : 'submit';
+  sendButton.setAttribute('aria-label', SEND_LABELS[mode] ?? '发送');
+}
+
+/** An abort is how a stop and a cut connection both surface. */
+function isAbortError(error) {
+  return error?.name === 'AbortError';
+}
+
+/**
+ * A v4 uuid for the turn id.
+ *
+ * `crypto.randomUUID` is only available in a secure context, and this page can
+ * be opened over plain http on a LAN address the operator allowed. Sending must
+ * not depend on where the page was opened, so the bytes are filled directly.
+ */
+function newTurnId() {
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * Ask the server to stop the turn that is streaming.
+ *
+ * Deliberately does *not* cut the connection on the normal path: the server
+ * persists the partial reply and sends an `interrupted` frame on the existing
+ * stream, and aborting here would throw that away. The connection is the
+ * fallback, for a server that cannot be reached or has already forgotten the
+ * turn.
+ */
+async function stopTurn() {
+  const turn = state.turn;
+  if (!turn || turn.stopping) return;
+  turn.stopping = true;
+  sendButton.disabled = true;
+  sendButton.setAttribute('aria-label', '正在停止…');
+
+  // A stop that never lands must still end. This fires only while this exact
+  // turn is the active one, so a late timer cannot abort a later turn; the
+  // turn's own finally clears it when the stream ends first.
+  turn.watchdog = setTimeout(() => {
+    if (state.turn === turn) turn.controller.abort();
+  }, 5000);
+
+  const response = await fetch('/api/chat/stop', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ turnId: turn.id }),
+  }).catch(() => null);
+
+  // Either the server accepted it and the interruption is on its way, or this
+  // turn already ended (the stream is finishing on its own). Wait for the
+  // stream in both cases; the watchdog above is the backstop.
+  if (!response || !response.ok) return;
+  const result = await response.json().catch(() => ({}));
+  if (result.stopped === false) return;
+}
+
+/**
+ * Mark a turn as stopped and, when it belongs to a conversation, offer the one
+ * action that makes sense next: continue from the break.
+ */
+function addContinueAction(note, onContinue) {
+  note.textContent = '';
+  note.classList.add('interrupted-note');
+  // Built from nodes rather than by appending a bare string: the test DOM
+  // models children, and a text node would not survive there.
+  note.append(el('span', null, '已打断'), el('span', null, ' · '));
+  const again = el('button', null, '继续');
+  again.type = 'button';
+  again.onclick = () => {
+    again.disabled = true;
+    onContinue();
+  };
+  note.append(again);
+}
+
+async function send(text, options = {}) {
   if (state.sending) return;
   state.sending = true;
+  const turn = {
+    id: newTurnId(),
+    controller: new AbortController(),
+    stopping: false,
+    watchdog: null,
+  };
+  state.turn = turn;
   sendButton.disabled = true;
-  input.value = '';
-  resize();
+  setSendMode('stop');
+  // A continuation is not what the person was typing; keep any draft.
+  if (!options.continue) {
+    input.value = '';
+    resize();
+  }
 
   // The server derives a title from the first message, but the sidebar and the
   // topbar should not sit on "新的对话" while it does. This is the same rule.
@@ -1096,11 +1209,56 @@ async function send(text) {
     });
   };
 
+  /**
+   * End the turn as stopped rather than failed.
+   *
+   * `event` is the server's `interrupted` frame when there was one; its text is
+   * authoritative because it is what was persisted. A cut connection has no
+   * event, and then whatever was rendered locally is what remains.
+   */
+  const finishInterrupted = (event) => {
+    thinking?.abort();
+    trace?.finish();
+    settled();
+    const partial = (event?.text || reply).trim();
+    if (partial.length > 0) {
+      reply = partial;
+      renderText(body, partial);
+    } else {
+      // Nothing visible was produced (the stop landed during reasoning or a
+      // tool call). Keep the turn — and any tool trace in it — rather than
+      // making the work look like it never happened.
+      body.textContent = '';
+    }
+    if (event?.conversationId) {
+      const untitled = !conversationTitles.get(event.conversationId);
+      rememberConversation(event.conversationId);
+      if (untitled) void refreshHistory();
+    }
+    messageId = event?.messageId ?? null;
+    if (state.conversationId) {
+      addContinueAction(note, () => void send('继续', { continue: true }));
+    } else {
+      // Nothing to continue from: the turn never reached a stored conversation.
+      note.textContent = '已打断';
+      note.classList.add('interrupted-note');
+    }
+    scrollToEnd();
+  };
+
+  let terminal = false;
+
   try {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, conversationId: state.conversationId }),
+      body: JSON.stringify({
+        message: text,
+        conversationId: state.conversationId,
+        turnId: turn.id,
+        ...(options.continue ? { continue: true } : {}),
+      }),
+      signal: turn.controller.signal,
     });
 
     if (!response.ok || !response.body) {
@@ -1129,6 +1287,7 @@ async function send(text) {
       } else if (event.type === 'safety_notice') {
         if (event.replaced) notice('这一轮触发了安全回应。如果你现在很危险，请打 120 或 110。');
       } else if (event.type === 'completed') {
+        terminal = true;
         trace?.finish();
         reply = event.text;
         renderText(body, reply);
@@ -1143,7 +1302,11 @@ async function send(text) {
           if (untitled) void refreshHistory();
         }
         messageId = event.messageId ?? null;
+      } else if (event.type === 'interrupted') {
+        terminal = true;
+        finishInterrupted(event);
       } else if (event.type === 'error') {
+        terminal = true;
         throw new Error(event.message);
       } else if (event.type === 'tool_call') {
         settled();
@@ -1157,20 +1320,34 @@ async function send(text) {
       }
     }
 
+    // A stream that ends without a terminal frame is also how a stop surfaces
+    // when the server's `interrupted` frame could not be delivered (the turn
+    // was aborted before it started streaming). Only a stop is inferred here:
+    // a genuinely cut connection is left as it was rather than guessed at.
+    if (!terminal && turn.stopping) finishInterrupted(null);
+
     if (messageId) addFeedback(actions, messageId);
   } catch (error) {
-    // A half-shown thought with no ending is worse than none; close it.
-    thinking?.abort();
-    trace?.finish();
-    settled();
-    body.textContent = '';
-    body.append(el('span', null, `出错了：${error.message}`));
-    body.style.color = 'var(--danger)';
+    // A stop also surfaces as an AbortError when the connection had to be cut.
+    if (isAbortError(error) && turn.stopping) {
+      finishInterrupted(null);
+    } else {
+      // A half-shown thought with no ending is worse than none; close it.
+      thinking?.abort();
+      trace?.finish();
+      settled();
+      body.textContent = '';
+      body.append(el('span', null, `出错了：${error.message}`));
+      body.style.color = 'var(--danger)';
+    }
   } finally {
     // Whether it finished, failed, or was cut off, nothing is arriving now.
     delete body.dataset.streaming;
+    if (turn.watchdog) clearTimeout(turn.watchdog);
     state.sending = false;
+    state.turn = null;
     sendButton.disabled = false;
+    setSendMode('send');
     scrollToEnd();
     // A turn can leave a request pending; the badge has to learn about it even
     // if this client chose not to draw the card.
@@ -1267,9 +1444,21 @@ async function loadConversation(id) {
 
   transcript.textContent = '';
   transcript.classList.remove('empty');
-  for (const message of messages) {
-    const { actions } = addTurn(message.role, message.content);
-    if (message.role === 'assistant') addFeedback(actions, message.id);
+  for (const [index, message] of messages.entries()) {
+    const { note, actions } = addTurn(message.role, message.content);
+    if (message.role === 'assistant') {
+      if (message.interrupted) {
+        // Only the reply that is still the last thing said can be continued;
+        // an older break was already continued by whatever follows it.
+        if (index === messages.length - 1) {
+          addContinueAction(note, () => void send('继续', { continue: true }));
+        } else {
+          note.textContent = '已打断';
+          note.classList.add('interrupted-note');
+        }
+      }
+      addFeedback(actions, message.id);
+    }
   }
   rememberConversation(id);
   setThreadTitle(conversationTitles.get(id) ?? '对话');
@@ -2646,6 +2835,14 @@ $('composer').addEventListener('submit', (event) => {
   if (text.length > 0) void send(text);
 });
 
+// The same button sends and stops. While a turn is streaming its `type` is
+// "button", so this never also submits the composer.
+sendButton.addEventListener('click', (event) => {
+  if (!state.sending) return;
+  event.preventDefault();
+  void stopTurn();
+});
+
 // Forget the id as well as clearing the screen: otherwise the next reload
 // would pull the old conversation back and the "new" one would have been a view
 // change rather than a new conversation.
@@ -2691,10 +2888,15 @@ $('history-archived').onclick = () => {
 
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
+  // Escape stops a running turn — but a menu or drawer is the closer thing on
+  // screen, so it closes first and the turn is not stopped by surprise.
   if (isPermissionMenuOpen()) closePermissionMenu();
-  for (const id of ['drawer', 'history']) {
-    if ($(id).dataset.open === 'true') $(id).dataset.open = 'false';
+  const openPanel = ['drawer', 'history'].find((id) => $(id).dataset.open === 'true');
+  if (openPanel) {
+    $(openPanel).dataset.open = 'false';
+    return;
   }
+  if (state.sending) void stopTurn();
 });
 
 // The pill opens a menu rather than a modal: choosing a mode is one click and

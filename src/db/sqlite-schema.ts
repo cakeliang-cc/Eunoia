@@ -29,11 +29,16 @@ import { SANDBOX_SCHEMA } from '../sandbox/schema.ts';
  * the first schema (`messages(user_id, created_at)`, `memories(user_id,
  * updated_at)`, and the cascade columns on `agent_runs`, `message_feedback` and
  * `evaluation_results`). Without them `historyStats` scanned `messages` twice
- * per turn and `EXPLAIN QUERY PLAN` showed `SCAN agent_runs` on user deletion.
+ * per turn and `EXPLAIN QUERY PLAN` showed `SCAN agent_runs` on user deletion;
+ * version 7 adds interrupt-and-continue: `messages.interrupted` marks a reply
+ * the person stopped mid-generation, and `agent_runs.status` accepts
+ * `'interrupted'` so a stopped turn is not counted as a failure. A CHECK
+ * constraint cannot be altered in SQLite, so that half of version 7 rebuilds
+ * the table (`migrateToVersion7`).
  * The base schema is idempotent, so a version-1 file gets the tables by executing
  * the full schema; later files get the new columns by `ALTER TABLE`.
  */
-export const SQLITE_SCHEMA_VERSION = 6;
+export const SQLITE_SCHEMA_VERSION = 7;
 
 export const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -71,6 +76,7 @@ CREATE TABLE IF NOT EXISTS messages (
   user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role            TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
   content         TEXT NOT NULL,
+  interrupted     INTEGER NOT NULL DEFAULT 0 CHECK (interrupted IN (0, 1)),
   created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   token_estimate  INTEGER,
   seq             INTEGER NOT NULL,
@@ -171,7 +177,8 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   ended_at           TEXT,
   duration_ms        INTEGER,
   status             TEXT NOT NULL DEFAULT 'running'
-                       CHECK (status IN ('running', 'completed', 'failed', 'safety_replaced')),
+                       CHECK (status IN ('running', 'completed', 'failed', 'safety_replaced',
+                                         'interrupted')),
   used_tools         INTEGER NOT NULL DEFAULT 0,
   tool_calls         TEXT NOT NULL DEFAULT '[]',
   input_fingerprint  TEXT,
