@@ -158,6 +158,34 @@ export class SessionService {
     );
   }
 
+  /** The message a regeneration reruns, or null. */
+  lastUserMessage(userId: string, conversationId: string): Promise<Message | null> {
+    return this.#store.lastUserMessage(userId, conversationId);
+  }
+
+  /**
+   * Drop the replies after the last user message, so a turn can be rerun.
+   *
+   * Returns null when there is no user message, or when that message is already
+   * behind the summary boundary: the model would not replay it, and regenerating
+   * from a summary would answer something the transcript no longer contains.
+   * `removed === 0` means there was nothing to rerun (the last message is already
+   * the user's).
+   */
+  async rewind(
+    userId: string,
+    conversationId: string,
+  ): Promise<{ message: Message; removed: number } | null> {
+    const message = await this.#store.lastUserMessage(userId, conversationId);
+    if (!message) return null;
+
+    const summary = await this.#store.getSummary(conversationId);
+    if (summary && message.seq <= summary.throughSeq) return null;
+
+    const removed = await this.#store.deleteMessagesAfter(userId, conversationId, message.seq);
+    return { message, removed };
+  }
+
   stats(userId: string): Promise<HistoryStats> {
     return this.#store.historyStats(userId);
   }

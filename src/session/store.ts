@@ -93,6 +93,23 @@ export interface SessionStore {
   /** Messages strictly after the summary boundary, oldest first. */
   messagesAfter(conversationId: string, afterSeq: number, limit: number): Promise<Message[]>;
 
+  /**
+   * The most recent user message, or null.
+   *
+   * Regeneration reruns this message; it is read before the trailing reply is
+   * deleted so the text still exists when the turn starts.
+   */
+  lastUserMessage(userId: string, conversationId: string): Promise<Message | null>;
+
+  /**
+   * Delete every message after `seq`.
+   *
+   * Regeneration is the only caller: the reply being replaced is removed so the
+   * new one occupies the same place in the transcript. Summaries and memories
+   * that referenced it are handled by the schema (`ON DELETE SET NULL`).
+   */
+  deleteMessagesAfter(userId: string, conversationId: string, seq: number): Promise<number>;
+
   getSummary(conversationId: string): Promise<ConversationSummary | null>;
 
   /**

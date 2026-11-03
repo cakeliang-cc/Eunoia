@@ -243,6 +243,32 @@ describe('SqliteStore', () => {
     expect(recent[0]?.interrupted).toBe(true);
   });
 
+  it('rewinds to the last user message for a regeneration', async () => {
+    const userId = await freshUser();
+    const conversation = await store.ensureConversation(userId);
+    await store.appendMessage({ conversationId: conversation.id, userId, role: 'user', content: '一' });
+    await store.appendMessage({ conversationId: conversation.id, userId, role: 'assistant', content: '旧回复' });
+    await store.appendMessage({ conversationId: conversation.id, userId, role: 'user', content: '二' });
+    await store.appendMessage({
+      conversationId: conversation.id,
+      userId,
+      role: 'assistant',
+      content: '要换掉的回复',
+    });
+
+    const last = await store.lastUserMessage(userId, conversation.id);
+    expect(last?.content).toBe('二');
+    expect(await store.deleteMessagesAfter(userId, conversation.id, last?.seq as number)).toBe(1);
+
+    expect((await store.listMessages(userId, conversation.id)).map((m) => m.content)).toEqual([
+      '一',
+      '旧回复',
+      '二',
+    ]);
+    // The previous user turn is untouched; only the tail after the rerun point goes.
+    expect((await store.lastUserMessage(userId, conversation.id))?.content).toBe('二');
+  });
+
   it('derives history stats with numbers, not concatenated strings', async () => {
     const userId = await freshUser();
     expect(await store.historyStats(userId)).toEqual({

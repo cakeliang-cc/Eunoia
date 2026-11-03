@@ -358,6 +358,30 @@ export class InMemoryStore implements Store {
     return conversation.messages.filter((message) => message.seq > afterSeq).slice(0, limit);
   }
 
+  async lastUserMessage(userId: string, conversationId: string): Promise<Message | null> {
+    const conversation = this.#conversations.get(conversationId);
+    if (!conversation || conversation.userId !== userId) return null;
+    for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
+      const message = conversation.messages[index];
+      if (message?.role === 'user') return message;
+    }
+    return null;
+  }
+
+  async deleteMessagesAfter(userId: string, conversationId: string, seq: number): Promise<number> {
+    const conversation = this.#conversations.get(conversationId);
+    if (!conversation || conversation.userId !== userId) return 0;
+    const before = conversation.messages.length;
+    conversation.messages = conversation.messages.filter((message) => message.seq <= seq);
+    // `turn_count` is the number of user messages, and the tail that was just
+    // removed is an assistant reply, so this only matters for a generic caller.
+    conversation.turnCount = conversation.messages.filter(
+      (message) => message.role === 'user',
+    ).length;
+    conversation.lastTurnAt = conversation.messages.at(-1)?.createdAt ?? null;
+    return before - conversation.messages.length;
+  }
+
   async getSummary(conversationId: string): Promise<ConversationSummary | null> {
     return this.#summaries.get(conversationId) ?? null;
   }

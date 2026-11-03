@@ -3,6 +3,10 @@ dist/
 coverage/
 backups/
 
+# Files the person attached to a conversation. They live inside the workspace so
+# the agent's tools can read them, but they are conversation state, not source.
+.eunoia/
+
 # Local environment: holds the DeepSeek API key.
 .env
 .env.local

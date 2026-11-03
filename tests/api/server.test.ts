@@ -21,12 +21,21 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 import { InMemoryStore } from '../../src/db/in-memory-store.ts';
-import { createApp, MEMORY_ENABLED_KEY, parseChatRequest } from '../../src/api/server.ts';
+import {
+  createApp,
+  MEMORY_ENABLED_KEY,
+  parseChatRequest,
+  parseRegenerateRequest,
+} from '../../src/api/server.ts';
 import { IDENTITY_COOKIE } from '../../src/api/identity.ts';
 import { PROMPT_VERSION } from '../../src/agent/instructions.ts';
 import { MODEL_IDS } from '../../src/config.ts';
+import type { SandboxPlatform } from '../../src/sandbox/index.ts';
 import type { TurnRunner } from '../../src/service/chat.ts';
 import type { AgentEvent } from '../../src/agent/events.ts';
 
@@ -43,13 +52,35 @@ function stubRunner(reply = '听起来真的很沉。', extra: AgentEvent[] = []
   };
 }
 
-async function start(runner: TurnRunner = stubRunner()): Promise<void> {
+async function start(
+  runner: TurnRunner = stubRunner(),
+  extra: Partial<Parameters<typeof createApp>[0]> = {},
+): Promise<void> {
   store = new InMemoryStore();
-  server = createApp({ store, runner });
+  server = createApp({ store, runner, ...extra });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   base = `http://127.0.0.1:${port}`;
 }
+
+/**
+ * The two sandbox calls uploads need, without a container.
+ *
+ * Uploading writes a file and then names it to the model; neither step needs an
+ * OCI runtime, and a test that started Docker to prove a filename would be a
+ * test nobody runs.
+ */
+function fakeSandbox(root: string): SandboxPlatform {
+  return {
+    gateway: {
+      ensureTask: async () => undefined,
+      workspaceLocation: async () => root,
+    },
+    provider: { forTask: async () => null },
+  } as unknown as SandboxPlatform;
+}
+
+let scratch: string | null = null;
 
 beforeEach(async () => {
   await start();
@@ -61,6 +92,10 @@ afterEach(async () => {
     // A keep-alive socket would hold the close open past the test.
     server.closeAllConnections?.();
   });
+  if (scratch) {
+    await rm(scratch, { recursive: true, force: true });
+    scratch = null;
+  }
 });
 
 /** An identity that persists across requests, the way a browser's cookie does. */
@@ -107,6 +142,7 @@ async function chat(
     conversationId?: string | null;
     turnId?: string;
     resume?: boolean;
+    attachments?: string[];
   } = {},
 ): Promise<{ frames: { event: string; data: any }[]; cookie: string }> {
   const response = await fetch(`${base}/api/chat`, {
@@ -120,6 +156,7 @@ async function chat(
       conversationId: options.conversationId ?? null,
       ...(options.turnId ? { turnId: options.turnId } : {}),
       ...(options.resume ? { continue: true } : {}),
+      ...(options.attachments ? { attachments: options.attachments } : {}),
     }),
   });
 
@@ -128,8 +165,15 @@ async function chat(
   // streaming effect disappears in production while working locally.
   expect(response.headers.get('x-accel-buffering')).toBe('no');
 
-  const raw = await response.text();
-  const frames = raw
+  const frames = parseFrames(await response.text());
+
+  const setCookie = response.headers.get('set-cookie') ?? '';
+  return { frames, cookie: setCookie.split(';')[0] ?? '' };
+}
+
+/** The wire format, without a second copy of it in every helper. */
+function parseFrames(raw: string): { event: string; data: any }[] {
+  return raw
     .split('\n\n')
     .filter((block) => block.trim().length > 0 && !block.startsWith(':'))
     .map((block) => {
@@ -137,9 +181,6 @@ async function chat(
       const data = /^data: (.*)$/m.exec(block)?.[1] ?? '{}';
       return { event, data: JSON.parse(data) };
     });
-
-  const setCookie = response.headers.get('set-cookie') ?? '';
-  return { frames, cookie: setCookie.split(';')[0] ?? '' };
 }
 
 describe('identity', () => {
@@ -734,7 +775,10 @@ describe('the web client', () => {
     const source = await response.text();
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/javascript');
-    expect(source).toContain("fetch('/api/chat'");
+    // The script builds the chat endpoint from a variable now (chat vs
+    // regenerate), so the assertion is on the module's presence, not one call
+    // shape.
+    expect(source).toContain('/api/chat/regenerate');
     expect(source).not.toContain('<!doctype html>');
   });
 
@@ -779,6 +823,20 @@ describe('parseChatRequest', () => {
   it('rejects a turn id that cannot address a turn', () => {
     expect(parseChatRequest({ message: '在吗', turnId: 'turn-1' })).toContain('turnId');
     expect(parseChatRequest({ message: '在吗', continue: 'yes' })).toContain('continue');
+  });
+
+  it('carries attachment paths and refuses malformed ones', () => {
+    expect(
+      parseChatRequest({ message: '看看', attachments: ['.eunoia/uploads/c1/a.png'] }),
+    ).toEqual({
+      message: '看看',
+      conversationId: null,
+      attachments: ['.eunoia/uploads/c1/a.png'],
+    });
+    expect(parseChatRequest({ message: '看看', attachments: [1] })).toContain('attachments');
+    expect(
+      parseChatRequest({ message: '看看', attachments: Array.from({ length: 6 }, () => 'x') }),
+    ).toContain('attachments');
   });
 });
 
@@ -883,5 +941,137 @@ describe('stopping a turn', () => {
       { role: 'user', content: '我最近睡不好。' },
       { role: 'assistant', content: '睡不着的时候，' },
     ]);
+  });
+});
+
+describe('uploads', () => {
+  async function sandboxedStart(
+    onContext: (context: string) => void,
+  ): Promise<{ cookie: string; conversationId: string }> {
+    scratch = await mkdtemp(join(tmpdir(), 'eunoia-upload-'));
+    await start(
+      async function* (_agent, _message, options) {
+        onContext(options?.context ?? '');
+        yield { type: 'completed', text: '看到了。' };
+      },
+      { sandbox: fakeSandbox(scratch) },
+    );
+    const cookie = await newIdentity();
+    const created = await api('/api/conversations', {
+      method: 'POST',
+      cookie,
+      body: '{}',
+    });
+    return { cookie, conversationId: created.body.conversation.id as string };
+  }
+
+  it('writes the file into the conversation workspace and names it to the model', async () => {
+    let context = '';
+    const { cookie, conversationId } = await sandboxedStart((value) => {
+      context = value;
+    });
+
+    const response = await fetch(
+      `${base}/api/uploads?conversationId=${conversationId}&name=note.txt`,
+      {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'text/plain' },
+        body: 'hello upload',
+      },
+    );
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      attachment: { path: string; name: string; mime: string; bytes: number };
+    };
+    const expected = `.eunoia/uploads/${conversationId}/note.txt`;
+    expect(payload.attachment).toEqual({
+      path: expected,
+      name: 'note.txt',
+      mime: 'text/plain',
+      bytes: 12,
+    });
+    expect(
+      await readFile(join(scratch as string, '.eunoia', 'uploads', conversationId, 'note.txt'), 'utf8'),
+    ).toBe('hello upload');
+
+    const answer = await chat('看看这个文件', {
+      cookie,
+      conversationId,
+      attachments: [expected],
+    });
+    expect(answer.frames.at(-1)?.event).toBe('completed');
+    // The model is told the path and what it is; the bytes stay on disk.
+    expect(context).toContain(expected);
+    expect(context).toContain('图片不会作为视觉输入');
+  });
+
+  it('refuses a credential filename rather than storing it in the workspace', async () => {
+    const { cookie, conversationId } = await sandboxedStart(() => undefined);
+
+    const response = await fetch(
+      `${base}/api/uploads?conversationId=${conversationId}&name=.env`,
+      {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'text/plain' },
+        body: 'DEEPSEEK_API_KEY=secret',
+      },
+    );
+    expect(response.status).toBe(400);
+    expect(await readFile(join(scratch as string, '.eunoia', 'uploads', conversationId, '.env'), 'utf8').catch(() => null)).toBeNull();
+  });
+
+  it('explains that an upload needs a workspace when none is configured', async () => {
+    const cookie = await newIdentity();
+    const created = await api('/api/conversations', { method: 'POST', cookie, body: '{}' });
+    const response = await fetch(
+      `${base}/api/uploads?conversationId=${created.body.conversation.id}&name=a.txt`,
+      { method: 'POST', headers: { cookie, 'content-type': 'text/plain' }, body: 'x' },
+    );
+    expect(response.status).toBe(400);
+    expect(JSON.stringify(await response.json())).toContain('工作区');
+  });
+});
+
+describe('regenerate', () => {
+  it('replaces the last reply instead of appending a second one', async () => {
+    const cookie = await newIdentity();
+    const first = await chat('第一句', { cookie });
+    const conversationId = first.frames.at(-1)?.data.conversationId as string;
+
+    const response = await fetch(`${base}/api/chat/regenerate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ conversationId }),
+    });
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    const frames = parseFrames(await response.text());
+    expect(frames.at(-1)?.event).toBe('completed');
+
+    const stored = await api(`/api/conversations/${conversationId}/messages`, { cookie });
+    expect(stored.body.messages.map((message: any) => message.role)).toEqual(['user', 'assistant']);
+    expect(stored.body.messages[0].content).toBe('第一句');
+  });
+
+  it('refuses a conversation that has no reply to replace', async () => {
+    const cookie = await newIdentity();
+    const created = await api('/api/conversations', { method: 'POST', cookie, body: '{}' });
+
+    const response = await api('/api/chat/regenerate', {
+      method: 'POST',
+      cookie,
+      body: JSON.stringify({ conversationId: created.body.conversation.id }),
+    });
+    expect(response.status).toBe(409);
+  });
+
+  it('validates the request', () => {
+    expect(parseRegenerateRequest({})).toContain('conversationId');
+    expect(parseRegenerateRequest({ conversationId: 'c1' })).toContain('conversationId');
+    expect(
+      parseRegenerateRequest({
+        conversationId: '0192f0aa-2222-7000-8000-000000000000',
+        turnId: 'nope',
+      }),
+    ).toContain('turnId');
   });
 });

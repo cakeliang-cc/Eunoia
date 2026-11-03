@@ -15,9 +15,9 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { access, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { join } from 'node:path';
+import { extname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { installProvider } from '../agent/model-client.ts';
@@ -36,7 +36,7 @@ import { SessionService } from '../session/service.ts';
 import { MODEL_CATALOG } from '../models/catalog.ts';
 import { defaultModelProfile, isKnownModelId, summaryModelProfile } from '../models/registry.ts';
 import { providerFor } from '../provider/index.ts';
-import { runTurn, type TurnRunner } from '../service/chat.ts';
+import { runTurn, type TurnAttachment, type TurnRunner } from '../service/chat.ts';
 import { selectStore } from '../db/select.ts';
 import { agentMaxSteps, skillsEnabled, workspaceConfig } from '../config.ts';
 import { DEFAULT_TOOL_POLICY } from '../tools/types.ts';
@@ -79,6 +79,43 @@ const MAX_BODY_BYTES = 64 * 1024;
 /** Reject absurd messages. A companion turn is not a document. */
 const MAX_MESSAGE_CHARS = 8_000;
 
+/**
+ * Where uploads live inside the task workspace.
+ *
+ * It has to be inside the workspace: the agent's file and command tools run in
+ * a container that mounts only that directory, and a file saved anywhere else
+ * would be invisible to it. The leading dot keeps the folder out of the way in
+ * file listings, and the repository ignores it.
+ */
+const UPLOAD_DIR = '.eunoia/uploads';
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_ATTACHMENTS = 5;
+
+const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.json': 'application/json',
+  '.csv': 'text/csv',
+  '.yaml': 'text/yaml',
+  '.yml': 'text/yaml',
+  '.log': 'text/plain',
+  '.ts': 'text/plain',
+  '.tsx': 'text/plain',
+  '.js': 'text/plain',
+  '.jsx': 'text/plain',
+  '.py': 'text/plain',
+  '.go': 'text/plain',
+  '.rs': 'text/plain',
+  '.sh': 'text/plain',
+};
+
 /** Preference key that lets the person switch retrieval off entirely. */
 export const MEMORY_ENABLED_KEY = 'memory.enabled';
 
@@ -117,6 +154,64 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   }
   if (size === 0) return {};
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+/** The same loop, for the one route that accepts bytes rather than JSON. */
+async function readRawBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
+  const declared = Number(req.headers['content-length'] ?? Number.NaN);
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new Error('文件太大');
+  }
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > maxBytes) throw new Error('文件太大');
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
+ * A filename is data, not a path.
+ *
+ * Only the basename survives, control characters go, and credential names are
+ * refused: the workspace file tools would refuse to read them anyway, so storing
+ * one would be a leak with no use.
+ */
+function sanitizeUploadName(raw: string): string | null {
+  const base = raw.split(/[/\\]/).pop()?.trim() ?? '';
+  if (base.length === 0 || base === '.' || base === '..') return null;
+  // eslint-disable-next-line no-control-regex -- control characters are the thing being removed
+  const cleaned = base.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 120);
+  if (cleaned.length === 0) return null;
+  const lower = cleaned.toLowerCase();
+  if (lower === '.env' || lower.startsWith('.env.')) return null;
+  if (lower === 'id_rsa' || lower === 'id_ed25519') return null;
+  if (/\.(pem|key|p12|pfx|cer)$/i.test(cleaned)) return null;
+  return cleaned;
+}
+
+function mimeOf(name: string): string {
+  return MIME_BY_EXTENSION[extname(name).toLowerCase()] ?? 'application/octet-stream';
+}
+
+/** `.eunoia/uploads/<conversationId>/<name>-1.png` instead of overwriting. */
+async function availableUploadName(directory: string, name: string): Promise<string> {
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const extension = dot > 0 ? name.slice(dot) : '';
+  let candidate = name;
+  let counter = 1;
+  while (true) {
+    try {
+      await access(join(directory, candidate));
+    } catch {
+      return candidate;
+    }
+    candidate = `${stem}-${counter}${extension}`;
+    counter += 1;
+  }
 }
 
 function asObject(raw: unknown): Json | null {
@@ -240,6 +335,13 @@ export interface ChatPayload {
   readonly turnId?: string;
   /** The person pressed "continue" on an interrupted reply. */
   readonly continue?: boolean;
+  /**
+   * Workspace-relative paths returned by `POST /api/uploads`.
+   *
+   * Paths, not file bodies: the bytes were already written by the upload route,
+   * and repeating them here would make one request carry a file twice.
+   */
+  readonly attachments?: readonly string[];
 }
 
 export function parseChatRequest(raw: unknown): ChatPayload | string {
@@ -271,11 +373,47 @@ export function parseChatRequest(raw: unknown): ChatPayload | string {
     return 'field "continue" must be a boolean';
   }
 
+  const attachments = body.attachments;
+  if (attachments !== undefined) {
+    if (!Array.isArray(attachments) || attachments.some((entry) => typeof entry !== 'string')) {
+      return 'field "attachments" must be an array of strings';
+    }
+    if (attachments.length > MAX_ATTACHMENTS) {
+      return `field "attachments" allows at most ${MAX_ATTACHMENTS} files`;
+    }
+  }
+
   return {
     message: trimmed,
     conversationId: (conversationId as string | null) ?? null,
     ...(typeof turnId === 'string' ? { turnId } : {}),
     ...(resume === true ? { continue: true } : {}),
+    ...(attachments !== undefined ? { attachments: attachments as string[] } : {}),
+  };
+}
+
+export interface RegeneratePayload {
+  readonly conversationId: string;
+  readonly turnId?: string;
+}
+
+export function parseRegenerateRequest(raw: unknown): RegeneratePayload | string {
+  const body = asObject(raw);
+  if (!body) return 'body must be a JSON object';
+
+  const conversationId = body.conversationId;
+  if (typeof conversationId !== 'string' || !isUuid(conversationId)) {
+    return 'field "conversationId" must be a uuid';
+  }
+  const turnId = body.turnId;
+  if (turnId !== undefined && turnId !== null) {
+    if (typeof turnId !== 'string' || !isUuid(turnId)) {
+      return 'field "turnId" must be a uuid';
+    }
+  }
+  return {
+    conversationId,
+    ...(typeof turnId === 'string' ? { turnId } : {}),
   };
 }
 
@@ -663,6 +801,112 @@ export function createApp(deps: AppDependencies) {
     }
   }
 
+  /** The dependencies every streamed turn shares. */
+  function turnDependencies(): Parameters<typeof runTurn>[0] {
+    return {
+      store,
+      session: sessions,
+      modelProvider: deps.modelProvider,
+      runner: deps.runner,
+      ...(deps.sandbox ? { sandbox: deps.sandbox.provider } : {}),
+      ...(deps.toolPolicy ? { toolPolicy: deps.toolPolicy } : {}),
+      ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
+      ...(deps.skills ? { skills: deps.skills } : {}),
+    };
+  }
+
+  /**
+   * Stream one turn and keep it addressable by `turnId`.
+   *
+   * Chat, regenerate and their stop requests all go through here, so the abort
+   * semantics cannot drift between them.
+   */
+  async function streamTurn(
+    res: ServerResponse,
+    turnId: string,
+    request: Parameters<typeof runTurn>[1],
+  ): Promise<void> {
+    const controller = new AbortController();
+    activeTurns.set(turnId, { controller });
+    // Two ways to abort: the person pressed stop (a second request finds this
+    // entry), or the connection went away. Both end the turn the same way, but
+    // only the first can keep the stream open long enough to receive the
+    // `interrupted` event and the stored partial reply.
+    res.on('close', () => controller.abort());
+    try {
+      await pipeEventsAsSse(
+        runTurn(turnDependencies(), { ...request, signal: controller.signal }),
+        res,
+        { onClose: () => controller.abort() },
+      );
+    } catch (error) {
+      // An abort can land while the turn is still preparing (retrieval, the
+      // replay query). There is nothing to report and no partial reply yet; the
+      // client sees the stream end and treats it as stopped.
+      if (!isAbortError(error)) throw error;
+      log.info('chat.aborted_before_stream', { turn_id: turnId });
+    } finally {
+      activeTurns.delete(turnId);
+    }
+  }
+
+  /**
+   * Turn upload paths from the client into what the turn is told about them.
+   *
+   * The client is not trusted to name an arbitrary workspace file: every path
+   * must sit under this conversation's upload directory, resolve inside it, and
+   * still be a regular file of a sane size.
+   */
+  async function resolveAttachments(
+    userId: string,
+    conversationId: string,
+    paths: readonly string[] | undefined,
+  ): Promise<TurnAttachment[]> {
+    if (!paths || paths.length === 0) return [];
+    if (!deps.sandbox) throw new Error('附件需要启用工作区');
+    if (paths.length > MAX_ATTACHMENTS) {
+      throw new Error(`一次最多附上 ${MAX_ATTACHMENTS} 个文件`);
+    }
+
+    const prefix = `${UPLOAD_DIR}/${conversationId}/`;
+    await deps.sandbox.gateway.ensureTask({
+      taskId: conversationId,
+      sessionId: conversationId,
+      userId,
+    });
+    const root = await deps.sandbox.gateway.workspaceLocation({ taskId: conversationId });
+    if (!root) throw new Error('工作区还没有准备好');
+    const directory = join(root, '.eunoia', 'uploads', conversationId);
+    const realDirectory = await realpath(directory).catch(() => null);
+    if (!realDirectory) throw new Error('找不到这个会话的上传目录');
+
+    const attachments: TurnAttachment[] = [];
+    for (const requested of paths) {
+      if (!requested.startsWith(prefix)) {
+        throw new Error('附件路径不属于这个会话');
+      }
+      const name = requested.slice(prefix.length);
+      if (name.length === 0 || name.includes('/') || name.includes('\\') || name === '..') {
+        throw new Error('附件路径不合法');
+      }
+      const target = join(directory, name);
+      const real = await realpath(target).catch(() => null);
+      if (!real || !real.startsWith(`${realDirectory}${sep}`)) {
+        throw new Error(`找不到附件 ${name}`);
+      }
+      const info = await stat(real).catch(() => null);
+      if (!info?.isFile()) throw new Error(`${name} 不是文件`);
+      if (info.size > MAX_UPLOAD_BYTES) throw new Error(`${name} 超过大小上限`);
+      attachments.push({
+        path: requested,
+        name,
+        mime: mimeOf(name),
+        bytes: info.size,
+      });
+    }
+    return attachments;
+  }
+
   async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
     let raw: unknown;
     try {
@@ -680,69 +924,167 @@ export function createApp(deps: AppDependencies) {
 
     const userId = await identify(req, res);
     const turnId = parsed.turnId ?? randomUUID();
-    const controller = new AbortController();
-    activeTurns.set(turnId, { controller });
-    // Two ways to abort: the person pressed stop (a second request finds this
-    // entry), or the connection went away. Both end the turn the same way, but
-    // only the first can keep the stream open long enough to receive the
-    // `interrupted` event and the stored partial reply.
-    res.on('close', () => controller.abort());
 
     log.info('chat.request', {
       message_fingerprint: `len=${parsed.message.length}`,
       conversation_id: parsed.conversationId,
       continued: parsed.continue === true,
+      attachments: parsed.attachments?.length ?? 0,
     });
 
+    const retrieve = await retrievalEnabled(userId);
+
+    // A chat can start a conversation implicitly. When it does, create it here
+    // instead of letting `runTurn` do it, because the remembered mode has to be
+    // written before the first tool call — afterwards is too late to matter for
+    // the turn that needed it. `runTurn` still names the conversation from the
+    // message; `nameConversation` only fills a null title.
+    let conversationId = parsed.conversationId;
+    if (conversationId === null) {
+      const conversation = await sessions.create(userId);
+      conversationId = conversation.id;
+      await applyDefaultPermissionMode(userId, conversationId);
+    }
+
+    let attachments: TurnAttachment[];
     try {
-      const retrieve = await retrievalEnabled(userId);
-
-      // A chat can start a conversation implicitly. When it does, create it here
-      // instead of letting `runTurn` do it, because the remembered mode has to be
-      // written before the first tool call — afterwards is too late to matter for
-      // the turn that needed it. `runTurn` still names the conversation from the
-      // message; `nameConversation` only fills a null title.
-      let conversationId = parsed.conversationId;
-      if (conversationId === null) {
-        const conversation = await sessions.create(userId);
-        conversationId = conversation.id;
-        await applyDefaultPermissionMode(userId, conversationId);
-      }
-
-      await pipeEventsAsSse(
-        runTurn(
-          {
-            store,
-            session: sessions,
-            modelProvider: deps.modelProvider,
-            runner: deps.runner,
-            ...(deps.sandbox ? { sandbox: deps.sandbox.provider } : {}),
-            ...(deps.toolPolicy ? { toolPolicy: deps.toolPolicy } : {}),
-            ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
-            ...(deps.skills ? { skills: deps.skills } : {}),
-          },
-          {
-            userId,
-            conversationId,
-            message: parsed.message,
-            signal: controller.signal,
-            ...(parsed.continue ? { continue: true } : {}),
-            // Retrieval happens inside `runTurn`; turning it off here means the
-            // promise is not made rather than made and ignored.
-            ...(retrieve ? {} : { retrieve: false }),
-          },
-        ),
-        res,
-        { onClose: () => controller.abort() },
-      );
+      attachments = await resolveAttachments(userId, conversationId, parsed.attachments);
     } catch (error) {
-      // An abort can land while the turn is still preparing (retrieval, the
-      // replay query). There is nothing to report and no partial reply yet; the
-      // client sees the stream end and treats it as stopped.
-      if (!isAbortError(error)) throw error;
-      log.info('chat.aborted_before_stream', { turn_id: turnId });
-    } finally {
-      activeTurns.delete(turnId);
+      sendJson(res, 400, { error: error instanceof Error ? error.message : 'bad attachments' });
+      return;
+    }
+
+    await streamTurn(res, turnId, {
+      userId,
+      conversationId,
+      message: parsed.message,
+      ...(attachments.length > 0 ? { attachments } : {}),
+      ...(parsed.continue ? { continue: true } : {}),
+      // Retrieval happens inside `runTurn`; turning it off here means the
+      // promise is not made rather than made and ignored.
+      ...(retrieve ? {} : { retrieve: false }),
+    });
+  }
+
+  async function handleRegenerate(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    let raw: unknown;
+    try {
+      raw = await readJsonBody(req);
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : 'bad request' });
+      return;
+    }
+
+    const parsed = parseRegenerateRequest(raw);
+    if (typeof parsed === 'string') {
+      sendJson(res, 400, { error: parsed });
+      return;
+    }
+
+    const userId = await identify(req, res);
+    if (!(await sessions.get(userId, parsed.conversationId))) {
+      sendJson(res, 404, { error: 'conversation not found' });
+      return;
+    }
+
+    // The reply being replaced is removed before the model runs: the new one
+    // must take its place, not follow it. If the user message is already behind
+    // the summary boundary there is nothing the model would replay.
+    const rewound = await sessions.rewind(userId, parsed.conversationId);
+    if (!rewound || rewound.removed === 0) {
+      sendJson(res, 409, { error: '这一轮还没有可以重新生成的回复' });
+      return;
+    }
+
+    log.info('chat.regenerate', {
+      conversation_id: parsed.conversationId,
+      removed: rewound.removed,
+    });
+
+    await streamTurn(res, parsed.turnId ?? randomUUID(), {
+      userId,
+      conversationId: parsed.conversationId,
+      message: '',
+      regenerate: true,
+      ...((await retrievalEnabled(userId)) ? {} : { retrieve: false }),
+    });
+  }
+
+  /**
+   * Accept one file and put it where the agent can actually read it.
+   *
+   * Raw bytes rather than multipart or base64: a browser can send a `File`
+   * directly, there is no third-party parser in the dependency list, and a
+   * 10 MB image does not become 13 MB of JSON on the way in.
+   */
+  async function handleUpload(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+  ): Promise<void> {
+    const conversationId = url.searchParams.get('conversationId') ?? '';
+    const requestedName = url.searchParams.get('name') ?? '';
+    if (!isUuid(conversationId)) {
+      sendJson(res, 400, { error: 'field "conversationId" must be a uuid' });
+      return;
+    }
+    const name = sanitizeUploadName(requestedName);
+    if (!name) {
+      sendJson(res, 400, { error: '文件名不合法' });
+      return;
+    }
+    if (!deps.sandbox) {
+      sendJson(res, 400, { error: '上传需要启用工作区' });
+      return;
+    }
+
+    const userId = await identify(req, res);
+    if (!(await sessions.get(userId, conversationId))) {
+      sendJson(res, 404, { error: 'conversation not found' });
+      return;
+    }
+
+    let body: Buffer;
+    try {
+      body = await readRawBody(req, MAX_UPLOAD_BYTES);
+    } catch (error) {
+      sendJson(res, 413, { error: error instanceof Error ? error.message : 'file too large' });
+      return;
+    }
+    if (body.length === 0) {
+      sendJson(res, 400, { error: '文件是空的' });
+      return;
+    }
+
+    try {
+      await deps.sandbox.gateway.ensureTask({
+        taskId: conversationId,
+        sessionId: conversationId,
+        userId,
+      });
+      const root = await deps.sandbox.gateway.workspaceLocation({ taskId: conversationId });
+      if (!root) {
+        sendJson(res, 400, { error: '工作区还没有准备好' });
+        return;
+      }
+      const directory = join(root, '.eunoia', 'uploads', conversationId);
+      await mkdir(directory, { recursive: true });
+      const filename = await availableUploadName(directory, name);
+      await writeFile(join(directory, filename), body);
+      sendJson(res, 200, {
+        attachment: {
+          path: `${UPLOAD_DIR}/${conversationId}/${filename}`,
+          name: filename,
+          mime: mimeOf(filename),
+          bytes: body.length,
+        },
+      });
+    } catch (error) {
+      log.warn('upload.failed', {
+        conversation_id: conversationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      sendJson(res, 400, { error: error instanceof Error ? error.message : 'upload failed' });
     }
   }
 
@@ -815,6 +1157,11 @@ export function createApp(deps: AppDependencies) {
       return true;
     }
 
+    if (req.method === 'POST' && pathname === '/api/chat/regenerate') {
+      await handleRegenerate(req, res);
+      return true;
+    }
+
     // Stop is a second request so it can arrive while the chat response is
     // still streaming. It answers as soon as the abort is delivered; the
     // partial reply and the `interrupted` event arrive on the chat stream
@@ -842,6 +1189,11 @@ export function createApp(deps: AppDependencies) {
       }
       turn.controller.abort();
       sendJson(res, 200, { stopped: true });
+      return true;
+    }
+
+    if (req.method === 'POST' && pathname === '/api/uploads') {
+      await handleUpload(req, res, url);
       return true;
     }
 

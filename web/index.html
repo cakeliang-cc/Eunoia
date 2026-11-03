@@ -671,13 +671,13 @@
   }
 
   .meta {
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
     min-height: 24px; margin-top: 4px;
     font-size: 11px; color: var(--muted);
   }
   .assistant .meta { padding-left: 46px; }
   .user .meta { display: none; }
-  .meta > span:last-child { display: flex; align-items: center; gap: 2px; }
+  .meta > span:last-child { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; }
   .meta button {
     padding: 3px 8px; border: 1px solid transparent; border-radius: 7px;
     font-size: 11px; color: var(--muted);
@@ -688,6 +688,28 @@
   /* A reply the person stopped is a state, not an error, so it uses the normal
      muted text and keeps "继续" as an ordinary quiet button beside it. */
   .meta .interrupted-note { color: var(--ink-2); }
+
+  /* The per-message toolbar: copy, read aloud, export, regenerate, more. Icons
+     stay quiet until hovered; the feedback buttons after them stay text. */
+  .meta .msg-action {
+    width: 25px; height: 25px; padding: 0;
+    display: grid; place-items: center; border-radius: 7px;
+  }
+  .msg-action .icon { width: 15px; height: 15px; stroke-width: 1.7; }
+  .msg-action[data-speaking="true"] { color: var(--accent-strong); background: var(--accent-soft); }
+  .msg-action[data-copied="true"] { color: var(--accent-strong); }
+
+  .msg-menu {
+    position: fixed; z-index: 60; min-width: 152px;
+    padding: 5px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--surface); box-shadow: var(--shadow-md);
+  }
+  .msg-menu button {
+    display: block; width: 100%; padding: 7px 9px;
+    border-radius: 7px; text-align: left;
+    font-size: 12px; color: var(--ink-2);
+  }
+  .msg-menu button:hover { background: var(--surface-2); color: var(--ink); }
 
   /* ------------------------------------------------------------ thinking ---
      A margin note, not the reply: separate muted tone, collapsed as soon as the
@@ -857,6 +879,41 @@
   .send:disabled { opacity: .5; transform: none; }
   .send .icon { width: 18px; height: 18px; stroke-width: 1.9; }
   .composer.has-text .send { background: var(--accent-strong); }
+  .attach-button {
+    width: 31px; height: 31px; flex: 0 0 auto;
+    display: grid; place-items: center; border-radius: 9px;
+    color: var(--muted);
+    transition: color .14s ease, background .14s ease;
+  }
+  .attach-button:hover { color: var(--ink-2); background: var(--surface-2); }
+  .attach-button .icon { width: 17px; height: 17px; }
+
+  /* The attachment strip sits between the text and the controls, so what will
+     be sent is visible at the moment it is sent. */
+  .attach-row {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 4px 12px 2px;
+  }
+  /* An author `display` beats the UA's `[hidden]` rule; without this the empty
+     strip would take up space before the first upload. */
+  .attach-row[hidden] { display: none; }
+  .attach-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    max-width: 100%; padding: 4px 6px 4px 9px;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface-2);
+    font-size: 11px; color: var(--ink-2);
+  }
+  .attach-chip .name {
+    max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .attach-chip .size { color: var(--faint); font-size: 10px; }
+  .attach-chip button {
+    width: 18px; height: 18px; display: grid; place-items: center;
+    border-radius: 5px; color: var(--faint); font-size: 13px; line-height: 1;
+  }
+  .attach-chip button:hover { color: var(--danger); background: var(--danger-soft); }
+  .attach-chip[data-state="uploading"] { opacity: .7; }
   /* One button, two jobs: the arrow sends, the square stops. The mode is set by
      the client for the duration of a turn, so the same click target never does
      both at once. */
@@ -1845,6 +1902,7 @@
         <form class="composer" id="composer">
           <label class="sr" for="input">说点什么</label>
           <textarea id="input" rows="1" placeholder="和 Eunoia 说点什么…" autocomplete="off" spellcheck="false"></textarea>
+          <div class="attach-row" id="attach-row" hidden aria-live="polite"></div>
           <div class="composer-bar">
             <span class="composer-hint">
               <svg class="icon" viewBox="0 0 24 24">
@@ -1855,6 +1913,12 @@
               <span class="hint-sep">·</span>
               <span class="hint-keys"><kbd>Enter</kbd> 发送</span>
             </span>
+            <button class="attach-button" id="attach" type="button" aria-label="添加文件" title="添加文件">
+              <svg class="icon" viewBox="0 0 24 24">
+                <path d="M20 11.5 12.7 18.8a4.5 4.5 0 0 1-6.4-6.4l7.4-7.4a3 3 0 0 1 4.2 4.2l-7.3 7.3a1.5 1.5 0 0 1-2.1-2.1l6.7-6.7"/>
+              </svg>
+            </button>
+            <input id="attach-input" type="file" multiple hidden>
             <button class="perm-pill" id="perm-pill" type="button" hidden
                     aria-haspopup="dialog" aria-expanded="false" title="权限模式">
               <span class="dot"></span>

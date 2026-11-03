@@ -28,6 +28,7 @@ export default tseslint.config(
         AbortController: 'readonly',
         crypto: 'readonly',
         navigator: 'readonly',
+        Blob: 'readonly',
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
         console: 'readonly',

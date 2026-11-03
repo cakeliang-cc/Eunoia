@@ -311,12 +311,18 @@ describe('coming back to a conversation', () => {
     const harness = await boot({ stored: 'c1', routes: messageRoute(STORED_MESSAGES) });
 
     const rated = harness.transcript.find((node) => node.classList.contains('turn'))[1];
-    // `meta` holds the note and then the rating buttons; neither carries a class
-    // of its own, so this reaches in by position rather than by name.
+    // `meta` holds the note and then the action row; the row is icons first,
+    // then the two text rating buttons.
     const buttons = rated?.child('meta')?.children[1]?.children ?? [];
-    expect(buttons.map((button) => button.textContent)).toEqual(['复制', '有帮助', '不太对']);
+    expect(buttons.map((button) => button.dataset.action).filter(Boolean)).toEqual([
+      'copy',
+      'speak',
+      'share',
+      'more',
+    ]);
+    expect(buttons.map((button) => button.textContent).slice(-2)).toEqual(['有帮助', '不太对']);
 
-    buttons[1]?.onclick?.();
+    buttons.find((button) => button.textContent === '有帮助')?.onclick?.();
     await harness.settle();
     const posted = lastRequest(harness, '/api/feedback');
     expect(posted?.body).toMatchObject({ messageId: 'm2', rating: 'good' });
@@ -735,14 +741,14 @@ describe('copying', () => {
     const actions = actionsOf(
       harness.transcript.children.filter((node) => node.classList.contains('turn')).at(-1),
     );
-    const copy = actions?.children.find((button) => button.textContent === '复制');
+    const copy = actions?.children.find((button) => button.dataset.action === 'copy');
     expect(copy).toBeDefined();
 
     copy?.onclick?.();
     await harness.settle();
 
     expect(harness.copied).toEqual([ANSWER]);
-    expect(copy?.textContent).toBe('已复制');
+    expect(copy?.getAttribute('aria-label')).toBe('已复制');
   });
 
   it('copies a fenced block without its fences', async () => {
@@ -770,12 +776,166 @@ describe('copying', () => {
     const harness = await boot({ stored: 'c1', routes: messageRoute(STORED_MESSAGES) });
 
     const turn = harness.transcript.find((node) => node.classList.contains('turn'))[1];
-    const copy = actionsOf(turn)?.children.find((button) => button.textContent === '复制');
+    const copy = actionsOf(turn)?.children.find((button) => button.dataset.action === 'copy');
     expect(copy).toBeDefined();
 
     copy?.onclick?.();
     await harness.settle();
 
     expect(harness.copied).toEqual(['嗯，那就先不上的样子。']);
+  });
+});
+
+describe('message actions', () => {
+  const REPLY = '**听起来**真的很沉。\n\n```ts\nconst a = 1;\n```';
+  const REPLY_TURN: Frame[] = [
+    { type: 'text_delta', text: REPLY },
+    { type: 'completed', text: REPLY, conversationId: 'c1', messageId: 'm1' },
+  ];
+
+  function actionRow(harness: Harness): El | undefined {
+    return lastTurn(harness.transcript).turn?.child('meta')?.children[1];
+  }
+
+  function action(harness: Harness, name: string): El | undefined {
+    return actionRow(harness)?.children.find((button) => button.dataset.action === name);
+  }
+
+  /** The window stub, typed as a bag so a test can install a speech double. */
+  function browserWindow(): Record<string, unknown> {
+    return (globalThis as { window?: Record<string, unknown> }).window ?? {};
+  }
+
+  it('reads a reply aloud in Chinese, and stops on a second click', async () => {
+    const harness = await boot({ frames: REPLY_TURN });
+    await harness.send('今天什么都不想做。');
+
+    const spoken: { text: string; lang?: string }[] = [];
+    let cancelled = 0;
+    browserWindow().speechSynthesis = {
+      speak: (utterance: { text: string; lang?: string }) => spoken.push(utterance),
+      cancel: () => {
+        cancelled += 1;
+      },
+    };
+    browserWindow().SpeechSynthesisUtterance = class {
+      text: string;
+      lang = '';
+      rate = 1;
+      onend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(text: string) {
+        this.text = text;
+      }
+    };
+
+    const speak = action(harness, 'speak');
+    speak?.onclick?.();
+    expect(spoken).toHaveLength(1);
+    // Code is not read aloud; the prose around it is.
+    expect(spoken[0]?.text).toBe('听起来真的很沉。\n\n（代码略）');
+    expect(spoken[0]?.lang).toBe('zh-CN');
+    expect(speak?.dataset.speaking).toBe('true');
+
+    speak?.onclick?.();
+    expect(cancelled).toBe(1);
+    expect(speak?.dataset.speaking).toBe('false');
+  });
+
+  it('exports through the share sheet when the browser has one', async () => {
+    const harness = await boot({ frames: REPLY_TURN });
+    await harness.send('今天什么都不想做。');
+
+    const shared: { text: string }[] = [];
+    (navigator as unknown as { share: (payload: { text: string }) => Promise<void> }).share =
+      async (payload) => {
+        shared.push(payload);
+      };
+
+    action(harness, 'share')?.onclick?.();
+    await harness.settle();
+
+    expect(shared).toEqual([{ text: REPLY }]);
+  });
+
+  it('offers the more menu with a plain-text copy', async () => {
+    const harness = await boot({ frames: REPLY_TURN });
+    await harness.send('今天什么都不想做。');
+
+    action(harness, 'more')?.onclick?.();
+    const menu = harness.transcript.find((node) => node.classList.contains('msg-menu'))[0];
+    expect(menu).toBeDefined();
+    const copyPlain = menu?.children.find((node) => node.textContent === '复制纯文本');
+    expect(copyPlain).toBeDefined();
+
+    copyPlain?.onclick?.();
+    await harness.settle();
+
+    expect(harness.copied).toEqual(['听起来真的很沉。\n\n（代码略）']);
+  });
+
+  it('regenerates the last reply in place, without duplicating the user turn', async () => {
+    const harness = await boot({
+      frames: REPLY_TURN,
+      routes: {
+        'POST /api/chat/regenerate': {
+          stream: [
+            { type: 'text_delta', text: '换个说法。' },
+            { type: 'completed', text: '换个说法。', conversationId: 'c1', messageId: 'm2' },
+          ],
+        },
+      },
+    });
+    await harness.send('今天什么都不想做。');
+    const regenerate = action(harness, 'regenerate');
+    expect(regenerate).toBeDefined();
+
+    regenerate?.onclick?.();
+    await harness.settle();
+
+    const request = harness.requests.find((entry) => entry.url === '/api/chat/regenerate');
+    expect(request?.body).toMatchObject({ conversationId: 'c1' });
+    const turns = harness.transcript.children.filter((node) => node.classList.contains('turn'));
+    expect(turns).toHaveLength(2);
+    expect(lastTurn(harness.transcript).reply?.textContent).toBe('换个说法。');
+  });
+});
+
+describe('attachments', () => {
+  it('uploads a file, shows it, and sends its workspace path with the message', async () => {
+    const harness = await boot({
+      frames: [{ type: 'completed', text: '看到了。', conversationId: 'c1', messageId: 'm1' }],
+      routes: {
+        'POST /api/conversations': { json: { conversation: { id: 'c1' } } },
+        'POST /api/uploads?conversationId=c1&name=shot.png': {
+          json: {
+            attachment: {
+              path: '.eunoia/uploads/c1/shot.png',
+              name: 'shot.png',
+              mime: 'image/png',
+              bytes: 2048,
+            },
+          },
+        },
+      },
+    });
+
+    const input = harness.element('attach-input');
+    input.files = [{ name: 'shot.png', size: 2048, type: 'image/png' }];
+    input.listeners.change?.[0]?.({});
+    await harness.settle();
+
+    const row = harness.element('attach-row');
+    expect(row.hidden).toBe(false);
+    expect(row.textContent).toContain('shot.png');
+
+    await harness.send('看看这个');
+    const sent = harness.requests.find((request) => request.url === '/api/chat');
+    expect(sent?.body).toMatchObject({
+      message: '看看这个',
+      attachments: ['.eunoia/uploads/c1/shot.png'],
+    });
+    // It is now the turn's file, not the next message's.
+    expect(harness.element('attach-row').hidden).toBe(true);
   });
 });

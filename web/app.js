@@ -3,6 +3,9 @@ const transcript = $('transcript');
 const input = $('input');
 const sendButton = $('send');
 const composer = $('composer');
+const attachButton = $('attach');
+const attachInput = $('attach-input');
+const attachRow = $('attach-row');
 const historyDrawer = $('history');
 const titleEl = $('thread-title');
 const root = document.documentElement;
@@ -18,6 +21,10 @@ const state = {
    * a dropped network when the stream ends without a terminal frame.
    */
   turn: null,
+  /** Files uploaded for the next message: `{ path, name, mime, bytes }`. */
+  attachments: [],
+  /** Uploads that have started but not answered yet. */
+  uploading: 0,
   memoryEnabled: true,
   showArchived: false,
   feedback: new Map(),
@@ -96,25 +103,260 @@ async function copyText(text) {
  */
 async function copyWithFeedback(button, text) {
   const ok = await copyText(text);
-  button.textContent = ok ? '已复制' : '复制失败';
   button.dataset.copied = String(ok);
+  const icon = button.classList.contains('msg-action');
+  const label = ok ? '已复制' : '复制失败';
+  // An icon button has no text to replace; its label is the feedback.
+  if (icon) {
+    button.setAttribute('aria-label', label);
+    button.title = label;
+  } else {
+    button.textContent = label;
+  }
   if (button.copyReset) clearTimeout(button.copyReset);
   button.copyReset = setTimeout(() => {
-    button.textContent = '复制';
+    if (icon) {
+      button.setAttribute('aria-label', '复制');
+      button.title = '复制';
+    } else {
+      button.textContent = '复制';
+    }
     delete button.dataset.copied;
   }, 1600);
 }
 
-/** A quiet "复制" beside the feedback controls; copies the reply's source. */
-function addCopy(actions, content) {
-  if (!content || content.trim().length === 0) return;
-  const copy = el('button', null, '复制');
-  copy.type = 'button';
-  copy.setAttribute('aria-label', '复制这条回复');
-  copy.onclick = () => void copyWithFeedback(copy, content);
-  // `addFeedback` clears the row when it runs, so copy is prepended afterwards
-  // to keep the reading order: copy, then rate.
-  actions.prepend(copy);
+/**
+ * A message toolbar icon.
+ *
+ * The paths are inline rather than an icon font or a network sprite: this page
+ * has no build step and no external requests, and a 24×24 stroke path is small
+ * enough to keep beside the code that uses it.
+ */
+const ACTION_ICONS = {
+  copy: [
+    'M9 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z',
+    'M5 15V6a2 2 0 0 1 2-2h9',
+  ],
+  speak: [
+    'M11 5 6 9H3v6h3l5 4V5z',
+    'M15 9a4 4 0 0 1 0 6',
+    'M17.5 6.5a8 8 0 0 1 0 11',
+  ],
+  share: ['M12 16V4', 'M8 8l4-4 4 4', 'M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5'],
+  regenerate: ['M20 4v6h-6', 'M20 10a8 8 0 1 0-1.6 6.4'],
+  more: ['M5 12h.01', 'M12 12h.01', 'M19 12h.01'],
+};
+
+function svgIcon(paths) {
+  if (typeof document.createElementNS !== 'function') return el('span', 'icon');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'icon');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const definition of paths) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', definition);
+    svg.append(path);
+  }
+  return svg;
+}
+
+function actionButton(iconName, label, onClick) {
+  const button = el('button', 'msg-action');
+  button.type = 'button';
+  button.dataset.action = iconName;
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  button.append(svgIcon(ACTION_ICONS[iconName] ?? []));
+  button.onclick = onClick;
+  return button;
+}
+
+/**
+ * Markdown as something worth saying aloud.
+ *
+ * Code is announced rather than read: hearing a loop body character by
+ * character helps nobody, and the person can open the block if they want it.
+ */
+function plainText(markdown) {
+  return markdown
+    .replace(/```[\s\S]*?```/g, '（代码略）')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/[*_~]{1,3}/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+let speakingButton = null;
+
+function stopSpeaking(button) {
+  button.dataset.speaking = 'false';
+  button.setAttribute('aria-label', '朗读');
+  button.title = '朗读';
+  if (speakingButton === button) speakingButton = null;
+}
+
+/**
+ * Read a reply aloud, or stop it if it is already speaking.
+ *
+ * `speechSynthesis` is browser-only and absent in the test shim, so the guard is
+ * what keeps a click from throwing there. Chinese is pinned because the reply
+ * is Chinese and a system default of English turns it into noise.
+ */
+function toggleSpeak(button, content) {
+  const synth = window.speechSynthesis;
+  const Utterance = window.SpeechSynthesisUtterance;
+  if (!synth || typeof Utterance !== 'function') {
+    notice('这个浏览器不支持朗读。');
+    return;
+  }
+  if (button.dataset.speaking === 'true') {
+    synth.cancel();
+    stopSpeaking(button);
+    return;
+  }
+  if (speakingButton && speakingButton !== button) {
+    synth.cancel();
+    stopSpeaking(speakingButton);
+  }
+
+  const utterance = new Utterance(plainText(content));
+  utterance.lang = 'zh-CN';
+  utterance.rate = 1;
+  utterance.onend = () => stopSpeaking(button);
+  utterance.onerror = () => stopSpeaking(button);
+  speakingButton = button;
+  button.dataset.speaking = 'true';
+  button.setAttribute('aria-label', '停止朗读');
+  button.title = '停止朗读';
+  synth.speak(utterance);
+}
+
+/** A local export: the Web Share sheet when there is one, a file when not. */
+async function shareText(text, filename) {
+  if (navigator.share) {
+    try {
+      await navigator.share({ text });
+      return;
+    } catch (error) {
+      // A canceled share is not a failure and must not fall through to a
+      // download the person did not ask for.
+      if (error?.name === 'AbortError') return;
+    }
+  }
+  downloadText(filename, text);
+}
+
+function downloadText(filename, text) {
+  const host = document.body;
+  if (!host || typeof URL.createObjectURL !== 'function' || typeof Blob !== 'function') {
+    notice('这个浏览器不支持导出。');
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  host.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** The whole thread as Markdown, for keeping or handing to someone else. */
+async function exportConversation() {
+  if (!state.conversationId) {
+    notice('还没有对话可以导出。');
+    return;
+  }
+  const response = await fetch(`/api/conversations/${state.conversationId}/messages`).catch(
+    () => null,
+  );
+  if (!response || !response.ok) {
+    notice('读不到这段对话。');
+    return;
+  }
+  const { messages = [] } = await response.json();
+  const body = messages
+    .map((message) => `${message.role === 'user' ? '你' : 'Eunoia'}：\n${message.content}`)
+    .join('\n\n');
+  await shareText(`# Eunoia 对话\n\n${body}\n`, 'eunoia-conversation.md');
+}
+
+let messageMenu = null;
+
+function closeMessageMenu() {
+  if (messageMenu) messageMenu.remove();
+  messageMenu = null;
+}
+
+function openMessageMenu(anchor, content) {
+  closeMessageMenu();
+  const menu = el('div', 'msg-menu');
+  menu.setAttribute('role', 'menu');
+
+  const plain = el('button', null, '复制纯文本');
+  plain.type = 'button';
+  plain.onclick = () => {
+    closeMessageMenu();
+    void copyText(plainText(content)).then((ok) => {
+      if (!ok) notice('复制失败，可能需要先点一下页面。');
+    });
+  };
+
+  const exportThread = el('button', null, '导出整段对话');
+  exportThread.type = 'button';
+  exportThread.onclick = () => {
+    closeMessageMenu();
+    void exportConversation();
+  };
+
+  menu.append(plain, exportThread);
+  const host = document.body ?? anchor.parent ?? anchor;
+  host.append(menu);
+
+  if (document.body) {
+    // Fixed positioning keeps the menu out of the bubble's overflow and off the
+    // transcript scroll. The shim has no layout, so it simply lands appended.
+    const rect = anchor.getBoundingClientRect();
+    menu.style.top = `${Math.round(rect.bottom + 6)}px`;
+    menu.style.left = `${Math.max(8, Math.round(rect.right - 152))}px`;
+  }
+
+  messageMenu = menu;
+  // The click that opened the menu is still bubbling; close on the next one.
+  setTimeout(() => {
+    document.addEventListener('click', closeMessageMenu, { once: true });
+  }, 0);
+}
+
+/**
+ * The action row under an assistant reply: copy, read aloud, export, regenerate
+ * (last reply only), more. Rating controls stay text so they remain obvious.
+ */
+function addMessageActions(
+  actions,
+  { content, messageId, canRegenerate = false, regenerate = null },
+) {
+  actions.textContent = '';
+  if (content && content.trim().length > 0) {
+    const copy = actionButton('copy', '复制', () => void copyWithFeedback(copy, content));
+    const speak = actionButton('speak', '朗读', () => toggleSpeak(speak, content));
+    const share = actionButton('share', '导出', () => void shareText(content, 'eunoia-reply.md'));
+    const more = actionButton('more', '更多', () => openMessageMenu(more, content));
+    actions.append(copy, speak, share);
+    if (canRegenerate && regenerate) {
+      const again = actionButton('regenerate', '重新生成', regenerate);
+      again.classList.add('msg-regenerate');
+      actions.append(again);
+    }
+    actions.append(more);
+  }
+  if (messageId) addFeedback(actions, messageId);
 }
 
 /**
@@ -1228,8 +1470,118 @@ function addContinueAction(note, onContinue) {
   note.append(again);
 }
 
+const MAX_ATTACHMENTS = 5;
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+function humanBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * A conversation is where uploads live, so attaching a file before the first
+ * message creates the thread here rather than making the person send something
+ * first. The chat request then joins it like any other.
+ */
+async function ensureConversationForUpload() {
+  if (state.conversationId) return state.conversationId;
+  const response = await fetch('/api/conversations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  }).catch(() => null);
+  if (!response || !response.ok) throw new Error('创建会话失败');
+  const payload = await response.json().catch(() => ({}));
+  const id = payload?.conversation?.id;
+  if (!id) throw new Error('创建会话失败');
+  rememberConversation(id);
+  void refreshHistory();
+  return id;
+}
+
+function renderAttachments() {
+  attachRow.textContent = '';
+  attachRow.hidden = state.attachments.length === 0 && state.uploading === 0;
+  for (const [index, file] of state.attachments.entries()) {
+    const chip = el('span', 'attach-chip');
+    chip.append(el('span', 'name', file.name), el('span', 'size', humanBytes(file.bytes)));
+    const remove = el('button', null, '×');
+    remove.type = 'button';
+    remove.setAttribute('aria-label', `移除 ${file.name}`);
+    remove.onclick = () => {
+      state.attachments.splice(index, 1);
+      renderAttachments();
+    };
+    chip.append(remove);
+    attachRow.append(chip);
+  }
+  if (state.uploading > 0) {
+    const pending = el('span', 'attach-chip', '上传中…');
+    pending.dataset.state = 'uploading';
+    attachRow.append(pending);
+  }
+}
+
+/**
+ * Upload files one at a time.
+ *
+ * Sequential rather than `Promise.all`: the failure message names the file, and
+ * five parallel 10 MB uploads on a local server gain nothing but a bigger memory
+ * spike. A failed file is skipped; the others still go.
+ */
+async function addFiles(files) {
+  for (const file of Array.from(files ?? [])) {
+    if (state.attachments.length + state.uploading >= MAX_ATTACHMENTS) {
+      notice(`一次最多附上 ${MAX_ATTACHMENTS} 个文件。`);
+      break;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      notice(`${file.name} 超过 10 MB，没有上传。`);
+      continue;
+    }
+
+    state.uploading += 1;
+    renderAttachments();
+    try {
+      const conversationId = await ensureConversationForUpload();
+      const query =
+        `conversationId=${encodeURIComponent(conversationId)}` +
+        `&name=${encodeURIComponent(file.name)}`;
+      const response = await fetch(`/api/uploads?${query}`, {
+        method: 'POST',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file,
+      }).catch(() => null);
+      const payload = await response?.json().catch(() => ({}));
+      if (!response || !response.ok || !payload?.attachment) {
+        throw new Error(payload?.error || `HTTP ${response?.status ?? '网络错误'}`);
+      }
+      state.attachments.push(payload.attachment);
+    } catch (error) {
+      notice(`上传失败：${error?.message ?? String(error)}`);
+    } finally {
+      state.uploading -= 1;
+      renderAttachments();
+    }
+  }
+}
+
+/** Rerun the last reply: drop it, then let the server repeat the user turn. */
+function regenerateTurn(turnEl) {
+  if (state.sending || !state.conversationId) return;
+  turnEl.remove();
+  void send('', { regenerate: true });
+}
+
 async function send(text, options = {}) {
   if (state.sending) return;
+  const regenerate = options.regenerate === true;
+  if (regenerate && !state.conversationId) return;
+  if (!regenerate && state.uploading > 0) {
+    notice('文件还在上传，等它完成再发送。');
+    return;
+  }
   state.sending = true;
   const turn = {
     id: newTurnId(),
@@ -1242,20 +1594,27 @@ async function send(text, options = {}) {
   // disabled button never receives the click. `type="button"` plus the
   // `state.sending` guard is what prevents a second turn, not `disabled`.
   setSendMode('stop');
-  // A continuation is not what the person was typing; keep any draft.
-  if (!options.continue) {
+  // A continuation or a regeneration is not what the person was typing; keep
+  // any draft.
+  if (!options.continue && !regenerate) {
     input.value = '';
     resize();
   }
 
-  // The server derives a title from the first message, but the sidebar and the
-  // topbar should not sit on "新的对话" while it does. This is the same rule.
-  if (!state.conversationId || !conversationTitles.get(state.conversationId)) {
-    setThreadTitle(deriveTitle(text));
+  if (!regenerate) {
+    // Only the newest reply can be regenerated; the previous turn's control is
+    // no longer the last one once this send starts.
+    for (const node of transcript.querySelectorAll('.msg-regenerate')) node.remove();
+
+    // The server derives a title from the first message, but the sidebar and the
+    // topbar should not sit on "新的对话" while it does. This is the same rule.
+    if (!state.conversationId || !conversationTitles.get(state.conversationId)) {
+      setThreadTitle(deriveTitle(text));
+    }
+    addTurn('user', text);
   }
 
-  addTurn('user', text);
-  const { bubble, text: body, note, actions } = addTurn('assistant');
+  const { turn: turnEl, bubble, text: body, note, actions } = addTurn('assistant');
   const waiting = dots();
   body.append(waiting);
   body.dataset.streaming = 'true';
@@ -1324,17 +1683,31 @@ async function send(text, options = {}) {
   let terminal = false;
 
   try {
-    const response = await fetch('/api/chat', {
+    const endpoint = regenerate ? '/api/chat/regenerate' : '/api/chat';
+    const payload = regenerate
+      ? { conversationId: state.conversationId, turnId: turn.id }
+      : {
+          message: text,
+          conversationId: state.conversationId,
+          turnId: turn.id,
+          ...(options.continue ? { continue: true } : {}),
+          ...(state.attachments.length > 0
+            ? { attachments: state.attachments.map((file) => file.path) }
+            : {}),
+        };
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: text,
-        conversationId: state.conversationId,
-        turnId: turn.id,
-        ...(options.continue ? { continue: true } : {}),
-      }),
+      body: JSON.stringify(payload),
       signal: turn.controller.signal,
     });
+
+    if (!regenerate && state.attachments.length > 0) {
+      // They are uploaded and named in this request; keeping them on the strip
+      // would attach them to the next message too.
+      state.attachments = [];
+      renderAttachments();
+    }
 
     if (!response.ok || !response.body) {
       const detail = await response.json().catch(() => ({}));
@@ -1401,15 +1774,25 @@ async function send(text, options = {}) {
     // a genuinely cut connection is left as it was rather than guessed at.
     if (!terminal && turn.stopping) finishInterrupted(null);
 
-    // Copy is offered for an interrupted reply too: the half that was said is
-    // still the part someone might want to keep. It runs after feedback
-    // because that clears the row before appending the rating controls.
-    if (messageId) addFeedback(actions, messageId);
-    addCopy(actions, reply);
+    // The toolbar is added for an interrupted reply too when there is text:
+    // the half that was said is still the part someone might want to keep.
+    addMessageActions(actions, {
+      content: reply,
+      messageId,
+      canRegenerate: Boolean(messageId) && Boolean(state.conversationId),
+      regenerate: () => regenerateTurn(turnEl),
+    });
   } catch (error) {
     // A stop also surfaces as an AbortError when the connection had to be cut.
     if (isAbortError(error) && turn.stopping) {
       finishInterrupted(null);
+    } else if (regenerate) {
+      // The old turn was removed optimistically. Read the transcript back so a
+      // refused regeneration (409) restores the reply that is still in the
+      // database, rather than leaving an error bubble in its place.
+      turnEl.remove();
+      if (state.conversationId) await loadConversation(state.conversationId);
+      notice(`重新生成失败：${error.message}`);
     } else {
       // A half-shown thought with no ending is worse than none; close it.
       thinking?.abort();
@@ -1435,7 +1818,8 @@ async function send(text, options = {}) {
 }
 
 function addFeedback(actions, messageId) {
-  actions.textContent = '';
+  // The caller has already cleared the row for the toolbar; clearing here would
+  // delete the copy/read/export controls that precede the rating buttons.
   const up = el('button', null, '有帮助');
   const down = el('button', null, '不太对');
   up.type = 'button';
@@ -1523,21 +1907,29 @@ async function loadConversation(id) {
 
   transcript.textContent = '';
   transcript.classList.remove('empty');
+  // Staged files belong to the thread they were uploaded for.
+  state.attachments = [];
+  renderAttachments();
   for (const [index, message] of messages.entries()) {
-    const { note, actions } = addTurn(message.role, message.content);
+    const { turn, note, actions } = addTurn(message.role, message.content);
     if (message.role === 'assistant') {
+      const last = index === messages.length - 1;
       if (message.interrupted) {
         // Only the reply that is still the last thing said can be continued;
         // an older break was already continued by whatever follows it.
-        if (index === messages.length - 1) {
+        if (last) {
           addContinueAction(note, () => void send('继续', { continue: true }));
         } else {
           note.textContent = '已打断';
           note.classList.add('interrupted-note');
         }
       }
-      addFeedback(actions, message.id);
-      addCopy(actions, message.content);
+      addMessageActions(actions, {
+        content: message.content,
+        messageId: message.id,
+        canRegenerate: last,
+        regenerate: () => regenerateTurn(turn),
+      });
     }
   }
   rememberConversation(id);
@@ -1553,6 +1945,8 @@ function setHistoryNote(text) {
 /** Clear the transcript and forget which conversation it was. */
 function clearConversationView() {
   rememberConversation(null);
+  state.attachments = [];
+  renderAttachments();
   transcript.textContent = '';
   transcript.classList.add('empty');
   // On mobile the list covers the canvas; starting a new conversation is a
@@ -2923,6 +3317,23 @@ sendButton.addEventListener('click', (event) => {
   void stopTurn();
 });
 
+attachButton.onclick = () => {
+  // Before the first reply's `completed` there is no conversation id yet;
+  // uploading would create a second thread and attach the file to the wrong one.
+  if (state.sending) {
+    notice('等这一轮结束再添加文件。');
+    return;
+  }
+  if (typeof attachInput.click === 'function') attachInput.click();
+};
+attachInput.addEventListener('change', () => {
+  // Copy before clearing: `input.value = ''` empties the live FileList, and an
+  // empty list would make the upload look like it silently did nothing.
+  const files = Array.from(attachInput.files ?? []);
+  attachInput.value = '';
+  void addFiles(files);
+});
+
 // Forget the id as well as clearing the screen: otherwise the next reload
 // would pull the old conversation back and the "new" one would have been a view
 // change rather than a new conversation.
@@ -2970,6 +3381,10 @@ document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
   // Escape stops a running turn — but a menu or drawer is the closer thing on
   // screen, so it closes first and the turn is not stopped by surprise.
+  if (messageMenu) {
+    closeMessageMenu();
+    return;
+  }
   if (isPermissionMenuOpen()) closePermissionMenu();
   const openPanel = ['drawer', 'history'].find((id) => $(id).dataset.open === 'true');
   if (openPanel) {

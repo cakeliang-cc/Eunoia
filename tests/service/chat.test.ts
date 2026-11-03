@@ -17,6 +17,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { InMemoryStore } from '../../src/db/in-memory-store.ts';
+import { SessionService } from '../../src/session/service.ts';
 import { CRISIS_FALLBACK } from '../../src/safety/response.ts';
 import { collectTurn, runTurn, type TurnRunner } from '../../src/service/chat.ts';
 import type { AgentEvent } from '../../src/agent/events.ts';
@@ -714,5 +715,76 @@ describe('interrupt and continue', () => {
     await drain({ store, runner: capturing }, { userId: USER, message: '在吗' });
 
     expect(context).not.toContain('继续被打断的回复');
+  });
+});
+
+describe('regeneration and attachments', () => {
+  it('reruns the last user message without appending a duplicate', async () => {
+    const first = await drain({ store, runner: fakeRunner('第一版。') }, {
+      userId: USER,
+      message: '第一句',
+    });
+    const conversationId = completedOf(first)?.conversationId as string;
+    expect(conversationId).toBeTruthy();
+
+    // The route removes the reply being replaced before starting the turn.
+    const rewound = await new SessionService(store).rewind(USER, conversationId);
+    expect(rewound?.removed).toBe(1);
+    expect((await store.listMessages(USER, conversationId)).map((m) => m.content)).toEqual(['第一句']);
+
+    let seenMessage = '';
+    let seenHistory: { role: string; content: string }[] = [];
+    const capturing: TurnRunner = async function* (_agent, message, options) {
+      seenMessage = message;
+      seenHistory = (options?.history ?? []).map((turn) => ({
+        role: turn.role,
+        content: turn.content,
+      }));
+      yield { type: 'completed', text: '第二版。' };
+    };
+
+    const events = await drain(
+      { store, runner: capturing },
+      { userId: USER, conversationId, message: '', regenerate: true },
+    );
+
+    expect(completedOf(events)?.text).toBe('第二版。');
+    expect(seenMessage).toBe('第一句');
+    // The rerun message is the current input, not also a history entry.
+    expect(seenHistory).toEqual([]);
+    expect((await store.listMessages(USER, conversationId)).map((m) => m.content)).toEqual([
+      '第一句',
+      '第二版。',
+    ]);
+  });
+
+  it('tells the model about attached files without inlining them', async () => {
+    let context = '';
+    const capturing: TurnRunner = async function* (_agent, _message, options) {
+      context = options?.context ?? '';
+      yield { type: 'completed', text: '看到了。' };
+    };
+
+    await drain(
+      { store, runner: capturing },
+      {
+        userId: USER,
+        message: '看看这个',
+        attachments: [
+          {
+            path: '.eunoia/uploads/c1/shot.png',
+            name: 'shot.png',
+            mime: 'image/png',
+            bytes: 2048,
+          },
+        ],
+      },
+    );
+
+    expect(context).toContain('.eunoia/uploads/c1/shot.png');
+    expect(context).toContain('image/png');
+    expect(context).toContain('2.0 KB');
+    // This model cannot see images; the prompt must not let it pretend it can.
+    expect(context).toContain('图片不会作为视觉输入');
   });
 });

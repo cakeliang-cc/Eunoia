@@ -32,6 +32,8 @@ export class El {
   scrollHeight = 0;
   clientHeight = 0;
   value = '' as string;
+  /** Set by the upload test; the real element's `files` is a FileList. */
+  files: unknown = null;
   title = '';
   disabled = false;
   onclick: (() => void) | null = null;
@@ -281,8 +283,13 @@ export async function boot(options: {
   };
   (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
-    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
     const headers = (init?.headers ?? {}) as Record<string, string>;
+    const contentType = String(headers['Content-Type'] ?? headers['content-type'] ?? '');
+    // An upload's body is a File, not JSON; only parse what claims to be JSON.
+    let body: Record<string, unknown> | null = null;
+    if (typeof init?.body === 'string' && /json/i.test(contentType)) {
+      body = JSON.parse(init.body) as Record<string, unknown>;
+    }
     requests.push({ url, method, body, headers });
 
     // The stream the turn is read from, for whatever asked for the chat route.

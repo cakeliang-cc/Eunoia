@@ -543,6 +543,40 @@ export class SqliteStore implements Store {
     ).map(toMessage);
   }
 
+  async lastUserMessage(userId: string, conversationId: string): Promise<Message | null> {
+    const row = this.#get<MessageRow>(
+      `SELECT ${MESSAGE_COLUMNS} FROM messages
+        WHERE conversation_id = ? AND user_id = ? AND role = 'user'
+        ORDER BY seq DESC LIMIT 1`,
+      conversationId,
+      userId,
+    );
+    return row ? toMessage(row) : null;
+  }
+
+  async deleteMessagesAfter(
+    userId: string,
+    conversationId: string,
+    seq: number,
+  ): Promise<number> {
+    const result = this.#run(
+      `DELETE FROM messages
+        WHERE conversation_id = ? AND user_id = ? AND seq > ?`,
+      conversationId,
+      userId,
+      seq,
+    );
+    if (result.changes > 0) {
+      this.#run(
+        `UPDATE conversations SET last_turn_at = ? WHERE id = ? AND user_id = ?`,
+        nowIso(),
+        conversationId,
+        userId,
+      );
+    }
+    return result.changes;
+  }
+
   async getSummary(conversationId: string): Promise<ConversationSummary | null> {
     const row = this.#get<SummaryRow>(
       `SELECT conversation_id, summary, through_seq, summary_tokens,

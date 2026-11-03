@@ -17,6 +17,8 @@ export interface RuntimeContextOptions {
   readonly archivedSummaryBlock?: string | null;
   readonly situationBlock?: string | null;
   readonly workspaceBlock?: string | null;
+  /** Files the person attached for this turn, already uploaded to the workspace. */
+  readonly attachmentsBlock?: string | null;
   readonly skillsBlock?: string | null;
   readonly toolGuidelines?: string | null;
   readonly memoryBlock?: string | null;
@@ -43,6 +45,7 @@ export function buildRuntimeContext(options: RuntimeContextOptions = {}): string
     options.archivedSummaryBlock?.trim(),
     options.situationBlock?.trim(),
     options.workspaceBlock?.trim(),
+    options.attachmentsBlock?.trim(),
     options.memoryBlock?.trim(),
   ].filter((section): section is string => Boolean(section));
 

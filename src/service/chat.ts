@@ -129,11 +129,34 @@ export interface TurnDependencies {
   readonly timeZone?: string;
 }
 
+/**
+ * One file the person attached to this turn.
+ *
+ * `path` is workspace-relative and is what the model is told; the file itself
+ * was written by the upload endpoint. Only metadata crosses this boundary.
+ */
+export interface TurnAttachment {
+  readonly path: string;
+  readonly name: string;
+  readonly mime: string;
+  readonly bytes: number;
+}
+
 export interface TurnRequest {
   readonly userId: string;
   readonly conversationId?: string | null;
   readonly message: string;
   readonly signal?: AbortSignal;
+  /**
+   * Rerun the last user message instead of sending a new one.
+   *
+   * The HTTP layer has already removed the reply being replaced; this flag only
+   * tells the turn not to append a second copy of the user message and to take
+   * its text from the transcript.
+   */
+  readonly regenerate?: boolean;
+  /** Files uploaded for this turn, already on disk in the workspace. */
+  readonly attachments?: readonly TurnAttachment[];
   /**
    * The person pressed "continue" on an interrupted reply.
    *
@@ -174,9 +197,15 @@ export async function* runTurn(
   const runner = deps.runner ?? streamReply;
   const session = deps.session ?? new SessionService(deps.store);
 
-  const message = request.message?.trim() ?? '';
-  if (message.length === 0) {
+  let message = request.message?.trim() ?? '';
+  if (!request.regenerate && message.length === 0) {
     yield { type: 'error', message: 'message is empty', retryable: false };
+    return;
+  }
+  if (request.regenerate && !persist) {
+    // Rerunning is defined in terms of the stored transcript; without one there
+    // is nothing to rerun and nothing to replace.
+    yield { type: 'error', message: 'regenerate needs a persisted conversation', retryable: false };
     return;
   }
 
@@ -190,7 +219,17 @@ export async function* runTurn(
   const conversationId = conversation.id;
 
   let userMessage: Message | null = null;
-  if (persist) {
+  if (persist && request.regenerate) {
+    // The HTTP layer rewound the conversation to this message already. Reading
+    // it back (rather than trusting a request body) is what makes the rerun use
+    // exactly the text that is in the transcript.
+    userMessage = await session.lastUserMessage(request.userId, conversationId);
+    if (!userMessage) {
+      yield { type: 'error', message: 'nothing to regenerate', retryable: false };
+      return;
+    }
+    message = userMessage.content;
+  } else if (persist) {
     userMessage = await session.append({
       conversationId,
       userId: request.userId,
@@ -294,6 +333,9 @@ export async function* runTurn(
     skillsBlock: skills?.indexBlock() ?? '',
     toolGuidelines: toolRegistry.guidelines(),
     memoryBlock: context.memoryBlock,
+    ...(request.attachments && request.attachments.length > 0
+      ? { attachmentsBlock: renderAttachments(request.attachments) }
+      : {}),
     ...(request.continue ? { continuationBlock: CONTINUATION_DIRECTIVE } : {}),
     safetyDirective: safetyDirectiveFor(riskLevel),
   });
@@ -528,6 +570,34 @@ export async function collectTurn(
   return { reply, events, riskLevel };
 }
 
+
+/**
+ * The per-turn list of attached files.
+ *
+ * It names paths rather than embedding content: the files are already in the
+ * workspace, and a prompt that inlined a 10 MB attachment would be a worse
+ * failure than the one it was trying to avoid. The last line is deliberate —
+ * this model has no visual input, and a model that pretends to have seen an
+ * image is worse than one that says it cannot.
+ */
+function renderAttachments(attachments: readonly TurnAttachment[]): string {
+  const lines = [
+    '# 用户上传的文件',
+    '这些文件已经放进工作区，下面的路径相对于工作区根目录。需要时用 read、glob 或 bash 查看。',
+    '图片不会作为视觉输入送给你，只能当文件处理；不要假装看过图片里的内容。',
+    '',
+    ...attachments.map(
+      (file) => `- ${file.path}（${file.mime || '未知类型'}，${formatBytes(file.bytes)}）`,
+    ),
+  ];
+  return lines.join('\n');
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 /**
  * The per-turn statement of the sandbox.
