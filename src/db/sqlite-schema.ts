@@ -57,14 +57,16 @@ import { CHANGESET_SCHEMA } from '../session/changeset-schema.ts';
  * snapshots, prepared/sent tool actions, approval and elicitation interactions,
  * remote task handles, sealed credentials, conversation bindings, resource
  * snapshots and non-image artifacts. It is additive and idempotent (ADR 033).
- * Version 12 adds user-operable turn undo: `workspace_changesets` (one per
+ * Version 13 adds user-operable turn undo: `workspace_changesets` (one per
  * durable turn, with the digests around it and an optional checkpoint) and
  * `workspace_changeset_files` (per-file before/after facts and whether the file
- * has been restored). Additive and idempotent.
+ * has been restored). Additive and idempotent. It is numbered 13 because a
+ * parallel branch had already used 12 for its own tables; reusing the number
+ * would make a database stamped by one build silently skip the other's DDL.
  * The base schema is idempotent, so a version-1 file gets the tables by executing
  * the full schema; later files get the new columns by `ALTER TABLE`.
  */
-export const SQLITE_SCHEMA_VERSION = 12;
+export const SQLITE_SCHEMA_VERSION = 13;
 
 export const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -806,8 +808,8 @@ CREATE INDEX IF NOT EXISTS model_context_state_conversation_idx
 export const SQLITE_MIGRATION_11 = MCP_SCHEMA;
 
 /**
- * Version 11 → 12: turn-scoped workspace change sets.
+ * Version 12 → 13: turn-scoped workspace change sets.
  *
  * Additive and idempotent; the base schema already carries the same DDL.
  */
-export const SQLITE_MIGRATION_12 = CHANGESET_SCHEMA;
+export const SQLITE_MIGRATION_13 = CHANGESET_SCHEMA;

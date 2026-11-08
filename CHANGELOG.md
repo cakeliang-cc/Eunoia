@@ -15,7 +15,7 @@
   撤销只覆盖“当前内容仍等于本轮结束内容”的文件；用户后来的修改、删除或重建成为
   冲突而不是被覆盖，`force` 是显式覆盖。按文件记录恢复进度，重试幂等，全部完成才
   标记 undone。
-- **schema v12。** 新增 `workspace_changesets` 与 `workspace_changeset_files`；增量、
+- **schema v13。** 新增 `workspace_changesets` 与 `workspace_changeset_files`；增量、
   幂等、级联删除。变更集不复制整仓，只存修改前文本（≤512 KiB）和检查点引用。
 - **API 与界面。** `GET/POST /api/conversations/:id/changes…` 列表、明细与撤销；回合
   结束事件带 `workspaceChanges`，回复工具栏出现两次确认的“撤销本轮”，冲突逐条展示

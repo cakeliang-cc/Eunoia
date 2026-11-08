@@ -1,5 +1,5 @@
 /**
- * SQLite schema for turn-scoped workspace undo (ADR 036, schema version 12).
+ * SQLite schema for turn-scoped workspace undo (ADR 036, schema version 13).
  *
  * The rows are facts about files, not a copy of them: content is stored only
  * for edits the agent made through the file tools, and command-changed files

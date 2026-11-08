@@ -18,7 +18,11 @@
 
 ## 2 决定一：变更集是“这一轮的文件事实”
 
-新增 schema v12：
+新增 schema v13：
+
+（编号跳过 12：并行分支已经用 12 放它自己的表。若两个构建都用 12，先启动的那个会把
+`user_version` 写成 12，后启动的就会静默跳过自己的 DDL。表本身全部 `IF NOT EXISTS`，
+但版本号必须唯一。）
 
 - `workspace_changesets`：每轮一行，保存 turnId、workspaceId、前后 manifest 摘要、
   文件计数、可选 checkpointId、状态（available/undone/partial）；

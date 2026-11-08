@@ -25,29 +25,17 @@
  * See docs/adr/037-semantic-code-tools.md.
  */
 
-import { createRequire } from 'node:module';
 import type * as TS from 'typescript';
 import { z } from 'zod';
 import { toolError, toolOk } from '../types.ts';
 import type { ToolContext, ToolResult } from '../types.ts';
 import { defineTool } from '../types.ts';
-
-const require = createRequire(import.meta.url);
-let tsModule: typeof TS | null = null;
-
-function loadTypeScript(): typeof TS {
-  if (tsModule) return tsModule;
-  try {
-    tsModule = require('typescript') as typeof TS;
-    return tsModule;
-  } catch (error) {
-    throw new Error(
-      `TypeScript is not installed, so semantic tools are unavailable: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
-}
+import {
+  ambientTypeOptions,
+  loadTypeScript,
+  readCompilerFile,
+  typescriptLibDir,
+} from '../../semantic/toolchain.ts';
 
 /** Extensions this service understands. A `.py` file is refused, not guessed at. */
 export const SEMANTIC_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'] as const;
@@ -65,7 +53,14 @@ const MAX_DIAGNOSTICS = 50;
  * and reporting "Cannot find name 'Promise'" for every file would bury the real
  * errors. These codes are filtered only when no lib file was loaded.
  */
-const MISSING_LIB_CODES = new Set([2304, 2318, 2583, 2584, 2792, 7016, 2307]);
+const MISSING_LIB_CODES = new Set([2304, 2318, 2583, 2584, 2792, 7016]);
+/**
+ * Module-resolution diagnostics this snapshot cannot avoid: the workspace's
+ * `node_modules` packages are deliberately not loaded. Hiding a broken relative
+ * import would be worse, but those resolve through the loaded files and are
+ * still reported.
+ */
+const UNRESOLVED_PACKAGE_CODES = new Set([2307, 2792, 7016]);
 
 interface SemanticFile {
   readonly path: string;
@@ -124,15 +119,23 @@ async function loadProject(context: ToolContext): Promise<SemanticProject | null
     files.set(normalize(path), { path: normalize(path), text });
   }
 
+  // The compiler's own lib and ambient types are read through the toolchain
+  // module; the tool itself only ever reads workspace files through the port.
+  const hasLib = typescriptLibDir() !== null;
+  const ambientTypes = ambientTypeOptions();
+
   const host: TS.LanguageServiceHost = {
     getScriptFileNames: () => [...files.keys()],
     getScriptVersion: () => '1',
     getScriptSnapshot: (fileName) => {
       const file = files.get(normalize(fileName));
       if (file) return ts.ScriptSnapshot.fromString(file.text);
-      // The standard library is not part of the workspace. Returning undefined
-      // is honest; the diagnostics that follow are filtered accordingly.
-      return undefined;
+      // The standard library is not part of the workspace, but the compiler
+      // still needs it for primitive/Promise types. `getScriptSnapshot` is the
+      // path the language service actually reads, so the lib fallback goes here
+      // as well as in `readFile`.
+      const compilerFile = readCompilerFile(fileName);
+      return compilerFile ? ts.ScriptSnapshot.fromString(compilerFile) : undefined;
     },
     getCurrentDirectory: () => '/',
     getCompilationSettings: () => ({
@@ -142,14 +145,22 @@ async function loadProject(context: ToolContext): Promise<SemanticProject | null
       target: ts.ScriptTarget.ES2022,
       module: ts.ModuleKind.ESNext,
       moduleResolution: ts.ModuleResolutionKind.Bundler,
-      strict: false,
+      // The project itself is strict; a looser service would report a
+      // different program than `tsc` and make the tool untrustworthy.
+      strict: true,
       noEmit: true,
       skipLibCheck: true,
-      types: [],
+      // This repository imports `./x.ts` directly (Node type stripping), so a
+      // language service that rejects the extension would report a diagnostic
+      // on almost every file.
+      allowImportingTsExtensions: true,
+      ...ambientTypes,
     }),
-    getDefaultLibFileName: () => '/lib.d.ts',
-    fileExists: (fileName) => files.has(normalize(fileName)),
-    readFile: (fileName) => files.get(normalize(fileName))?.text,
+    getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
+    fileExists: (fileName) =>
+      files.has(normalize(fileName)) || readCompilerFile(fileName) !== undefined,
+    readFile: (fileName) =>
+      files.get(normalize(fileName))?.text ?? readCompilerFile(fileName),
     readDirectory: () => [...files.keys()],
   };
   return {
@@ -158,7 +169,7 @@ async function loadProject(context: ToolContext): Promise<SemanticProject | null
     files,
     truncated: paths.size >= MAX_FILES,
     skipped,
-    hasLib: [...files.keys()].some((path) => /(^|\/)lib\.[^/]*\.d\.ts$/.test(path)),
+    hasLib,
   };
 }
 
@@ -464,6 +475,7 @@ export const diagnosticsTool = defineTool({
         ...project.service.getSemanticDiagnostics(target),
       ];
       for (const diagnostic of all) {
+        if (UNRESOLVED_PACKAGE_CODES.has(diagnostic.code)) continue;
         if (!project.hasLib && MISSING_LIB_CODES.has(diagnostic.code)) continue;
         count += 1;
         if (rows.length >= MAX_DIAGNOSTICS) continue;

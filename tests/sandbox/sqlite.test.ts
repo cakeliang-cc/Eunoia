@@ -107,7 +107,7 @@ describe('schema and migration', () => {
     open.push(sqlite);
     const version = sqlite.database.prepare('PRAGMA user_version').get() as { user_version: number };
     expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
-    expect(SQLITE_SCHEMA_VERSION).toBe(12);
+    expect(SQLITE_SCHEMA_VERSION).toBe(13);
     const tables = (
       sqlite.database
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -163,7 +163,7 @@ describe('schema and migration', () => {
     open.push(opened);
     const version = opened.database.prepare('PRAGMA user_version').get() as { user_version: number };
     expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
-    expect(SQLITE_SCHEMA_VERSION).toBe(12);
+    expect(SQLITE_SCHEMA_VERSION).toBe(13);
     const columns = opened.database
       .prepare('PRAGMA table_info(sandboxes)')
       .all() as { name: string }[];
@@ -235,7 +235,7 @@ describe('schema and migration', () => {
     open.push(opened);
     const version = opened.database.prepare('PRAGMA user_version').get() as { user_version: number };
     expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
-    expect(SQLITE_SCHEMA_VERSION).toBe(12);
+    expect(SQLITE_SCHEMA_VERSION).toBe(13);
     const user = opened.database.prepare("SELECT id FROM users WHERE id = 'user-1'").get() as
       | { id: string }
       | undefined;
@@ -284,7 +284,7 @@ describe('schema and migration', () => {
     open.push(opened);
     const version = opened.database.prepare('PRAGMA user_version').get() as { user_version: number };
     expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
-    expect(SQLITE_SCHEMA_VERSION).toBe(12);
+    expect(SQLITE_SCHEMA_VERSION).toBe(13);
     const sandboxColumns = (
       opened.database.prepare('PRAGMA table_info(sandboxes)').all() as { name: string }[]
     ).map((column) => column.name);

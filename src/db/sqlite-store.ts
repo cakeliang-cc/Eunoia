@@ -79,7 +79,7 @@ import {
   SQLITE_MIGRATION_9,
   SQLITE_MIGRATION_10,
   SQLITE_MIGRATION_11,
-  SQLITE_MIGRATION_12,
+  SQLITE_MIGRATION_13,
   SQLITE_SCHEMA,
   SQLITE_SCHEMA_VERSION,
 } from './sqlite-schema.ts';
@@ -2132,8 +2132,8 @@ export function openSqliteStore(path: string): SqliteStore {
     if (version < 11) {
       db.exec(SQLITE_MIGRATION_11);
     }
-    if (version < 12) {
-      db.exec(SQLITE_MIGRATION_12);
+    if (version < 13) {
+      db.exec(SQLITE_MIGRATION_13);
     }
   }
   if (version < SQLITE_SCHEMA_VERSION) {
