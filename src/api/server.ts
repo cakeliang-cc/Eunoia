@@ -17,7 +17,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { access, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { dirname, extname, join, sep } from 'node:path';
+import { extname, join, sep } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { installProvider } from '../agent/model-client.ts';
@@ -2450,7 +2451,16 @@ export function createApp(deps: AppDependencies) {
       return;
     }
 
-    const url = new URL(req.url ?? '/', 'http://localhost');
+    // A malformed request target (for example `//`) must be a 400, not an
+    // exception that takes the process down: anyone who can reach the socket
+    // can send one line.
+    let url: URL;
+    try {
+      url = new URL(req.url ?? '/', 'http://localhost');
+    } catch {
+      sendJson(res, 400, { error: 'invalid request target' });
+      return;
+    }
 
     void (async () => {
       try {
@@ -2679,7 +2689,9 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
       ...(sandboxPlatform ? { provider: sandboxPlatform.provider } : {}),
       options: {
         sourceRoot: sandboxPlatform?.settings.workspace.sourceRoot ?? null,
-        storageRoot: dirname(sqlitePath()),
+        storageRoot:
+          process.env.TEAM_WORKSPACE_ROOT?.trim() ||
+          join(homedir(), '.eunoia', 'team-workspaces'),
       },
     });
     teamService = new TeamService({

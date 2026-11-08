@@ -187,6 +187,20 @@ curl -s http://127.0.0.1:8790/api/teams/runs/<runId>/report
 - 工作区快照位于应用数据目录的 `team-workspaces/` 下；`cleanup` 只有在无引用时才删除。
 - 本地未提交的 MCP 开发线保持原样，未提交、未删除。
 
-## 10. 结论
+## 10. 构建、迁移与重启验证（2026-11-08）
+
+- **备份**：迁移前把 `data/eunoia.sqlite` 复制到 `backups/eunoia-before-team-20261108-181456.sqlite`。
+- **构建**：`npm run build` 成功；`dist/api/server.js` 可启动。
+- **迁移**：`npm run migrate` 输出 `schema ready · sqlite`；`PRAGMA user_version = 12`；11 张 `team_*` 表存在。
+- **服务进程**：`127.0.0.1:8787` 当时由另一个工作树 `.worktrees/mcp` 的进程（PID 13052）占用，**未终止他人进程**；本次构建的服务启动在 `127.0.0.1:8788`（`PORT=8788 npm start`），使用主工作树与 `data/eunoia.sqlite`。
+- **健康**：`GET /health` → `status=ok, store=sqlite, persistent=true, team={enabled:true,persistence:store,recovery:on-start}`。
+- **静态资源**：`/team.js` 200、`/team.css` 200、`/` 200。
+- **功能入口**：创建会话后 `GET /api/teams?conversationId=…` 返回默认 Team（4 成员 / 3 并发 / 24 请求 / 400k 输入 / 32k 输出）；`POST /api/teams/config` 以 `expectedRevision=1` 切到 delegation 成功并返回 revision 2；不存在 run 返回 404。
+- **修复的两个启动问题**：
+  1. Team 工作区根不能位于源目录内；默认改为 `~/.eunoia/team-workspaces`，可用 `TEAM_WORKSPACE_ROOT` 覆盖。
+  2. 畸形请求目标 `//` 曾让 `new URL` 抛异常并结束进程；现在返回 400，进程继续服务（验证 `// → 400` 后 `/health` 仍为 ok）。
+- 说明：`8787` 仍是另一工作树的进程；如果要求主工作树占用 8787，需要在对方工作结束后自行停止该进程，再以 `PORT=8787 npm start` 启动。本报告不擅自终止并行开发进程。
+
+## 11. 结论
 
 本次交付了可运行的 Subagent 运行时、持久 Team 任务板、CAS/租约/outbox、全队预算与模型许可、隔离工作区与冲突集成模块、API、前端抽屉与 1533 项通过的离线测试；但 **T01–T60 与 E01–E06 没有全部通过**，因此不能声称"具备完整 Team 能力"。按计划第 2 节和第 12 节，容器/MCP/真实模型相关项必须标记阻塞或失败，不应以替身测试冒充通过。后续补齐顺序建议：MCP 工具授权与审批 → 图片授权/预算 → steering → 候选发布 API/UI → E01–E05 自动化 → E06 在更小任务或更高部署预算下重跑。
