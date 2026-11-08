@@ -30,6 +30,11 @@ import {
 } from './catalog.ts';
 import { McpConnection, describeConnectionError, type ElicitationRequest, type RawCallResult } from './client.ts';
 import { mapCallResult, type MappedResult } from './content.ts';
+import {
+  applyBrowserOutput,
+  readBrowserScreenshot,
+  type BrowserOutputOptions,
+} from './browser-output.ts';
 import { McpCredentialVault, MCP_REDACTOR } from './credentials.ts';
 import type { McpStore } from './store.ts';
 import {
@@ -81,6 +86,14 @@ export interface ManagerDeps {
   }) => Promise<{ action: 'accept' | 'decline' | 'cancel'; content?: Record<string, unknown> }>;
   /** Injectable for tests: build a connection without the SDK. */
   readonly connect?: typeof McpConnection.open;
+  /**
+   * Browser screenshot file adapter (R06).
+   *
+   * Production leaves this empty: the adapter uses the process cwd, the media
+   * byte limit supplied by the runtime, and the real filesystem. Tests inject a
+   * temporary base directory and a filesystem spy.
+   */
+  readonly browserOutput?: BrowserOutputOptions;
 }
 
 const MAX_CONNECT_ATTEMPTS = 5;
@@ -95,6 +108,7 @@ export class McpClientManager {
   readonly #onStatus: ManagerDeps['onStatus'];
   readonly #onElicit: ManagerDeps['onElicit'];
   readonly #open: typeof McpConnection.open;
+  readonly #browserOutput: BrowserOutputOptions;
   readonly #live = new Map<string, LiveConnection>();
   readonly #statuses = new Map<string, McpServerStatus>();
   readonly #retry = new Map<string, { attempts: number; timer: NodeJS.Timeout | null; nextAt: Date }>();
@@ -123,6 +137,7 @@ export class McpClientManager {
     this.#onStatus = deps.onStatus;
     this.#onElicit = deps.onElicit;
     this.#open = deps.connect ?? McpConnection.open;
+    this.#browserOutput = deps.browserOutput ?? {};
   }
 
   onStatusChange(listener: (userId: string, serverId: string, status: McpServerStatus) => void): () => void {
@@ -708,14 +723,38 @@ export class McpClientManager {
       ...(input.importArtifact ? { importArtifact: input.importArtifact } : {}),
     });
 
+    // R06: a browser screenshot may arrive as a file path instead of image
+    // bytes. The adapter owns its own trust rules (allowlisted tool, configured
+    // --output-dir, realpath containment, real decode); it never scans arbitrary
+    // text. When the server already sent an image block, nothing is added.
+    let result = mapped;
+    const hasImage = (mapped.result.content ?? []).some((block) => block.type === 'image');
+    if (!hasImage) {
+      const browser = await readBrowserScreenshot({
+        config: record.config,
+        toolName: entry.originalName,
+        result: raw,
+        arguments: input.arguments,
+        ...(input.importImage ? { importImage: input.importImage } : {}),
+        actionId: input.actionId,
+        connectionGeneration: this.#live.get(this.#key(input.userId, input.serverId))?.generation ?? null,
+        ...(this.#browserOutput.maxBytes !== undefined
+          ? { maxBytes: this.#browserOutput.maxBytes }
+          : {}),
+        ...(this.#browserOutput.cwd !== undefined ? { cwd: this.#browserOutput.cwd } : {}),
+        ...(this.#browserOutput.fs !== undefined ? { fs: this.#browserOutput.fs } : {}),
+      });
+      if (browser.state !== 'not_applicable') result = applyBrowserOutput(mapped, browser);
+    }
+
     await this.#store
       .updateMcpAction(input.userId, input.actionId, {
         state: raw.task ? 'running_task' : 'finished',
         conclusion: raw.isError ? 'failed' : 'succeeded',
-        resultJson: JSON.stringify(safeResultRecord(mapped.result)),
+        resultJson: JSON.stringify(safeResultRecord(result.result)),
         finishedAt: raw.task ? null : this.#now().toISOString(),
         ...(raw.isError
-          ? { error: { code: 'MCP_REMOTE_FAILED', message: mapped.result.error ?? '远程工具返回失败' } }
+          ? { error: { code: 'MCP_REMOTE_FAILED', message: result.result.error ?? '远程工具返回失败' } }
           : {}),
       })
       .catch(() => undefined);
@@ -744,7 +783,7 @@ export class McpClientManager {
       await this.#store.createMcpTask(task).catch(() => undefined);
     }
 
-    return mapped;
+    return result;
   }
 
   // ------------------------------------------------------------- resources ---

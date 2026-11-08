@@ -174,6 +174,8 @@ export interface ReadRecord {
   readonly chars: number;
   readonly mtimeMs: number;
   readonly size: number;
+  /** SHA-256 of the delivered text, used for write-time version checks (R03). */
+  readonly sha256?: string;
 }
 
 /** A per-turn ledger of file content already delivered to the model. */
@@ -199,6 +201,11 @@ export interface ReadLedger {
    * else has changed since.
    */
   hasComplete(path: string, version?: { readonly mtimeMs: number; readonly size: number }): boolean;
+  /** Digest of a complete delivery for this version, or null (R03). */
+  digestFor(
+    path: string,
+    version?: { readonly mtimeMs: number; readonly size: number },
+  ): string | null;
 }
 
 /**
@@ -261,6 +268,12 @@ export interface ToolContext {
   /** The persisted action id, when the turn is backed by a durable record. */
   readonly actionId?: string;
   /**
+   * Who this call runs as, and the intersected ceiling (R02).
+   *
+   * Injected by the server; a model argument can never set or widen it.
+   */
+  readonly scope?: import('./scope.ts').ExecutionScope;
+  /**
    * Undo journal: called before a tool overwrites or deletes a file.
    *
    * Present only when turn undo is armed. A patch that cannot journal its files
@@ -268,10 +281,63 @@ export interface ToolContext {
    * no button for it.
    */
   readonly changes?: ToolChangeJournal | null;
+  /**
+   * Where a host-side language server may run for this turn (ADR 037 / R10).
+   *
+   * Absent means "no host workspace root is known": the semantic tools stay on
+   * the in-memory TypeScript LanguageService and say so. The value is injected by
+   * the composition root from the sandbox session; a model argument can never
+   * supply or widen it.
+   */
+  readonly language?: ToolLanguagePort | null;
+}
+
+/**
+ * The host location a language server may use as its workspace root.
+ *
+ * `hostRoot` is the real project directory when the workspace is bound to one.
+ * When only a copy or mirror exists, `allowMirror` asks the semantic layer to
+ * create a bounded temporary mirror and label every result as a mirror; it is
+ * never presented as the real project.
+ */
+export interface ToolLanguagePort {
+  /** Absolute host directory of the workspace, when tools share the host tree. */
+  readonly hostRoot?: string | null;
+  /** Permit a bounded temp mirror when `hostRoot` is absent. */
+  readonly allowMirror?: boolean;
 }
 
 export interface ToolChangeJournal {
   beforeWrite(path: string): Promise<void>;
+  /**
+   * R03: version-checked write/edit under the workspace lock.
+   *
+   * Absent means the caller has no undo/journal context; the tool falls back to
+   * the workspace port, which still enforces path and policy checks.
+   */
+  writeText?(input: {
+    readonly path: string;
+    readonly content: string;
+    readonly expectedSha: string | null;
+  }): Promise<{ readonly path: string; readonly bytes: number; readonly lines: number; readonly created: boolean }>;
+  editText?(input: {
+    readonly path: string;
+    readonly oldString: string;
+    readonly newString: string;
+    readonly replaceAll: boolean;
+    readonly expectedSha: string | null;
+  }): Promise<{ readonly path: string; readonly replacements: number; readonly bytes: number }>;
+  /** Hold the internal write locks for every target path, in stable order. */
+  lockPaths?<T>(paths: readonly string[], run: () => Promise<T>): Promise<T>;
+  beginBatch?(input: {
+    readonly batchId: string;
+    readonly paths: readonly string[];
+    readonly before: Readonly<Record<string, string | null>>;
+    readonly after: Readonly<Record<string, string | null>>;
+  }): Promise<void>;
+  markBatchApplied?(batchId: string, path: string, afterSha: string | null): Promise<void>;
+  completeBatch?(batchId: string): Promise<void>;
+  markBatchReconciliation?(batchId: string, reasons: readonly string[]): Promise<void>;
 }
 
 // ------------------------------------------------------------------- ports ---
@@ -382,6 +448,17 @@ export interface ToolExecutor {
     readonly signal?: AbortSignal;
     readonly toolCallId: string;
   }): Promise<ToolExecutionResult>;
+  /**
+   * A raw TCP tunnel to one loopback port inside the execution environment.
+   *
+   * Preview ingress uses it; no model-facing tool exposes it. Implementations
+   * must keep the same sandbox boundary as `run` and must refuse a port outside
+   * the configured preview range.
+   */
+  tunnel?(input: {
+    readonly port: number;
+    readonly signal?: AbortSignal;
+  }): Promise<import('node:stream').Duplex>;
 }
 
 /**
@@ -428,6 +505,11 @@ export interface ToolSandboxSession {
   readonly cwd: ToolCwdPort;
   /** The path shown to the model; always the container mount, never a host path. */
   readonly displayPath: string;
+  /**
+   * Host root for the language server, when the sandbox has a real workspace
+   * directory. Optional so a test double that only reads files stays valid.
+   */
+  readonly language?: ToolLanguagePort | null;
 }
 
 export interface ToolExecutionResult {
@@ -561,6 +643,8 @@ export interface ToolPermissionRequest {
   readonly userId: string | null;
   readonly conversationId: string | null;
   readonly summary: string;
+  /** The server-resolved execution identity; never taken from tool arguments. */
+  readonly scope?: import('./scope.ts').ExecutionScope;
 }
 
 /**

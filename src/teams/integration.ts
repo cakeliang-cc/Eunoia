@@ -38,6 +38,7 @@ import type { IntegrationJournalEntry } from './store.ts';
 import type { ArtifactFile, ArtifactManifest } from './types.ts';
 import { TeamError } from './types.ts';
 import { artifactCandidateHash, normalizeArtifactPath } from './workspaces.ts';
+import { faultPoint } from '../observability/faults.ts';
 
 export interface ConflictReport {
   readonly path: string;
@@ -239,6 +240,12 @@ export interface PublishInput {
    * oversized files). Optional: a text-only candidate publishes without it.
    */
   readonly contentRoot?: string;
+  /**
+   * Optional durable journal file. Production callers do not need it; a fault
+   * test reads it after the publishing process is killed, when the in-memory
+   * array is gone.
+   */
+  readonly journalPath?: string;
 }
 
 export interface PublishResult {
@@ -297,7 +304,20 @@ export async function publishCandidate(input: PublishInput): Promise<PublishResu
     );
   }
 
-  const applied: string[] = [];
+  let applied: string[] = [];
+  if (input.journalPath) {
+    try {
+      const { readFile } = await import('node:fs/promises');
+      const prior = JSON.parse(await readFile(input.journalPath, 'utf8')) as {
+        applied?: unknown;
+      };
+      if (Array.isArray(prior.applied)) {
+        applied = prior.applied.filter((entry): entry is string => typeof entry === 'string');
+      }
+    } catch {
+      // No prior journal: a fresh publish.
+    }
+  }
   const skipped: string[] = [];
   const conflicts: ConflictReport[] = [];
   const journal: IntegrationJournalEntry[] = [];
@@ -309,6 +329,18 @@ export async function publishCandidate(input: PublishInput): Promise<PublishResu
     files: operations.map((operation) => operation.path),
     detail: input.idempotencyKey,
   });
+  const persist = async (): Promise<void> => {
+    if (!input.journalPath) return;
+    const { writeFile, rename } = await import('node:fs/promises');
+    const temporary = `${input.journalPath}.${process.pid}.tmp`;
+    await writeFile(
+      temporary,
+      `${JSON.stringify({ applied, journal }, null, 2)}\n`,
+      { mode: 0o600, encoding: 'utf8' },
+    );
+    await rename(temporary, input.journalPath);
+  };
+  await persist();
 
   const fail = (detail: string): PublishResult => {
     journal.push({ at: at(), action: 'failed', applied: [...applied], detail });
@@ -326,14 +358,26 @@ export async function publishCandidate(input: PublishInput): Promise<PublishResu
       if (operation.kind === 'delete') {
         const outcome = await applyDelete(root, operation, input);
         if (outcome.conflict) conflicts.push(outcome.conflict);
-        if (outcome.applied) applied.push(operation.path);
-        else skipped.push(operation.path);
+        if (outcome.applied) {
+          if (!applied.includes(operation.path)) applied.push(operation.path);
+          await persist();
+          await faultPoint('team.publish.after-file', {
+            path: operation.path,
+            applied: [...applied],
+          });
+        } else skipped.push(operation.path);
         continue;
       }
       const outcome = await applyWrite(root, operation, input, contentRoot);
       if (outcome.conflict) conflicts.push(outcome.conflict);
-      if (outcome.applied) applied.push(operation.path);
-      else skipped.push(operation.path);
+      if (outcome.applied) {
+        if (!applied.includes(operation.path)) applied.push(operation.path);
+        await persist();
+        await faultPoint('team.publish.after-file', {
+          path: operation.path,
+          applied: [...applied],
+        });
+      } else skipped.push(operation.path);
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     }
@@ -345,6 +389,7 @@ export async function publishCandidate(input: PublishInput): Promise<PublishResu
     files: [...applied],
     detail: input.idempotencyKey,
   });
+  await persist();
 
   return {
     ok: true,

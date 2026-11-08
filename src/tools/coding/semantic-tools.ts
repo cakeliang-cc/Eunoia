@@ -1,331 +1,221 @@
 /**
- * Semantic code tools: definition, references and diagnostics.
+ * Semantic code tools: definition, references, symbols and diagnostics.
  *
  * Text search answers "where does this string appear". These tools answer "what
  * does this identifier mean here, and who else depends on it", which is what a
  * change like "rename this function and update every caller" actually needs.
  *
- * The implementation runs the TypeScript language service over a bounded,
- * in-memory snapshot of the workspace. It deliberately does not spawn a language
- * server or index the project on disk:
+ * Two backends implement the same `LanguageProvider` seam:
  *
- *   - the sandbox owns the files; reading them through `ToolWorkspacePort` means
- *     the same path guards, ignore rules and size limits apply as for `read_file`;
- *   - a per-call program keeps the tool read-only and disappearable, with no
- *     daemon to supervise;
- *   - the loaded file set is bounded, and the tools say so instead of pretending
- *     to know about files they did not load.
+ *   - a real `typescript-language-server` over stdio when the turn has a host
+ *     workspace root (the project directory). That is the normal path: it sees
+ *     the workspace's tsconfig and dependencies, versions its documents and can
+ *     answer project-wide symbol queries;
+ *   - the bounded in-memory TypeScript `LanguageService` otherwise (unit tests,
+ *     workspaces without a host tree, or when the server cannot start).
+ *
+ * The tools never claim a backend they did not use. Every result carries
+ * `meta.language_server` with the actual backend, server name/version, position
+ * encoding, document version and any fallback reason.
+ *
+ * Positions are 1-based line/column where the column counts code points, or an
+ * identifier name. The 1-based → LSP UTF-16 conversion belongs to the provider,
+ * because the model and LSP disagree about what a "character" is for Chinese
+ * text and emoji.
  *
  * Only TypeScript/JavaScript is supported. That is stated in the description and
- * enforced with `SEMANTIC_UNSUPPORTED` for anything else — a text-search fallback
+ * enforced with an explicit error for anything else — a text-search fallback
  * would answer a different question and be wrong in the way this tool exists to
- * avoid. The `SemanticProject` seam is where an LSP adapter for other languages
- * would plug in without changing the tool contract.
+ * avoid.
  *
  * See docs/adr/037-semantic-code-tools.md.
  */
 
-import type * as TS from 'typescript';
 import { z } from 'zod';
 import { toolError, toolOk } from '../types.ts';
-import type { ToolContext, ToolResult } from '../types.ts';
+import type { ToolContext, ToolLanguagePort, ToolResult, ToolResultMeta } from '../types.ts';
 import { defineTool } from '../types.ts';
 import {
-  ambientTypeOptions,
-  loadTypeScript,
-  readCompilerFile,
-  typescriptLibDir,
-} from '../../semantic/toolchain.ts';
+  SEMANTIC_EXTENSIONS,
+  isSemanticPath,
+  normalizePath,
+} from '../../semantic/code-text.ts';
+import {
+  LanguageServiceProvider,
+  MAX_DIAGNOSTICS,
+  MAX_RESULTS,
+  collectWorkspaceScripts,
+  workspaceDocumentReader,
+} from '../../semantic/language-service-provider.ts';
+import {
+  SemanticProviderError,
+  acquireLanguageProvider,
+  type DiagnosticsResult,
+  type LanguageProvider,
+  type ProviderLocation,
+  type ProviderSymbol,
+} from '../../semantic/lsp-provider.ts';
 
-/** Extensions this service understands. A `.py` file is refused, not guessed at. */
-export const SEMANTIC_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'] as const;
+export { SEMANTIC_EXTENSIONS, isSemanticPath };
 
-/** How many files and bytes one call may load. */
-const MAX_FILES = 800;
-const MAX_TOTAL_BYTES = 8 * 1024 * 1024;
-const MAX_RESULTS = 100;
-const MAX_DIAGNOSTICS = 50;
+const MAX_SYMBOLS = 200;
+
+type ChosenProvider =
+  | {
+      readonly kind: 'ready';
+      readonly provider: LanguageProvider;
+      /** Non-null only when the language server was attempted and failed. */
+      readonly fallbackReason: string | null;
+      readonly release: () => void;
+    }
+  | { readonly kind: 'error'; readonly result: ToolResult };
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 /**
- * Diagnostics caused by not loading the standard library.
+ * Pick the backend for this call.
  *
- * A project-wide index would resolve `lib.d.ts`; this bounded snapshot does not,
- * and reporting "Cannot find name 'Promise'" for every file would bury the real
- * errors. These codes are filtered only when no lib file was loaded.
+ * When the context carries a `ToolLanguagePort`, the real server is attempted
+ * first. A startup failure falls back to the in-memory service with the actual
+ * reason recorded; a failure *after* a successful start is reported by the tool
+ * instead, because silently answering from a different engine would hide a real
+ * language-server fault.
  */
-const MISSING_LIB_CODES = new Set([2304, 2318, 2583, 2584, 2792, 7016]);
-/**
- * Module-resolution diagnostics this snapshot cannot avoid: the workspace's
- * `node_modules` packages are deliberately not loaded. Hiding a broken relative
- * import would be worse, but those resolve through the loaded files and are
- * still reported.
- */
-const UNRESOLVED_PACKAGE_CODES = new Set([2307, 2792, 7016]);
-
-interface SemanticFile {
-  readonly path: string;
-  readonly text: string;
-}
-
-interface SemanticProject {
-  readonly ts: typeof TS;
-  readonly service: TS.LanguageService;
-  readonly files: ReadonlyMap<string, SemanticFile>;
-  readonly truncated: boolean;
-  readonly skipped: number;
-  readonly hasLib: boolean;
-}
-
-const SCRIPT_PATTERNS = ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts', '**/*.js', '**/*.jsx', '**/*.mjs', '**/*.cjs'];
-
-export function isSemanticPath(path: string): boolean {
-  const lower = path.toLowerCase();
-  return SEMANTIC_EXTENSIONS.some((extension) => lower.endsWith(extension));
-}
-
-async function loadProject(context: ToolContext): Promise<SemanticProject | null> {
+async function chooseProvider(context: ToolContext): Promise<ChosenProvider> {
   const workspace = context.workspace;
-  if (!workspace) return null;
-  const ts = loadTypeScript();
-
-  const paths = new Set<string>();
-  for (const pattern of SCRIPT_PATTERNS) {
-    const found = await workspace.glob(pattern, MAX_FILES);
-    for (const path of found.paths) paths.add(path);
-    if (paths.size >= MAX_FILES) break;
-  }
-  const limited = [...paths].sort().slice(0, MAX_FILES);
-  const files = new Map<string, SemanticFile>();
-  let totalBytes = 0;
-  let skipped = 0;
-  for (const path of limited) {
-    if (!isSemanticPath(path)) continue;
-    let text: string;
+  if (!workspace) return { kind: 'error', result: toolError('no workspace is configured') };
+  const language: ToolLanguagePort | null = context.language ?? null;
+  let fallbackReason: string | null = null;
+  if (language) {
     try {
-      const slice = await workspace.readLines(path, 1, 0);
-      // `readLines` returns model-facing text with a line-number gutter. The
-      // compiler must see the file's actual bytes, so the gutter is removed.
-      text = stripLineNumbers(slice.text);
-    } catch {
-      skipped += 1;
-      continue;
+      const seed =
+        language.allowMirror === true && !language.hostRoot
+          ? (await collectWorkspaceScripts(workspace)).paths
+          : undefined;
+      const lease = await acquireLanguageProvider({
+        hostRoot: language.hostRoot ?? null,
+        allowMirror: language.allowMirror === true,
+        ...(seed ? { seedPaths: seed } : {}),
+        listDocuments: async () => (await collectWorkspaceScripts(workspace, 200)).paths,
+        readDocument: workspaceDocumentReader(workspace),
+      });
+      return { kind: 'ready', provider: lease.provider, fallbackReason: null, release: lease.release };
+    } catch (error) {
+      fallbackReason = messageOf(error);
     }
-    const bytes = Buffer.byteLength(text, 'utf8');
-    if (totalBytes + bytes > MAX_TOTAL_BYTES) {
-      skipped += 1;
-      continue;
-    }
-    totalBytes += bytes;
-    files.set(normalize(path), { path: normalize(path), text });
+  } else {
+    fallbackReason = '本轮没有宿主工作区根（ToolLanguagePort 未配置）';
   }
+  try {
+    const provider = await LanguageServiceProvider.create(workspace);
+    return {
+      kind: 'ready',
+      provider,
+      fallbackReason,
+      release: () => {
+        void provider.dispose();
+      },
+    };
+  } catch (error) {
+    return {
+      kind: 'error',
+      result: toolError(
+        `语义后端不可用：${messageOf(error)}${fallbackReason ? `（语言服务器：${fallbackReason}）` : ''}`,
+      ),
+    };
+  }
+}
 
-  // The compiler's own lib and ambient types are read through the toolchain
-  // module; the tool itself only ever reads workspace files through the port.
-  const hasLib = typescriptLibDir() !== null;
-  const ambientTypes = ambientTypeOptions();
-
-  const host: TS.LanguageServiceHost = {
-    getScriptFileNames: () => [...files.keys()],
-    getScriptVersion: () => '1',
-    getScriptSnapshot: (fileName) => {
-      const file = files.get(normalize(fileName));
-      if (file) return ts.ScriptSnapshot.fromString(file.text);
-      // The standard library is not part of the workspace, but the compiler
-      // still needs it for primitive/Promise types. `getScriptSnapshot` is the
-      // path the language service actually reads, so the lib fallback goes here
-      // as well as in `readFile`.
-      const compilerFile = readCompilerFile(fileName);
-      return compilerFile ? ts.ScriptSnapshot.fromString(compilerFile) : undefined;
-    },
-    getCurrentDirectory: () => '/',
-    getCompilationSettings: () => ({
-      allowJs: true,
-      checkJs: true,
-      jsx: ts.JsxEmit.Preserve,
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.ESNext,
-      moduleResolution: ts.ModuleResolutionKind.Bundler,
-      // The project itself is strict; a looser service would report a
-      // different program than `tsc` and make the tool untrustworthy.
-      strict: true,
-      noEmit: true,
-      skipLibCheck: true,
-      // This repository imports `./x.ts` directly (Node type stripping), so a
-      // language service that rejects the extension would report a diagnostic
-      // on almost every file.
-      allowImportingTsExtensions: true,
-      ...ambientTypes,
-    }),
-    getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
-    fileExists: (fileName) =>
-      files.has(normalize(fileName)) || readCompilerFile(fileName) !== undefined,
-    readFile: (fileName) =>
-      files.get(normalize(fileName))?.text ?? readCompilerFile(fileName),
-    readDirectory: () => [...files.keys()],
-  };
+function languageServerMeta(
+  provider: LanguageProvider,
+  fallbackReason: string | null,
+  summary: string,
+  extra: Record<string, unknown> = {},
+): ToolResultMeta {
+  const info = provider.info();
   return {
-    ts,
-    service: ts.createLanguageService(host, ts.createDocumentRegistry()),
-    files,
-    truncated: paths.size >= MAX_FILES,
-    skipped,
-    hasLib,
+    summary,
+    backend: info.backend,
+    language_server: {
+      backend: info.backend,
+      transport: info.transport ?? null,
+      server: info.server ?? null,
+      version: info.serverVersion ?? null,
+      pid: info.pid ?? null,
+      position_encoding: info.positionEncoding ?? null,
+      capabilities: info.capabilities ?? [],
+      scope: info.scope ?? null,
+      reconnects: info.reconnects,
+      cancellations: info.cancellations,
+      refused_server_requests: info.refusedServerRequests ?? 0,
+      open_documents: info.openDocuments ?? 0,
+      fallback_reason: fallbackReason,
+      ...extra,
+    },
+    ...extra,
   };
 }
 
-/** Remove the `\`   12\t\`` gutter that the read port adds for the model. */
-function stripLineNumbers(text: string): string {
-  return text
-    .split('\n')
-    .map((line) => line.replace(/^\s*\d+\t/, ''))
-    .join('\n');
+function backendNote(provider: LanguageProvider, fallbackReason: string | null, notes: readonly string[]): string {
+  const all = [...notes];
+  if (provider.backend === 'language_service') {
+    all.unshift(
+      `后端：内存 TypeScript LanguageService（未使用语言服务器${
+        fallbackReason ? `；原因：${fallbackReason}` : ''
+      }）`,
+    );
+  }
+  const unique = [...new Set(all.filter((note) => note.trim().length > 0))];
+  return unique.length > 0 ? `（${unique.join('；')}）` : '';
 }
 
-/** Workspace paths are relative with `/`; the service may answer absolute-ish ones. */
-function normalize(path: string): string {
-  return path.replace(/^\.\//, '').replace(/^\/+/, '');
+function providerFailure(
+  error: unknown,
+  provider: LanguageProvider,
+  fallbackReason: string | null,
+  extra: Record<string, unknown> = {},
+): ToolResult {
+  const message = messageOf(error);
+  const meta = languageServerMeta(provider, fallbackReason, 'semantic error', {
+    code: error instanceof SemanticProviderError ? error.code : 'ERROR',
+    ...extra,
+  });
+  return toolError(message, meta);
 }
 
-function assertSupported(project: SemanticProject, path: string): { readonly path: string; readonly file: SemanticFile } | ToolResult {
-  const normalized = normalize(path);
+function formatLocation(location: ProviderLocation): string {
+  return `${location.path}:${location.line}:${location.column}`;
+}
+
+function formatSymbol(symbol: ProviderSymbol): string {
+  return `${'  '.repeat(symbol.depth)}${symbol.kind} ${symbol.name} @${symbol.line}:${symbol.column}`;
+}
+
+function checkSemanticPath(path: string): ToolResult | null {
+  const normalized = normalizePath(path);
   if (!isSemanticPath(normalized)) {
     return toolError(
       `语义工具只支持 TypeScript/JavaScript（${SEMANTIC_EXTENSIONS.join(', ')}）。${normalized} 需要语言服务适配器，当前不会用文本搜索冒充。`,
       { unsupported: true },
     );
   }
-  const file = project.files.get(normalized);
-  if (!file) {
-    return toolError(
-      `没有加载 ${normalized}：它可能超过了本次上限（${MAX_FILES} 个文件 / ${Math.floor(
-        MAX_TOTAL_BYTES / 1024 / 1024,
-      )} MB），或不在工作区内。`,
-    );
-  }
-  return { path: normalized, file };
+  return null;
 }
 
-interface ResolvedPosition {
-  readonly path: string;
-  readonly offset: number;
-}
-
-/**
- * Resolve a position from line/column or from an identifier in the file.
- *
- * `symbol` is a convenience for the model, which often knows the name but not
- * the cursor: the first identifier token with that text is used. It is a token
- * match, not a substring search, so `add` does not match `address`.
- */
-function resolvePosition(
-  project: SemanticProject,
-  input: { readonly path: string; readonly line?: number; readonly column?: number; readonly symbol?: string },
-): ResolvedPosition | null {
-  const file = project.files.get(normalize(input.path));
-  if (!file) return null;
-  if (input.symbol && input.symbol.trim().length > 0) {
-    const needle = input.symbol.trim();
-    const scanner = project.ts.createScanner(
-      project.ts.ScriptTarget.Latest,
-      true,
-      project.ts.LanguageVariant.Standard,
-      file.text,
-    );
-    for (;;) {
-      const token = scanner.scan();
-      if (token === project.ts.SyntaxKind.EndOfFileToken) break;
-      if (scanner.getTokenText() === needle) {
-        return { path: file.path, offset: scanner.getTokenStart() };
-      }
-    }
-    return null;
-  }
-  if (!input.line || !input.column) return null;
-  const lineStarts = computeLineStarts(file.text);
-  const index = input.line - 1;
-  if (index < 0 || index >= lineStarts.length) return null;
-  const lineStart = lineStarts[index] as number;
-  const lineEnd = index + 1 < lineStarts.length ? (lineStarts[index + 1] as number) : file.text.length;
-  const lineText = file.text.slice(lineStart, lineEnd).replace(/\r?\n$/, '');
-  const characters = [...lineText];
-  const column = Math.max(0, input.column - 1);
-  // Columns are 1-based Unicode code points, not UTF-16 units. A model counting
-  // "characters" before a Chinese name or an emoji must get the same position a
-  // person does; the compiler offset is computed from that prefix.
-  const offset = lineStart + characters.slice(0, column).join('').length;
-  if (offset > lineStart + lineText.length) return null;
-  return { path: file.path, offset };
-}
-
-function formatLocation(project: SemanticProject, fileName: string, position: number): string {
-  const normalized = normalize(fileName);
-  const file = project.files.get(normalized);
-  if (!file) return `${normalized}:?`;
-  const { line, column } = lineAndColumn(file.text, position);
-  return `${normalized}:${line}:${column}`;
-}
-
-function computeLineStarts(text: string): number[] {
-  const starts = [0];
-  for (let index = 0; index < text.length; index += 1) {
-    if (text.charCodeAt(index) === 10) starts.push(index + 1);
-  }
-  return starts;
-}
-
-/** 1-based line and column, which is what a person and the model both use. */
-function lineAndColumn(text: string, position: number): { line: number; column: number } {
-  const starts = computeLineStarts(text);
-  let low = 0;
-  let high = starts.length - 1;
-  let line = 0;
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    if ((starts[mid] as number) <= position) {
-      line = mid;
-      low = mid + 1;
-    } else {
-      high = mid - 1;
-    }
-  }
-  const lineStart = starts[line] as number;
-  const prefix = text.slice(lineStart, position);
-  return { line: line + 1, column: [...prefix].length + 1 };
-}
-
-function lineAt(file: SemanticFile | undefined, position: number): string {
-  if (!file) return '';
-  const starts = computeLineStarts(file.text);
-  const { line } = lineAndColumn(file.text, position);
-  const start = starts[line - 1] as number;
-  const end = line < starts.length ? (starts[line] as number) : file.text.length;
-  return file.text.slice(start, end).trim().slice(0, 240);
-}
-
-function describeSymbol(project: SemanticProject, path: string, offset: number): string {
-  try {
-    const quick = project.service.getQuickInfoAtPosition(path, offset);
-    if (!quick) return '';
-    const name = project.ts.displayPartsToString(quick.displayParts ?? []);
-    return name.length > 0 ? name : '';
-  } catch {
-    return '';
-  }
-}
-
-function countSkippedNote(project: SemanticProject): string {
-  const notes: string[] = [];
-  if (project.truncated) notes.push(`只加载了前 ${MAX_FILES} 个文件`);
-  if (project.skipped > 0) notes.push(`${project.skipped} 个文件因大小/读取失败被跳过`);
-  return notes.length > 0 ? `（${notes.join('；')}）` : '';
+async function collectTargets(context: ToolContext, limit: number): Promise<string[]> {
+  const workspace = context.workspace;
+  if (!workspace) return [];
+  return (await collectWorkspaceScripts(workspace, limit)).paths.slice(0, limit);
 }
 
 export const findDefinitionTool = defineTool({
   name: 'find_definition',
   description:
-    'Find the semantic definition of a symbol at a TypeScript/JavaScript position or by name. ' +
-    'Use this instead of text search when you need what an identifier means, not where a string appears. ' +
-    'Provide either line + column (1-based) or symbol.',
+    'Find the semantic definition of a TypeScript/JavaScript symbol by 1-based line+column or name. ' +
+    'Uses the real typescript-language-server when a host workspace is available, otherwise an in-memory LanguageService; the result names the backend. ' +
+    'Use it instead of text search to learn what an identifier means.',
   parameters: z.object({
     path: z.string().min(1),
     line: z.number().int().positive().optional(),
@@ -336,48 +226,53 @@ export const findDefinitionTool = defineTool({
   readOnly: true,
   guidelines:
     'find_definition / find_references / diagnostics are semantic tools for TypeScript and JavaScript. ' +
-    'They read the workspace through the same guard as read_file and are bounded to a snapshot; they do not run a language server.',
+    'They read the workspace through the same guard as read_file. The language server is the live backend; ' +
+    'if it is unavailable the tools say so and use the in-memory LanguageService instead of pretending.',
   timeoutMs: 20_000,
   async execute(raw, context): Promise<ToolResult> {
     const input = raw as Record<string, unknown>;
     const path = typeof input.path === 'string' ? input.path : '';
     if (path.length === 0) return toolError('path is required');
-    const loaded = await loadProject(context).catch((error: unknown) =>
-      toolError(error instanceof Error ? error.message : String(error)),
-    );
-    if (loaded === null) return toolError('no workspace is configured');
-    if ('ok' in loaded) return loaded;
-    const project = loaded;
-    const supported = assertSupported(project, path);
-    if ('ok' in supported) return supported;
-    const position = resolvePosition(project, {
-      path: supported.path,
-      ...(typeof input.line === 'number' ? { line: input.line } : {}),
-      ...(typeof input.column === 'number' ? { column: input.column } : {}),
-      ...(typeof input.symbol === 'string' ? { symbol: input.symbol } : {}),
-    });
-    if (!position) {
-      return toolError(
-        'could not resolve a position: pass line + column (1-based) or a symbol that appears in the file',
+    const unsupported = checkSemanticPath(path);
+    if (unsupported) return unsupported;
+    const chosen = await chooseProvider(context);
+    if (chosen.kind === 'error') return chosen.result;
+    const { provider, fallbackReason, release } = chosen;
+    try {
+      const result = await provider.definition(
+        {
+          path,
+          ...(typeof input.line === 'number' ? { line: input.line } : {}),
+          ...(typeof input.column === 'number' ? { column: input.column } : {}),
+          ...(typeof input.symbol === 'string' ? { symbol: input.symbol } : {}),
+        },
+        context.signal ? { signal: context.signal } : {},
       );
-    }
-    const definitions = project.service.getDefinitionAtPosition(position.path, position.offset) ?? [];
-    if (definitions.length === 0) {
-      return toolOk(`没有找到 ${supported.path} 中该位置的语义定义。${countSkippedNote(project)}`, {
-        summary: 'no definition',
+      const note = backendNote(provider, fallbackReason, result.notes);
+      const { locations, symbol } = result.value;
+      if (locations.length === 0) {
+        return toolOk(`没有找到 ${normalizePath(path)} 中该位置的语义定义。${note}`, {
+          ...languageServerMeta(provider, fallbackReason, 'no definition', {
+            document_version: result.documentVersion,
+          }),
+        });
+      }
+      const signature = symbol?.split('\n').map((line) => line.trim()).find((line) => line.length > 0) ?? '';
+      const rows = locations.slice(0, MAX_RESULTS).map((location) => {
+        const snippet = location.snippet ? `\n  ${location.snippet}` : '';
+        return `${formatLocation(location)}${signature ? ` — ${signature}` : ''}${snippet}`;
       });
+      return toolOk(`定义（${locations.length}）：\n${rows.join('\n')}${note}`, {
+        ...languageServerMeta(provider, fallbackReason, `${locations.length} definition(s)`, {
+          definitions: locations.length,
+          document_version: result.documentVersion,
+        }),
+      });
+    } catch (error) {
+      return providerFailure(error, provider, fallbackReason);
+    } finally {
+      release();
     }
-    const symbol = describeSymbol(project, position.path, position.offset);
-    const lines = definitions.slice(0, MAX_RESULTS).map((definition) => {
-      const location = formatLocation(project, definition.fileName, definition.textSpan.start);
-      const file = project.files.get(normalize(definition.fileName));
-      const snippet = lineAt(file, definition.textSpan.start);
-      return `${location}${symbol ? ` — ${symbol}` : ''}${snippet ? `\n  ${snippet}` : ''}`;
-    });
-    return toolOk(
-      `定义（${definitions.length}）：\n${lines.join('\n')}${countSkippedNote(project)}`,
-      { summary: `${definitions.length} definition(s)`, definitions: definitions.length },
-    );
   },
 });
 
@@ -385,7 +280,8 @@ export const findReferencesTool = defineTool({
   name: 'find_references',
   description:
     'Find semantic references to a symbol in TypeScript/JavaScript, including callers across files. ' +
-    'Use this before changing a signature or renaming. Provide line + column (1-based) or symbol.',
+    'Runs the installed typescript-language-server when available (or the in-memory TypeScript LanguageService otherwise) ' +
+    'and reports which backend answered. Use this before changing a signature or renaming. Provide line + column (1-based) or symbol.',
   parameters: z.object({
     path: z.string().min(1),
     line: z.number().int().positive().optional(),
@@ -402,163 +298,232 @@ export const findReferencesTool = defineTool({
     const input = raw as Record<string, unknown>;
     const path = typeof input.path === 'string' ? input.path : '';
     if (path.length === 0) return toolError('path is required');
-    const loaded = await loadProject(context).catch((error: unknown) =>
-      toolError(error instanceof Error ? error.message : String(error)),
-    );
-    if (loaded === null) return toolError('no workspace is configured');
-    if ('ok' in loaded) return loaded;
-    const project = loaded;
-    const supported = assertSupported(project, path);
-    if ('ok' in supported) return supported;
-    const position = resolvePosition(project, {
-      path: supported.path,
-      ...(typeof input.line === 'number' ? { line: input.line } : {}),
-      ...(typeof input.column === 'number' ? { column: input.column } : {}),
-      ...(typeof input.symbol === 'string' ? { symbol: input.symbol } : {}),
-    });
-    if (!position) {
-      return toolError(
-        'could not resolve a position: pass line + column (1-based) or a symbol that appears in the file',
+    const unsupported = checkSemanticPath(path);
+    if (unsupported) return unsupported;
+    const chosen = await chooseProvider(context);
+    if (chosen.kind === 'error') return chosen.result;
+    const { provider, fallbackReason, release } = chosen;
+    try {
+      const result = await provider.references(
+        {
+          path,
+          ...(typeof input.line === 'number' ? { line: input.line } : {}),
+          ...(typeof input.column === 'number' ? { column: input.column } : {}),
+          ...(typeof input.symbol === 'string' ? { symbol: input.symbol } : {}),
+        },
+        {
+          includeDeclaration: input.includeDeclaration !== false,
+          limit: MAX_RESULTS,
+          ...(context.signal ? { signal: context.signal } : {}),
+        },
       );
-    }
-    const groups = project.service.findReferences(position.path, position.offset) ?? [];
-    const includeDeclaration = input.includeDeclaration !== false;
-    const rows: string[] = [];
-    let total = 0;
-    for (const group of groups) {
-      for (const reference of group.references) {
-        if (!includeDeclaration && reference.isDefinition) continue;
-        total += 1;
-        if (rows.length >= MAX_RESULTS) continue;
-        const location = formatLocation(project, reference.fileName, reference.textSpan.start);
-        const file = project.files.get(normalize(reference.fileName));
-        const snippet = lineAt(file, reference.textSpan.start);
-        rows.push(`${location}${snippet ? ` — ${snippet}` : ''}`);
+      const note = backendNote(provider, fallbackReason, result.notes);
+      const { locations, total, truncated } = result.value;
+      if (total === 0) {
+        return toolOk(`没有找到 ${normalizePath(path)} 中该符号的引用。${note}`, {
+          ...languageServerMeta(provider, fallbackReason, 'no references', {
+            document_version: result.documentVersion,
+          }),
+        });
       }
-    }
-    if (total === 0) {
-      return toolOk(`没有找到 ${supported.path} 中该符号的引用。${countSkippedNote(project)}`, {
-        summary: 'no references',
+      const rows = locations.map((location) => {
+        const snippet = location.snippet ? ` — ${location.snippet}` : '';
+        return `${formatLocation(location)}${snippet}`;
       });
-    }
-    const bounded = total > rows.length ? `\n[只显示前 ${MAX_RESULTS} 个，共 ${total} 个]` : '';
-    return toolOk(
-      `引用（${total}）：\n${rows.join('\n')}${bounded}${countSkippedNote(project)}`,
-      { summary: `${total} reference(s)`, references: total, truncated: total > rows.length },
-    );
-  },
-});
-
-export const diagnosticsTool = defineTool({
-  name: 'diagnostics',
-  description:
-    'Type-check TypeScript/JavaScript files in the workspace and report syntactic and semantic diagnostics. ' +
-    'Optionally pass one path; otherwise checks up to 20 loaded files. Use after edits to find what broke.',
-  parameters: z.object({ path: z.string().min(1).optional() }),
-  sideEffect: 'none',
-  readOnly: true,
-  guidelines:
-    'diagnostics reports TypeScript compiler diagnostics. It is not a linter: style rules and project-specific lint configs are out of scope.',
-  timeoutMs: 30_000,
-  async execute(raw, context): Promise<ToolResult> {
-    const input = raw as Record<string, unknown>;
-    const loaded = await loadProject(context).catch((error: unknown) =>
-      toolError(error instanceof Error ? error.message : String(error)),
-    );
-    if (loaded === null) return toolError('no workspace is configured');
-    if ('ok' in loaded) return loaded;
-    const project = loaded;
-
-    let targets: string[];
-    if (typeof input.path === 'string' && input.path.length > 0) {
-      const supported = assertSupported(project, input.path);
-      if ('ok' in supported) return supported;
-      targets = [supported.path];
-    } else {
-      targets = [...project.files.keys()].slice(0, 20);
-    }
-    const rows: string[] = [];
-    let count = 0;
-    for (const target of targets) {
-      const all = [
-        ...project.service.getSyntacticDiagnostics(target),
-        ...project.service.getSemanticDiagnostics(target),
-      ];
-      for (const diagnostic of all) {
-        if (UNRESOLVED_PACKAGE_CODES.has(diagnostic.code)) continue;
-        if (!project.hasLib && MISSING_LIB_CODES.has(diagnostic.code)) continue;
-        count += 1;
-        if (rows.length >= MAX_DIAGNOSTICS) continue;
-        const message = project.ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ');
-        if (diagnostic.start === undefined) {
-          rows.push(`${target} TS${diagnostic.code}: ${message}`);
-          continue;
-        }
-        const location = formatLocation(project, target, diagnostic.start);
-        rows.push(`${location} TS${diagnostic.code}: ${message}`);
-      }
-    }
-    if (count === 0) {
-      return toolOk(`没有诊断错误（检查了 ${targets.length} 个文件）。${countSkippedNote(project)}`, {
-        summary: 'no diagnostics',
-        checked: targets.length,
+      const bounded = truncated ? `\n[只显示前 ${rows.length} 个，共 ${total} 个]` : '';
+      return toolOk(`引用（${total}）：\n${rows.join('\n')}${bounded}${note}`, {
+        ...languageServerMeta(provider, fallbackReason, `${total} reference(s)`, {
+          references: total,
+          truncated,
+          document_version: result.documentVersion,
+        }),
       });
+    } catch (error) {
+      return providerFailure(error, provider, fallbackReason);
+    } finally {
+      release();
     }
-    const bounded = count > rows.length ? `\n[只显示前 ${MAX_DIAGNOSTICS} 条，共 ${count} 条]` : '';
-    return toolOk(
-      `诊断（${count}）：\n${rows.join('\n')}${bounded}${countSkippedNote(project)}`,
-      { summary: `${count} diagnostic(s)`, diagnostics: count, truncated: count > rows.length },
-    );
   },
 });
 
 export const listSymbolsTool = defineTool({
   name: 'list_symbols',
   description:
-    'List the declarations in one TypeScript/JavaScript file with their kind and 1-based position. Use it to navigate a file by structure instead of reading every line.',
+    'List the declarations in one TypeScript/JavaScript file with their kind and 1-based position. ' +
+    'Uses the installed typescript-language-server (documentSymbol) when available. ' +
+    'Use it to navigate a file by structure instead of reading every line.',
   parameters: z.object({
     path: z.string().min(1),
   }),
   sideEffect: 'none',
   readOnly: true,
   guidelines:
-    'list_symbols reads the declarations the language service sees. It does not list local variables inside function bodies.',
+    'list_symbols reads the declarations the backend sees. It does not list local variables inside function bodies.',
   timeoutMs: 20_000,
   async execute({ path }, context) {
     if (!context.workspace) return toolError('没有配置工作区。');
-    const loaded = await loadProject(context).catch((error: unknown) =>
-      toolError(error instanceof Error ? error.message : String(error)),
-    );
-    if (loaded === null) return toolError('没有配置工作区。');
-    if ('ok' in loaded) return loaded;
-    const project = loaded;
-    const checked = assertSupported(project, path);
-    if ('ok' in checked) return checked;
+    const unsupported = checkSemanticPath(path);
+    if (unsupported) return unsupported;
+    const chosen = await chooseProvider(context);
+    if (chosen.kind === 'error') return chosen.result;
+    const { provider, fallbackReason, release } = chosen;
     try {
-      const tree = project.service.getNavigationTree(checked.path);
-      const rows: string[] = [];
-      const flatten = (node: typeof tree, depth: number): void => {
-        if (rows.length >= 200) return;
-        for (const child of node.childItems ?? []) {
-          const span = child.spans[0];
-          if (span) {
-            const location = lineAndColumn(checked.file.text, span.start);
-            rows.push(`${'  '.repeat(depth)}${child.kind} ${child.text} @${location.line}:${location.column}`);
-          }
-          flatten(child, depth + 1);
-        }
-      };
-      flatten(tree, 0);
-      if (rows.length === 0) return toolOk(`没有找到声明：${checked.path}`);
-      return toolOk(`符号（最多 200 个）：\n${rows.join('\n')}`, {
-        summary: `${rows.length} 个符号`,
-        path: checked.path,
-        symbols: rows.length,
+      const result = await provider.documentSymbols({
+        path,
+        ...(context.signal ? { signal: context.signal } : {}),
+      });
+      const note = backendNote(provider, fallbackReason, result.notes);
+      const symbols = result.value.symbols;
+      if (symbols.length === 0) {
+        return toolOk(`没有找到声明：${normalizePath(path)}${note}`, {
+          ...languageServerMeta(provider, fallbackReason, 'no symbols', {
+            document_version: result.documentVersion,
+          }),
+        });
+      }
+      return toolOk(`符号（最多 ${MAX_SYMBOLS} 个）：\n${symbols.map(formatSymbol).join('\n')}${note}`, {
+        ...languageServerMeta(provider, fallbackReason, `${symbols.length} 个符号`, {
+          path: normalizePath(path),
+          symbols: symbols.length,
+          document_version: result.documentVersion,
+        }),
       });
     } catch (error) {
-      return toolError(`语言服务无法列出符号：${error instanceof Error ? error.message : String(error)}`);
+      return providerFailure(error, provider, fallbackReason);
+    } finally {
+      release();
     }
   },
 });
 
-export const semanticTools = [findDefinitionTool, findReferencesTool, listSymbolsTool, diagnosticsTool] as const;
+export const diagnosticsTool = defineTool({
+  name: 'diagnostics',
+  description:
+    'Type-check TypeScript/JavaScript files and report syntactic and semantic diagnostics. ' +
+    'Runs the installed typescript-language-server when available (diagnostics carry the document version), ' +
+    'and the in-memory TypeScript LanguageService otherwise; the result names the backend. ' +
+    'Optionally pass one path; otherwise checks up to 20 workspace files. Use after edits to find what broke.',
+  parameters: z.object({ path: z.string().min(1).optional() }),
+  sideEffect: 'none',
+  readOnly: true,
+  guidelines:
+    'diagnostics reports TypeScript diagnostics. It is not a linter: style rules and project-specific lint configs are out of scope. ' +
+    'A missing or not-ready language-server response is an error, never "zero errors".',
+  timeoutMs: 30_000,
+  async execute(raw, context): Promise<ToolResult> {
+    const input = raw as Record<string, unknown>;
+    const requested = typeof input.path === 'string' && input.path.length > 0 ? input.path : null;
+    if (requested) {
+      const unsupported = checkSemanticPath(requested);
+      if (unsupported) return unsupported;
+    }
+    if (!context.workspace) return toolError('no workspace is configured');
+    const targets = requested ? [normalizePath(requested)] : await collectTargets(context, 20);
+    if (targets.length === 0) return toolOk('没有可检查的 TypeScript/JavaScript 文件。');
+    const chosen = await chooseProvider(context);
+    if (chosen.kind === 'error') return chosen.result;
+    const { provider, fallbackReason, release } = chosen;
+    try {
+      const result = await provider.diagnostics({
+        paths: targets,
+        limit: 20,
+        ...(context.signal ? { signal: context.signal } : {}),
+      });
+      const note = backendNote(provider, fallbackReason, result.notes);
+      const value: DiagnosticsResult = result.value;
+      const { diagnostics, checked, stale } = value;
+      if (diagnostics.length === 0) {
+        return toolOk(`没有诊断错误（检查了 ${checked} 个文件）。${note}`, {
+          ...languageServerMeta(provider, fallbackReason, 'no diagnostics', {
+            checked,
+            stale,
+            versions: value.versions,
+          }),
+        });
+      }
+      const rows = diagnostics
+        .slice(0, MAX_DIAGNOSTICS)
+        .map((diagnostic) => `${formatLocation(diagnostic)} ${diagnostic.code}: ${diagnostic.message}`);
+      const bounded =
+        diagnostics.length > rows.length
+          ? `\n[只显示前 ${MAX_DIAGNOSTICS} 条，共 ${diagnostics.length} 条]`
+          : '';
+      const staleLabel = stale ? `，stale` : '';
+      const staleNote = stale ? '\n[这些诊断来自旧文档版本，不是当前内容的结论]' : '';
+      return toolOk(`诊断（${diagnostics.length}${staleLabel}）：\n${rows.join('\n')}${bounded}${staleNote}${note}`, {
+        ...languageServerMeta(provider, fallbackReason, `${diagnostics.length} diagnostic(s)`, {
+          diagnostics: diagnostics.length,
+          checked,
+          truncated: diagnostics.length > rows.length,
+          stale,
+          versions: value.versions,
+        }),
+      });
+    } catch (error) {
+      return providerFailure(error, provider, fallbackReason);
+    } finally {
+      release();
+    }
+  },
+});
+
+export const workspaceSymbolsTool = defineTool({
+  name: 'workspace_symbols',
+  description:
+    'Search declarations across the whole TypeScript/JavaScript workspace by name. ' +
+    'Requires the real typescript-language-server backend (workspace/symbol); the in-memory LanguageService ' +
+    'cannot answer it, and the tool says so instead of returning an empty list. Bounded to 50 results.',
+  parameters: z.object({
+    query: z.string().min(1),
+    limit: z.number().int().positive().max(50).optional(),
+  }),
+  sideEffect: 'none',
+  readOnly: true,
+  guidelines:
+    'workspace_symbols is a bounded query, not a full index. It returns matching declarations with file and 1-based position.',
+  timeoutMs: 20_000,
+  async execute({ query, limit }, context): Promise<ToolResult> {
+    if (!context.workspace) return toolError('没有配置工作区。');
+    const chosen = await chooseProvider(context);
+    if (chosen.kind === 'error') return chosen.result;
+    const { provider, fallbackReason, release } = chosen;
+    try {
+      const result = await provider.workspaceSymbols({
+        query,
+        ...(limit ? { limit } : {}),
+        ...(context.signal ? { signal: context.signal } : {}),
+      });
+      const note = backendNote(provider, fallbackReason, result.notes);
+      const symbols = result.value.symbols;
+      if (symbols.length === 0) {
+        return toolOk(`没有找到匹配的工作区符号：${query}${note}`, {
+          ...languageServerMeta(provider, fallbackReason, 'no workspace symbols'),
+        });
+      }
+      const rows = symbols.map((symbol) =>
+        symbol.path
+          ? `${symbol.kind} ${symbol.name} — ${symbol.path}:${symbol.line}:${symbol.column}`
+          : `${formatSymbol(symbol)}`,
+      );
+      const bounded = result.value.truncated ? '\n[结果已截断到 50 个]' : '';
+      return toolOk(`工作区符号（${symbols.length}）：\n${rows.join('\n')}${bounded}${note}`, {
+        ...languageServerMeta(provider, fallbackReason, `${symbols.length} workspace symbol(s)`, {
+          symbols: symbols.length,
+          truncated: result.value.truncated,
+        }),
+      });
+    } catch (error) {
+      return providerFailure(error, provider, fallbackReason);
+    } finally {
+      release();
+    }
+  },
+});
+
+export const semanticTools = [
+  findDefinitionTool,
+  findReferencesTool,
+  listSymbolsTool,
+  diagnosticsTool,
+  workspaceSymbolsTool,
+] as const;

@@ -1,0 +1,3 @@
+   ✓ live @playwright/mcp screenshot file path > becomes one tool image after navigating a real headless Chrome  4615ms
+ Test Files  1 passed (1)
+      Tests  1 passed (1)

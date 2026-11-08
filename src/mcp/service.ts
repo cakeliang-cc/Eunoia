@@ -470,6 +470,7 @@ export class McpService {
         record: () => undefined,
         has: () => false,
         hasComplete: () => false,
+        digestFor: () => null,
       },
       now: this.#now(),
       userId: input.userId,

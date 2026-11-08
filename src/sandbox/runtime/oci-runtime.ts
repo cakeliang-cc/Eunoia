@@ -18,6 +18,7 @@
  * every sandbox and shown by `/health`.
  */
 
+import { Duplex } from 'node:stream';
 import {
   type RuntimeExecutionRequest,
   type RuntimeExecutionResult,
@@ -105,6 +106,93 @@ export class OciRuntime implements SandboxRuntime {
     } catch (error) {
       return { ok: false, detail: error instanceof Error ? error.message : String(error) };
     }
+  }
+
+  /**
+   * Open a raw TCP tunnel to `127.0.0.1:<port>` inside the container.
+   *
+   * `docker exec -i` runs a tiny Node relay inside the container; the host keeps
+   * only a pipe. The sandbox therefore stays on `network:none` and no port is
+   * published on any interface. This is a transport for the preview gateway,
+   * not a general-purpose exec: it takes a port, not a command.
+   */
+  async openTunnel(handle: SandboxHandle, port: number, signal?: AbortSignal): Promise<Duplex> {
+    if (!Number.isInteger(port) || port < 1024 || port > 65_535) {
+      throw new SandboxRuntimeUnavailableError(`tunnel port ${String(port)} is not allowed`);
+    }
+    assertSafeName('container', handle.runtimeId);
+    const script = [
+      "const net=require('net');",
+      'const port=Number(process.argv[1]);',
+      "const s=net.connect(port,'127.0.0.1');",
+      "s.on('connect',()=>{process.stdin.pipe(s);s.pipe(process.stdout);});",
+      "s.on('error',(e)=>{try{process.stderr.write(String(e))}catch{};process.exit(2);});",
+      "s.on('close',()=>process.exit(0));",
+      "process.stdin.on('end',()=>s.end());",
+    ].join('');
+    const child = this.cli.spawnStream([
+      'exec',
+      '-i',
+      '--user',
+      '1000:1000',
+      handle.runtimeId,
+      'node',
+      '-e',
+      script,
+      String(port),
+    ]);
+    const duplex = new Duplex({
+      read() {
+        // Data is pushed by the child's stdout below.
+      },
+      write(chunk: Buffer, _encoding, callback) {
+        child.stdin.write(chunk, (error) => callback(error ?? null));
+      },
+      final(callback) {
+        child.stdin.end();
+        callback();
+      },
+      destroy(error, callback) {
+        child.kill('SIGKILL');
+        callback(error ?? null);
+      },
+    });
+    // `http.ClientRequest` treats the connection as a net.Socket and calls
+    // these. A plain Duplex has no TCP options; the no-ops keep the framing
+    // code working without pretending the tunnel is a host socket.
+    const socketLike = duplex as Duplex & {
+      setTimeout: (ms: number, callback?: () => void) => Duplex;
+      setNoDelay: (noDelay?: boolean) => Duplex;
+      setKeepAlive: (enable?: boolean, delay?: number) => Duplex;
+    };
+    socketLike.setTimeout = (ms: number, callback?: () => void) => {
+      if (callback) duplex.once('timeout', callback);
+      if (ms > 0) {
+        const timer = setTimeout(() => duplex.emit('timeout'), ms);
+        timer.unref();
+        duplex.once('close', () => clearTimeout(timer));
+      }
+      return duplex;
+    };
+    socketLike.setNoDelay = () => duplex;
+    socketLike.setKeepAlive = () => duplex;
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (!duplex.destroyed) duplex.push(chunk);
+    });
+    child.stderr.on('data', () => {
+      // A relay failure closes the stream; the gateway turns that into 502
+      // rather than pretending the preview responded.
+    });
+    child.on('error', (error) => duplex.destroy(error));
+    child.on('close', () => {
+      if (!duplex.destroyed) duplex.push(null);
+    });
+    const onAbort = (): void => {
+      duplex.destroy(new Error('tunnel cancelled'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    duplex.on('close', () => signal?.removeEventListener('abort', onAbort));
+    return duplex;
   }
 
   /** A probe that fails closed for the requested runtime class. */

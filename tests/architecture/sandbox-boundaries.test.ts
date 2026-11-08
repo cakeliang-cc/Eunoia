@@ -21,7 +21,13 @@ import { importSpecifiers, readSources } from '../helpers/sources.ts';
 // terminal helper, not an agent tool. It is allowed to spawn `git`, but it must
 // stay unreachable from agent/tool code (asserted below). The agent's execution
 // path has no child process outside the Runtime Manager.
-const CHILD_PROCESS_ALLOWED = ['src/sandbox/runtime/', 'src/workspace-ui/'];
+const CHILD_PROCESS_ALLOWED = [
+  'src/sandbox/runtime/',
+  'src/workspace-ui/',
+  // R10: the language server is a controlled host subprocess with a fixed
+  // binary, temp HOME and no container access. It is not an execution path.
+  'src/semantic/lsp-client.ts',
+];
 const NETWORK_ALLOWED = [
   'src/sandbox/network/egress-policy.ts',
   'src/sandbox/network/egress-proxy.ts',

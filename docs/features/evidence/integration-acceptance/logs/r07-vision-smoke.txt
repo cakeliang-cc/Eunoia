@@ -1,0 +1,5 @@
+   ✓ live vision smoke (S01–S03) > S01 reads digits and a large colour block from a generated image  6640ms
+   ✓ live vision smoke (S01–S03) > S02 changes the answer when two images are reordered  2486ms
+   ✓ live vision smoke (S01–S03) > S03 regenerates an image turn after a process restart, then a text route refuses it  13728ms
+ Test Files  1 passed (1)
+      Tests  3 passed (3)

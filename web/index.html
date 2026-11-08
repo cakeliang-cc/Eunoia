@@ -2107,6 +2107,16 @@
           </svg>
           外部服务
         </button>
+        <button id="dev-open" class="soft-button dev-open" type="button"
+                aria-pressed="false" aria-controls="dev-drawer"
+                aria-label="开发面板：作业、预览、撤销"
+                title="开发面板：作业、预览、撤销">
+          <svg class="icon" viewBox="0 0 24 24">
+            <rect x="3.5" y="5" width="17" height="14" rx="2"/>
+            <path d="m7.5 10 2.5 2.5L7.5 15M12.5 15h4"/>
+          </svg>
+          <span class="dev-open-label">开发</span>
+        </button>
         <button id="memory-toggle-top" class="soft-button" type="button">
           <svg class="icon" viewBox="0 0 24 24">
             <path d="M12 3.2 13.7 8l4.8 1.7-4.8 1.7L12 16.2l-1.7-4.8L5.5 9.7 10.3 8 12 3.2Z"/>
@@ -2434,9 +2444,97 @@
   </div>
 </div>
 
+<!-- Developer panel: jobs, preview leases and scoped undo. It is a drawer, not
+     a route, so a running turn stays visible while a job or a preview is
+     inspected. Every link it draws is conditional on server state: a failed or
+     expired preview never gets an "open" link. -->
+<div class="dev-scrim" id="dev-scrim" hidden></div>
+<aside class="dev-drawer" id="dev-drawer" role="dialog" aria-modal="true"
+       aria-labelledby="dev-title" hidden>
+  <header class="dev-head">
+    <div>
+      <span class="dev-eyebrow">开发 · 运行与恢复</span>
+      <h2 id="dev-title">开发面板</h2>
+    </div>
+    <button id="dev-close" class="icon-button" type="button" aria-label="关闭开发面板">
+      <svg class="icon" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+    </button>
+  </header>
+
+  <nav class="dev-tabs" role="tablist" aria-label="开发面板视图">
+    <button id="dev-tab-jobs" class="dev-tab" type="button" role="tab"
+            aria-selected="true" aria-controls="dev-jobs-pane">作业</button>
+    <button id="dev-tab-previews" class="dev-tab" type="button" role="tab"
+            aria-selected="false" aria-controls="dev-previews-pane">预览</button>
+    <button id="dev-tab-changes" class="dev-tab" type="button" role="tab"
+            aria-selected="false" aria-controls="dev-changes-pane">改动与撤销</button>
+  </nav>
+
+  <div class="dev-body">
+    <section class="dev-pane" id="dev-jobs-pane" role="tabpanel" aria-labelledby="dev-tab-jobs">
+      <div class="dev-toolbar">
+        <p class="dev-note" id="dev-jobs-note" aria-live="polite"></p>
+        <button id="dev-jobs-refresh" class="dev-button" type="button"
+                aria-label="刷新作业列表">刷新</button>
+      </div>
+      <div class="dev-list" id="dev-jobs-list"></div>
+    </section>
+
+    <section class="dev-pane" id="dev-previews-pane" role="tabpanel"
+             aria-labelledby="dev-tab-previews" hidden>
+      <form class="dev-form" id="dev-preview-form">
+        <div class="dev-field">
+          <label for="dev-preview-command">启动命令</label>
+          <input id="dev-preview-command" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="npm run dev" required>
+        </div>
+        <div class="dev-field-row">
+          <div class="dev-field">
+            <label for="dev-preview-port">端口</label>
+            <input id="dev-preview-port" type="number" min="1024" max="65535" step="1"
+                   value="3000" required>
+          </div>
+          <div class="dev-field">
+            <label for="dev-preview-timeout">就绪超时（毫秒，可选）</label>
+            <input id="dev-preview-timeout" type="number" min="1000" max="120000" step="1000"
+                   placeholder="30000">
+          </div>
+        </div>
+        <div class="dev-field">
+          <label for="dev-preview-cwd">工作目录（可选）</label>
+          <input id="dev-preview-cwd" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="使用工作区根目录">
+        </div>
+        <button id="dev-preview-start" class="dev-button primary" type="submit"
+                aria-label="启动预览">启动预览</button>
+      </form>
+      <p class="dev-note" id="dev-previews-note" aria-live="polite"></p>
+      <div id="dev-preview-result"></div>
+      <div class="dev-toolbar">
+        <span class="dev-hint">只有就绪的租约会显示打开链接。</span>
+        <button id="dev-previews-refresh" class="dev-button" type="button"
+                aria-label="刷新预览列表">刷新</button>
+      </div>
+      <div class="dev-list" id="dev-previews-list"></div>
+    </section>
+
+    <section class="dev-pane" id="dev-changes-pane" role="tabpanel"
+             aria-labelledby="dev-tab-changes" hidden>
+      <div class="dev-toolbar">
+        <p class="dev-note" id="dev-changes-note" aria-live="polite"></p>
+        <button id="dev-changes-refresh" class="dev-button" type="button"
+                aria-label="刷新修改集">刷新</button>
+      </div>
+      <div class="dev-changesets" id="dev-changesets" aria-label="修改集列表"></div>
+      <div class="dev-changeset-detail" id="dev-changeset-detail"></div>
+    </section>
+  </div>
+</aside>
+
 <div class="perm-menu" id="perm-menu" role="dialog" aria-label="权限模式" hidden></div>
 
 <script type="module" src="/app.js"></script>
 <script type="module" src="/team.js"></script>
+<script type="module" src="/dev-panel.js"></script>
 </body>
 </html>

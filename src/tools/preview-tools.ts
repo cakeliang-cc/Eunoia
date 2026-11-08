@@ -1,27 +1,30 @@
 /**
- * Preview orchestration over a background process.
+ * Preview tools over the durable lease service.
  *
- * A sandbox with `network: none` does not publish ports to the host. This tool
- * therefore distinguishes three facts instead of pretending they are one:
- * the process is running, the server answers on a port *inside* the container,
- * and whether a browser outside can reach it. In this deployment the last is
- * false; the tool says so and returns a null user URL.
+ * `preview_start` answers four separate questions: did the job start, does the
+ * port answer inside the container, is there a host route, and what are the user
+ * and browser URLs. A null URL is only returned with the reason, never as a
+ * silent success.
  */
 
 import { z } from 'zod';
 import { defineTool, toolError, toolOk } from './types.ts';
 import type { ToolContext, ToolDefinition, ToolResult } from './types.ts';
-import type { ProcessRunContext, ProcessService } from '../processes/service.ts';
+import type { ProcessRunContext } from '../processes/service.ts';
+import type { PreviewService } from '../previews/service.ts';
+import type { PreviewLease } from '../previews/types.ts';
 
 function contextOf(context: ToolContext): ProcessRunContext | ToolResult {
   if (!context.executor) return toolError('没有沙箱执行器，预览不可用。');
   if (!context.userId || !context.conversationId) return toolError('预览缺少会话或用户上下文。');
+  const identity = context.scope?.identity;
   return {
     executor: context.executor,
     userId: context.userId,
     conversationId: context.conversationId,
-    taskId: context.conversationId,
+    taskId: identity?.taskAttemptId ?? context.conversationId,
     toolCallId: context.toolCallId ?? 'preview',
+    ...(identity?.memberId ? { memberId: identity.memberId } : {}),
     ...(context.signal ? { signal: context.signal } : {}),
   };
 }
@@ -30,13 +33,27 @@ function isResult(value: ProcessRunContext | ToolResult): value is ToolResult {
   return 'ok' in value;
 }
 
-export function createPreviewTools(service: ProcessService): ToolDefinition[] {
+function describeLease(lease: PreviewLease): string {
+  const lines = [
+    `预览 ${lease.id}：${lease.status}`,
+    `作业：${lease.jobId}`,
+    `容器内端口：${lease.containerPort}`,
+  ];
+  if (lease.userUrl) lines.push(`用户地址：${lease.userUrl}`);
+  if (lease.browserUrl) lines.push(`浏览器地址：${lease.browserUrl}`);
+  if (!lease.userUrl) lines.push('用户地址：不可用（未就绪或已停止）');
+  lines.push(`租约到期：${lease.expiresAt}`);
+  if (lease.error) lines.push(`原因：${lease.error}`);
+  return lines.join('\n');
+}
+
+export function createPreviewTools(service: PreviewService): ToolDefinition[] {
   return [
     defineTool({
       name: 'preview_start',
       description:
-        'Start a project command and wait until it answers HTTP inside the sandbox, then return a preview handle. ' +
-        'If this deployment does not publish container ports, user_url is null and that is stated explicitly.',
+        'Start a project command, wait until it answers HTTP inside the sandbox, create a durable preview lease and return separate user and browser URLs. ' +
+        'The gateway routes only this lease; no container port is published on the host.',
       parameters: z.object({
         command: z.string().min(1).max(8_000),
         port: z.number().int().min(1024).max(65535),
@@ -50,23 +67,42 @@ export function createPreviewTools(service: ProcessService): ToolDefinition[] {
         const ctx = contextOf(context);
         if (isResult(ctx)) return ctx;
         try {
-          const job = await service.start(ctx, { command, ...(cwd ? { cwd } : {}) });
-          const probe = await service.probeHttp(ctx, port, ready_timeout_ms ?? 30_000);
-          const internalUrl = `http://127.0.0.1:${port}/`;
+          const started = await service.start(ctx, {
+            command,
+            port,
+            ...(cwd ? { cwd } : {}),
+            ...(ready_timeout_ms !== undefined ? { readyTimeoutMs: ready_timeout_ms } : {}),
+          });
+          if (!started.ready) {
+            return toolError(
+              `预览没有就绪。${started.detail}\n${describeLease(started.lease)}`,
+              {
+                code: 'PREVIEW_NOT_READY',
+                previewId: started.lease.id,
+                jobId: started.job.id,
+                userUrl: null,
+                browserUrl: null,
+                ready: false,
+                logs: started.logs.text.slice(-2_000),
+              },
+            );
+          }
           return toolOk(
             [
-              `预览进程：${job.id}（${job.status}）`,
-              `容器内地址：${internalUrl}`,
-              `就绪：${probe.ready ? '是' : '否'}（${probe.detail}）`,
-              '宿主地址：不可用。这个部署的沙箱没有向宿主发布端口，浏览器不能在宿主打开容器内地址。',
+              '预览已就绪。',
+              describeLease(started.lease),
+              `容器内地址：${started.internalUrl}`,
+              `就绪证据：${started.detail}`,
             ].join('\n'),
             {
-              summary: probe.ready ? `端口 ${port} 就绪` : `端口 ${port} 未就绪`,
-              jobId: job.id,
-              port,
-              internalUrl,
-              userUrl: null,
-              ready: probe.ready,
+              summary: `预览就绪 ${started.lease.routeId.slice(0, 8)}`,
+              previewId: started.lease.id,
+              jobId: started.job.id,
+              userUrl: started.lease.userUrl,
+              browserUrl: started.lease.browserUrl,
+              internalUrl: started.internalUrl,
+              ready: true,
+              expiresAt: started.lease.expiresAt,
             },
           );
         } catch (error) {
@@ -78,21 +114,27 @@ export function createPreviewTools(service: ProcessService): ToolDefinition[] {
     }),
     defineTool({
       name: 'preview_status',
-      description: 'Check the preview job and whether its HTTP port answers inside the sandbox.',
-      parameters: z.object({ jobId: z.string().min(1), port: z.number().int().min(1024).max(65535) }),
+      description:
+        'Check a preview lease, its job status, whether it is still routable and its current URLs.',
+      parameters: z.object({ previewId: z.string().min(1) }),
       sideEffect: 'none',
       readOnly: true,
       timeoutMs: 20_000,
-      async execute({ jobId, port }, context): Promise<ToolResult> {
+      async execute({ previewId }, context): Promise<ToolResult> {
         const ctx = contextOf(context);
         if (isResult(ctx)) return ctx;
         try {
-          const job = await service.status(ctx, jobId);
-          const probe = await service.probeHttp(ctx, port, 2_000);
-          return toolOk(
-            `作业 ${job.id}：${job.status}\n容器内 HTTP：${probe.detail}\n宿主地址：不可用（端口未发布）。`,
-            { summary: job.status, jobId, ready: probe.ready, userUrl: null },
-          );
+          const current = await service.status(ctx, previewId);
+          return toolOk(describeLease(current.lease), {
+            summary: current.lease.status,
+            previewId,
+            jobId: current.lease.jobId,
+            ready: current.ready,
+            userUrl: current.lease.userUrl,
+            browserUrl: current.lease.browserUrl,
+            jobStatus: current.job?.status ?? null,
+            detail: current.detail,
+          });
         } catch (error) {
           return toolError(error instanceof Error ? error.message : String(error), {
             code: (error as { code?: string }).code ?? 'PREVIEW_FAILED',
@@ -102,17 +144,23 @@ export function createPreviewTools(service: ProcessService): ToolDefinition[] {
     }),
     defineTool({
       name: 'preview_stop',
-      description: 'Stop the preview process group and verify it exited.',
-      parameters: z.object({ jobId: z.string().min(1) }),
+      description: 'Revoke a preview route and stop its process group, verifying it exited.',
+      parameters: z.object({ previewId: z.string().min(1) }),
       sideEffect: 'command',
       readOnly: false,
       timeoutMs: 25_000,
-      async execute({ jobId }, context): Promise<ToolResult> {
+      async execute({ previewId }, context): Promise<ToolResult> {
         const ctx = contextOf(context);
         if (isResult(ctx)) return ctx;
         try {
-          const job = await service.stop(ctx, jobId);
-          return toolOk(`预览已停止（${job.status}）。`, { summary: job.status, jobId });
+          const stopped = await service.stop(ctx, previewId);
+          return toolOk(`预览已停止（${stopped.status}），旧地址不再路由。`, {
+            summary: stopped.status,
+            previewId,
+            jobId: stopped.jobId,
+            userUrl: null,
+            ready: false,
+          });
         } catch (error) {
           return toolError(error instanceof Error ? error.message : String(error), {
             code: (error as { code?: string }).code ?? 'PREVIEW_FAILED',

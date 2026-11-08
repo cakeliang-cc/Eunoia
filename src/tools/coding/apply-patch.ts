@@ -14,6 +14,7 @@
  * See docs/adr/038-developer-toolkit.md.
  */
 
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { defineTool, toolError, toolOk } from '../types.ts';
 import type { ToolContext, ToolResult } from '../types.ts';
@@ -315,11 +316,17 @@ async function readText(context: ToolContext, path: string): Promise<string | nu
     .join('\n');
 }
 
+function digest(text: string): string {
+  return createHash('sha256')
+    .update(text.replace(/\r\n/g, '\n'), 'utf8')
+    .digest('hex');
+}
+
 export const applyPatchTool = defineTool({
   name: 'apply_patch',
   description:
-    'Apply a multi-file patch atomically. Supports Add File, Update File (with context hunks and optional Move to) and Delete File. ' +
-    'Every hunk is verified before writing; use dry_run to preview.',
+    'Apply a multi-file patch with a full preflight and per-file atomic replacement. Supports Add File, Update File (with context hunks and optional Move to) and Delete File. ' +
+    'The batch is not a filesystem transaction: if a later file fails, the applied files are rolled back only while they still match this patch, and a journal records the partial state. Use dry_run to preview.',
   parameters: z.object({
     patch: z.string().min(1).max(MAX_PATCH_BYTES),
     dry_run: z.boolean().optional(),
@@ -374,25 +381,61 @@ export const applyPatchTool = defineTool({
       });
     }
 
+    const paths = [...new Set([...plan.writes.keys(), ...plan.deletes])].sort();
+    const batchId = `patch_${randomUUID()}`;
+    const beforeDigests: Record<string, string | null> = {};
+    const afterDigests: Record<string, string | null> = {};
+    for (const path of paths) {
+      const before = cache.get(path) ?? null;
+      beforeDigests[path] = before === null ? null : digest(before);
+      afterDigests[path] = plan.writes.get(path) === undefined ? null : digest(plan.writes.get(path) as string);
+    }
+    await context.changes
+      ?.beginBatch?.({ batchId, paths, before: beforeDigests, after: afterDigests })
+      .catch(() => undefined);
     // Journal every touched file before writing, so turn undo has exact before
     // content. A missing journal only removes the undo offer, not the patch.
-    for (const path of new Set([...plan.writes.keys(), ...plan.deletes])) {
+    for (const path of paths) {
       await context.changes?.beforeWrite(path).catch(() => undefined);
     }
     const written: string[] = [];
     const deleted: string[] = [];
-    try {
+    const apply = async (): Promise<void> => {
+      // Re-read and re-plan while holding the workspace lock. The earlier plan
+      // was a preparation, not an authorization: a file changed between the
+      // read and the write must be refused, not overwritten.
+      const verifiedCache = new Map<string, string | null>();
+      for (const path of cache.keys()) verifiedCache.set(path, await readText(context, path));
+      plan = planPatch(operations, (path) => verifiedCache.get(path) ?? null);
+      for (const [path, before] of verifiedCache) {
+        cache.set(path, before);
+        const after = plan.writes.get(path) ?? null;
+        beforeDigests[path] = before === null ? null : digest(before);
+        afterDigests[path] = after === null ? null : digest(after);
+      }
       for (const [path, text] of plan.writes) {
-        await context.workspace.writeText(path, text);
+        await context.workspace!.writeText(path, text);
         written.push(path);
+        await context.changes
+          ?.markBatchApplied?.(batchId, path, digest(text))
+          .catch(() => undefined);
       }
       for (const path of plan.deletes) {
-        if (!context.workspace.deleteFile) {
+        if (!context.workspace!.deleteFile) {
           throw new PatchError('工作区不支持删除文件，补丁回滚');
         }
-        await context.workspace.deleteFile(path);
+        await context.workspace!.deleteFile(path);
         deleted.push(path);
+        await context.changes?.markBatchApplied?.(batchId, path, null).catch(() => undefined);
       }
+    };
+    try {
+      if (context.changes?.lockPaths) {
+        await context.changes.lockPaths(paths, apply);
+      } else {
+        await apply();
+      }
+      await context.changes?.completeBatch?.(batchId).catch(() => undefined);
     } catch (error) {
       // Restore exactly what this patch already changed. The before bytes came
       // from the preflight cache, so a half-written multi-file patch is not left
@@ -412,6 +455,12 @@ export const applyPatchTool = defineTool({
           );
         }
       }
+      await context.changes
+        ?.markBatchReconciliation?.(batchId, [
+          error instanceof Error ? error.message : String(error),
+          ...rollbackErrors,
+        ])
+        .catch(() => undefined);
       return toolError(
         `补丁应用失败，已回滚：${error instanceof Error ? error.message : String(error)}` +
           (rollbackErrors.length > 0 ? `\n回滚失败：${rollbackErrors.join('；')}` : ''),

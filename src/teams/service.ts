@@ -154,6 +154,8 @@ export interface TeamServiceDeps {
   readonly availableImageModels?: readonly string[];
   /** MCP host, forwarded to member executions. */
   readonly mcp?: import('../mcp/service.ts').McpService | null;
+  /** Typed questions, used to cancel a closed member's pending cards. */
+  readonly questions?: import('../questions/service.ts').QuestionService | null;
 }
 
 export interface CreateRunInput {
@@ -783,7 +785,13 @@ export class TeamService implements ActivationHost, TeamToolHost {
 
   async closeMember(ownerId: string, memberId: string): Promise<Member[]> {
     await this.getMember(ownerId, memberId);
-    return this.runtime.close(memberId);
+    const closed = await this.runtime.close(memberId);
+    // A closed member's pending questions must not stay answerable: the wait
+    // that would receive the answer no longer exists.
+    await this.#deps.questions
+      ?.cancelForMember(ownerId, memberId, '成员已关闭，等待中的问题已取消。')
+      .catch(() => undefined);
+    return closed;
   }
 
   // ----------------------------------------------------------------- tasks ---

@@ -249,3 +249,20 @@ describe('HTML extraction', () => {
     expect(text).not.toContain('x()');
   });
 });
+
+describe('pinnedLookup (autoSelectFamily compatibility)', () => {
+  it('returns a string for the legacy shape and an array when all=true', async () => {
+    const { pinnedLookup } = await import('../../src/web/fetch-http.ts');
+    const lookup = pinnedLookup({ address: '93.184.216.34', family: 4 });
+    const legacy = await new Promise<unknown>((resolve, reject) => {
+      lookup('example.com', 0, (error, address) => (error ? reject(error) : resolve(address)));
+    });
+    expect(legacy).toBe('93.184.216.34');
+    const all = await new Promise<unknown>((resolve, reject) => {
+      lookup('example.com', { all: true }, (error, address) =>
+        error ? reject(error) : resolve(address),
+      );
+    });
+    expect(all).toEqual([{ address: '93.184.216.34', family: 4 }]);
+  });
+});

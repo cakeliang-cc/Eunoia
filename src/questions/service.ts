@@ -59,6 +59,8 @@ export class QuestionService {
     readonly turnId?: string | null;
     readonly callId?: string | null;
     readonly memberId?: string | null;
+    /** Activation generation; an answer for an older generation is refused. */
+    readonly generation?: number;
     readonly prompt: string;
     readonly schema?: QuestionSchema;
   }): Promise<UserQuestionRecord> {
@@ -87,6 +89,15 @@ export class QuestionService {
         return existing;
       }
     }
+    // Aggregation: two members asking the same unchanged question share one
+    // card and one answer. Only an identical prompt + schema in the same
+    // conversation is merged; a different wording stays a separate decision.
+    const pending = await this.#store.listPendingQuestions(input.userId, input.conversationId);
+    const duplicate = pending.find(
+      (entry) =>
+        entry.prompt === prompt && JSON.stringify(entry.schema) === JSON.stringify(schema),
+    );
+    if (duplicate) return duplicate;
     const now = this.#now();
     const record: UserQuestionRecord = {
       id: randomUUID(),
@@ -95,7 +106,7 @@ export class QuestionService {
       turnId: input.turnId ?? null,
       callId,
       memberId: input.memberId ?? null,
-      generation: Date.now(),
+      generation: input.generation ?? Date.now(),
       prompt,
       schema,
       status: 'pending',
@@ -158,9 +169,18 @@ export class QuestionService {
     readonly userId: string;
     readonly questionId: string;
     readonly answer: unknown;
+    /** The generation the UI believes it is answering; a stale card is refused. */
+    readonly generation?: number;
   }): Promise<UserQuestionRecord> {
     const record = await this.#store.getUserQuestion(input.userId, input.questionId);
     if (!record) throw new QuestionError('QUESTION_NOT_FOUND', '没有这个问题。', 404);
+    if (input.generation !== undefined && record.generation !== input.generation) {
+      throw new QuestionError(
+        'QUESTION_CONFLICT',
+        '这个问题属于旧的执行代次，答案不会再被接收；请用当前问题卡回答。',
+        409,
+      );
+    }
     if (record.status !== 'pending') {
       throw new QuestionError(
         'QUESTION_ALREADY_ANSWERED',
@@ -201,6 +221,31 @@ export class QuestionService {
     const next = (await this.#store.getUserQuestion(userId, questionId)) as UserQuestionRecord;
     this.#notify(next);
     return next;
+  }
+
+  /** Cancel every pending question a closed member is still waiting on. */
+  async cancelForMember(userId: string, memberId: string, reason: string): Promise<number> {
+    const pending = await this.#store.listPendingQuestionsByMember(userId, memberId);
+    let cancelled = 0;
+    for (const record of pending) {
+      if (record.status !== 'pending') continue;
+      const changed = await this.#store.resolveUserQuestion({
+        userId,
+        id: record.id,
+        status: 'cancelled',
+        answer: null,
+        at: this.#now().toISOString(),
+      });
+      if (changed) {
+        cancelled += 1;
+        this.#waiters.get(record.id)?.reject(
+          new QuestionError('QUESTION_CANCELLED', reason, 409),
+        );
+        const next = await this.#store.getUserQuestion(userId, record.id);
+        if (next) this.#notify(next);
+      }
+    }
+    return cancelled;
   }
 
   async pending(userId: string, conversationId: string): Promise<UserQuestionRecord[]> {

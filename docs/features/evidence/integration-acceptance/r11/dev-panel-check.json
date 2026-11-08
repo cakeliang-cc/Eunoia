@@ -1,0 +1,972 @@
+{
+  "url": "http://127.0.0.1:51163/",
+  "viewportChecks": [
+    {
+      "name": "390: panel opens",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: panel role is dialog",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: jobs render owner/member/status/exit code",
+      "pass": true,
+      "detail": "运行中npm run dev归属：owner-us…成员：member-a…退出码：—日志游标：0工作目录：.开始：2026/1/1 08:00:00读日志停止已退出npm test归属：owner-us…退出码：2日志游标：0工作目录：.开始：2026/1/1 08:00:00结束：2026/1/1 08:02:00读日志停止"
+    },
+    {
+      "name": "390: jobs show a log cursor",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: log text and advanced cursor render",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: log read carries conversationId and cursor",
+      "pass": true,
+      "detail": "[\"/api/processes/job_1/logs?conversationId=11111111-1111-4111-8111-111111111111&cursor=0\"]"
+    },
+    {
+      "name": "390: stop job sends the token and conversation",
+      "pass": true,
+      "detail": "[{\"method\":\"POST\",\"path\":\"/api/processes/job_1/stop\",\"body\":{\"conversationId\":\"11111111-1111-4111-8111-111111111111\"},\"headers\":{\"host\":\"127.0.0.1:51163\",\"connection\":\"keep-alive\",\"content-length\":\"57\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"fixture-local-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:51163\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:51163/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "390: only the ready preview has an open link",
+      "pass": true,
+      "detail": "1"
+    },
+    {
+      "name": "390: failed/expired previews have no links",
+      "pass": true,
+      "detail": "[0,0]"
+    },
+    {
+      "name": "390: preview start sends exact JSON body",
+      "pass": true,
+      "detail": "[{\"method\":\"POST\",\"path\":\"/api/previews\",\"body\":{\"conversationId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"npm run dev\",\"port\":3000,\"cwd\":\"apps/web\",\"ready_timeout_ms\":45000},\"headers\":{\"host\":\"127.0.0.1:51163\",\"connection\":\"keep-alive\",\"content-length\":\"135\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"fixture-local-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:51163\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:51163/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "390: started ready preview has an open link",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: preview logs render",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: preview stop button is enabled",
+      "pass": true,
+      "detail": "{\"disabled\":false,\"status\":\"ready\"}"
+    },
+    {
+      "name": "390: stop preview sends conversationId",
+      "pass": true,
+      "detail": "[{\"method\":\"POST\",\"path\":\"/api/previews/pv_ready/stop\",\"body\":{\"conversationId\":\"11111111-1111-4111-8111-111111111111\"},\"headers\":{\"host\":\"127.0.0.1:51163\",\"connection\":\"keep-alive\",\"content-length\":\"57\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"fixture-local-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:51163\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:51163/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "390: closed panel leaves the page (hidden is not overridden by display)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: source card has the real title and URL",
+      "pass": true,
+      "detail": "{\"title\":\"Node.js — Run JavaScript Everywhere\",\"href\":\"https://nodejs.org/en\",\"rel\":\"noopener noreferrer\",\"target\":\"_blank\",\"text\":\"Node.js — Run JavaScript Everywherehttps://nodejs.org/en费用未知tavily日期未知查询「node runtime」Node.js is a free, open-source, cross-platform JavaScript runtime.\",\"allText\":\"查一下 node工具1web_search2 个来源完成 · 0.0sNode.js — Run JavaScript Everywherehttps://nodejs.org/en费用未知tavily日期未知查询「node runtime」Node.js is a free, open-source, cross-platform JavaScript runtime.TypeScript: Documentationhttps://www.typescriptlang.org/docs/费用未知日期 2026-01-02看完了。有帮助不太对\"}"
+    },
+    {
+      "name": "390: unknown cost is explicit and no date is invented",
+      "pass": true,
+      "detail": "Node.js — Run JavaScript Everywherehttps://nodejs.org/en费用未知tavily日期未知查询「node runtime」Node.js is a free, open-source, cross-platform JavaScript runtime."
+    },
+    {
+      "name": "390: published date is shown when the source has one",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: changeset shows modified/added and before/after",
+      "pass": true,
+      "detail": "第 turn-fix… 轮 · 2 个文件状态：可撤销 · 创建：2026/1/1 08:01:00新增 1 · 修改 1 · 删除 0 · 移动只在 git 改动视图里表示选择Msrc/a.ts修改 · before 7 B (aaaaaaaaaa…) → after 8 B (bbbbbbbbbb…)查看 before 内容选择Asrc/new.ts新增 · before —  → after 9 B (cccccccccc…)全选全不选预检范围撤销选中"
+    },
+    {
+      "name": "390: blocked partial undo shows the reason and the feasible range",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: refused partial undo wrote nothing",
+      "pass": true,
+      "detail": "0"
+    },
+    {
+      "name": "390: preflight carries the selected subset",
+      "pass": true,
+      "detail": "{\"paths\":[\"src/new.ts\"]}"
+    },
+    {
+      "name": "390: undo sends exactly the selected paths, never the whole set",
+      "pass": true,
+      "detail": "[{\"method\":\"POST\",\"path\":\"/api/conversations/11111111-1111-4111-8111-111111111111/changes/wcs_11111111-1111-4111-8111-111111111111/undo\",\"body\":{\"paths\":[\"src/new.ts\"],\"force\":false},\"headers\":{\"host\":\"127.0.0.1:51163\",\"connection\":\"keep-alive\",\"content-length\":\"38\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"fixture-local-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:51163\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:51163/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "390: applied set is reported",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: opening focuses the close button",
+      "pass": true,
+      "detail": "dev-close"
+    },
+    {
+      "name": "390: Tab moves into the panel",
+      "pass": true,
+      "detail": "dev-tab-jobs"
+    },
+    {
+      "name": "390: Shift+Tab returns to the close button",
+      "pass": true,
+      "detail": "dev-close"
+    },
+    {
+      "name": "390: Escape closes and restores focus to the opener",
+      "pass": true,
+      "detail": "dev-open"
+    },
+    {
+      "name": "390: no horizontal overflow at 390px",
+      "pass": true,
+      "detail": "{\"viewport\":390,\"scrollWidth\":390,\"bodyScrollWidth\":390,\"drawerWidth\":390,\"drawerLeft\":0,\"drawerRight\":390,\"drawerInside\":true,\"noHorizontalOverflow\":true}"
+    },
+    {
+      "name": "390: the open drawer fits the viewport",
+      "pass": true,
+      "detail": "{\"viewport\":390,\"scrollWidth\":390,\"bodyScrollWidth\":390,\"drawerWidth\":390,\"drawerLeft\":0,\"drawerRight\":390,\"drawerInside\":true,\"noHorizontalOverflow\":true}"
+    },
+    {
+      "name": "390: viewport detail",
+      "pass": true,
+      "detail": "{\"viewport\":390,\"scrollWidth\":390,\"bodyScrollWidth\":390,\"drawerWidth\":390,\"drawerLeft\":0,\"drawerRight\":390,\"drawerInside\":true,\"noHorizontalOverflow\":true}"
+    },
+    {
+      "name": "1280: panel opens",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: panel role is dialog",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: jobs render owner/member/status/exit code",
+      "pass": true,
+      "detail": "运行中npm run dev归属：owner-us…成员：member-a…退出码：—日志游标：0工作目录：.开始：2026/1/1 08:00:00读日志停止已退出npm test归属：owner-us…退出码：2日志游标：0工作目录：.开始：2026/1/1 08:00:00结束：2026/1/1 08:02:00读日志停止"
+    },
+    {
+      "name": "1280: jobs show a log cursor",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: log text and advanced cursor render",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: log read carries conversationId and cursor",
+      "pass": true,
+      "detail": "[\"/api/processes/job_1/logs?conversationId=11111111-1111-4111-8111-111111111111&cursor=0\"]"
+    },
+    {
+      "name": "1280: stop job sends the token and conversation",
+      "pass": true,
+      "detail": "[{\"method\":\"POST\",\"path\":\"/api/processes/job_1/stop\",\"body\":{\"conversationId\":\"11111111-1111-4111-8111-111111111111\"},\"headers\":{\"host\":\"127.0.0.1:51163\",\"connection\":\"keep-alive\",\"content-length\":\"57\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"fixture-local-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:51163\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:51163/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "1280: only the ready preview has an open link",
+      "pass": true,
+      "detail": "1"
+    },
+    {
+      "name": "1280: failed/expired previews have no links",
+      "pass": true,
+      "detail": "[0,0]"
+    },
+    {
+      "name": "1280: preview start sends exact JSON body",
+      "pass": true,
+      "detail": "[{\"method\":\"POST\",\"path\":\"/api/previews\",\"body\":{\"conversationId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"npm run dev\",\"port\":3000,\"cwd\":\"apps/web\",\"ready_timeout_ms\":45000},\"headers\":{\"host\":\"127.0.0.1:51163\",\"connection\":\"keep-alive\",\"content-length\":\"135\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"fixture-local-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:51163\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:51163/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "1280: started ready preview has an open link",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: preview logs render",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: preview stop button is enabled",
+      "pass": true,
+      "detail": "{\"disabled\":false,\"status\":\"ready\"}"
+    },
+    {
+      "name": "1280: stop preview sends conversationId",
+      "pass": true,
+      "detail": "[{\"method\":\"POST\",\"path\":\"/api/previews/pv_ready/stop\",\"body\":{\"conversationId\":\"11111111-1111-4111-8111-111111111111\"},\"headers\":{\"host\":\"127.0.0.1:51163\",\"connection\":\"keep-alive\",\"content-length\":\"57\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"fixture-local-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:51163\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:51163/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "1280: closed panel leaves the page (hidden is not overridden by display)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: source card has the real title and URL",
+      "pass": true,
+      "detail": "{\"title\":\"Node.js — Run JavaScript Everywhere\",\"href\":\"https://nodejs.org/en\",\"rel\":\"noopener noreferrer\",\"target\":\"_blank\",\"text\":\"Node.js — Run JavaScript Everywherehttps://nodejs.org/en费用未知tavily日期未知查询「node runtime」Node.js is a free, open-source, cross-platform JavaScript runtime.\",\"allText\":\"查一下 node工具1web_search2 个来源完成 · 0.0sNode.js — Run JavaScript Everywherehttps://nodejs.org/en费用未知tavily日期未知查询「node runtime」Node.js is a free, open-source, cross-platform JavaScript runtime.TypeScript: Documentationhttps://www.typescriptlang.org/docs/费用未知日期 2026-01-02看完了。有帮助不太对\"}"
+    },
+    {
+      "name": "1280: unknown cost is explicit and no date is invented",
+      "pass": true,
+      "detail": "Node.js — Run JavaScript Everywherehttps://nodejs.org/en费用未知tavily日期未知查询「node runtime」Node.js is a free, open-source, cross-platform JavaScript runtime."
+    },
+    {
+      "name": "1280: published date is shown when the source has one",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: changeset shows modified/added and before/after",
+      "pass": true,
+      "detail": "第 turn-fix… 轮 · 2 个文件状态：可撤销 · 创建：2026/1/1 08:01:00新增 1 · 修改 1 · 删除 0 · 移动只在 git 改动视图里表示选择Msrc/a.ts修改 · before 7 B (aaaaaaaaaa…) → after 8 B (bbbbbbbbbb…)查看 before 内容选择Asrc/new.ts新增 · before —  → after 9 B (cccccccccc…)全选全不选预检范围撤销选中"
+    },
+    {
+      "name": "1280: blocked partial undo shows the reason and the feasible range",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: refused partial undo wrote nothing",
+      "pass": true,
+      "detail": "0"
+    },
+    {
+      "name": "1280: preflight carries the selected subset",
+      "pass": true,
+      "detail": "{\"paths\":[\"src/new.ts\"]}"
+    },
+    {
+      "name": "1280: undo sends exactly the selected paths, never the whole set",
+      "pass": true,
+      "detail": "[{\"method\":\"POST\",\"path\":\"/api/conversations/11111111-1111-4111-8111-111111111111/changes/wcs_11111111-1111-4111-8111-111111111111/undo\",\"body\":{\"paths\":[\"src/new.ts\"],\"force\":false},\"headers\":{\"host\":\"127.0.0.1:51163\",\"connection\":\"keep-alive\",\"content-length\":\"38\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"fixture-local-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:51163\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:51163/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "1280: applied set is reported",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: opening focuses the close button",
+      "pass": true,
+      "detail": "dev-close"
+    },
+    {
+      "name": "1280: Tab moves into the panel",
+      "pass": true,
+      "detail": "dev-tab-jobs"
+    },
+    {
+      "name": "1280: Shift+Tab returns to the close button",
+      "pass": true,
+      "detail": "dev-close"
+    },
+    {
+      "name": "1280: Escape closes and restores focus to the opener",
+      "pass": true,
+      "detail": "dev-open"
+    },
+    {
+      "name": "1280: no horizontal overflow at 1280px",
+      "pass": true,
+      "detail": "{\"viewport\":1280,\"scrollWidth\":1280,\"bodyScrollWidth\":1280,\"drawerWidth\":560,\"drawerLeft\":720,\"drawerRight\":1280,\"drawerInside\":true,\"noHorizontalOverflow\":true}"
+    },
+    {
+      "name": "1280: the open drawer fits the viewport",
+      "pass": true,
+      "detail": "{\"viewport\":1280,\"scrollWidth\":1280,\"bodyScrollWidth\":1280,\"drawerWidth\":560,\"drawerLeft\":720,\"drawerRight\":1280,\"drawerInside\":true,\"noHorizontalOverflow\":true}"
+    },
+    {
+      "name": "1280: viewport detail",
+      "pass": true,
+      "detail": "{\"viewport\":1280,\"scrollWidth\":1280,\"bodyScrollWidth\":1280,\"drawerWidth\":560,\"drawerLeft\":720,\"drawerRight\":1280,\"drawerInside\":true,\"noHorizontalOverflow\":true}"
+    }
+  ],
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/media/capabilities",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations/11111111-1111-4111-8111-111111111111/messages",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/preferences",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/permissions?conversationId=11111111-1111-4111-8111-111111111111",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/processes?conversationId=11111111-1111-4111-8111-111111111111",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/processes/job_1/logs?conversationId=11111111-1111-4111-8111-111111111111&cursor=0",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/processes/job_1/stop",
+      "body": {
+        "conversationId": "11111111-1111-4111-8111-111111111111"
+      },
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "content-length": "57",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "x-eunoia-token": "fixture-local-token",
+        "content-type": "application/json",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "origin": "http://127.0.0.1:51163",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/processes?conversationId=11111111-1111-4111-8111-111111111111",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/previews?conversationId=11111111-1111-4111-8111-111111111111",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/previews",
+      "body": {
+        "conversationId": "11111111-1111-4111-8111-111111111111",
+        "command": "npm run dev",
+        "port": 3000,
+        "cwd": "apps/web",
+        "ready_timeout_ms": 45000
+      },
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "content-length": "135",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "x-eunoia-token": "fixture-local-token",
+        "content-type": "application/json",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "origin": "http://127.0.0.1:51163",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/previews?conversationId=11111111-1111-4111-8111-111111111111",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/processes/job_pv_ready/logs?conversationId=11111111-1111-4111-8111-111111111111&cursor=0",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/previews/pv_ready/stop",
+      "body": {
+        "conversationId": "11111111-1111-4111-8111-111111111111"
+      },
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "content-length": "57",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "x-eunoia-token": "fixture-local-token",
+        "content-type": "application/json",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "origin": "http://127.0.0.1:51163",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/previews?conversationId=11111111-1111-4111-8111-111111111111",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat",
+      "body": {
+        "message": "查一下 node",
+        "conversationId": "11111111-1111-4111-8111-111111111111",
+        "turnId": "205b5a72-c12d-4ad8-9a8a-51a9a4b3f93c",
+        "requestId": "205b5a72-c12d-4ad8-9a8a-51a9a4b3f93c"
+      },
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "content-length": "183",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "content-type": "application/json",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "origin": "http://127.0.0.1:51163",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/permissions?conversationId=11111111-1111-4111-8111-111111111111",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/permissions?conversationId=11111111-1111-4111-8111-111111111111",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/previews?conversationId=11111111-1111-4111-8111-111111111111",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations/11111111-1111-4111-8111-111111111111/changes",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations/11111111-1111-4111-8111-111111111111/changes/wcs_11111111-1111-4111-8111-111111111111",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/conversations/11111111-1111-4111-8111-111111111111/changes/wcs_11111111-1111-4111-8111-111111111111/undo/preflight",
+      "body": {
+        "paths": [
+          "src/a.ts"
+        ]
+      },
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "content-length": "22",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "x-eunoia-token": "fixture-local-token",
+        "content-type": "application/json",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "origin": "http://127.0.0.1:51163",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/conversations/11111111-1111-4111-8111-111111111111/changes/wcs_11111111-1111-4111-8111-111111111111/undo/preflight",
+      "body": {
+        "paths": [
+          "src/new.ts"
+        ]
+      },
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "content-length": "24",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "x-eunoia-token": "fixture-local-token",
+        "content-type": "application/json",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "origin": "http://127.0.0.1:51163",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/conversations/11111111-1111-4111-8111-111111111111/changes/wcs_11111111-1111-4111-8111-111111111111/undo",
+      "body": {
+        "paths": [
+          "src/new.ts"
+        ],
+        "force": false
+      },
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "content-length": "38",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "x-eunoia-token": "fixture-local-token",
+        "content-type": "application/json",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "origin": "http://127.0.0.1:51163",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations/11111111-1111-4111-8111-111111111111/changes/wcs_11111111-1111-4111-8111-111111111111",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations/11111111-1111-4111-8111-111111111111/changes",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations/11111111-1111-4111-8111-111111111111/changes",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations/11111111-1111-4111-8111-111111111111/changes",
+      "body": null,
+      "headers": {
+        "host": "127.0.0.1:51163",
+        "connection": "keep-alive",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+        "sec-ch-ua-mobile": "?0",
+        "accept": "*/*",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+        "referer": "http://127.0.0.1:51163/",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "zh-CN,zh;q=0.9"
+      }
+    }
+  ]
+}

@@ -95,6 +95,25 @@ export interface ApprovalRequiredEvent {
   readonly expiresAt?: string;
 }
 
+/**
+ * One real source a web tool returned.
+ *
+ * Only values the tool actually received are carried: a missing title, date or
+ * URL stays missing, and the client renders it as unknown rather than inventing
+ * one. `costUsd` is absent for every current backend (pricing is metered
+ * elsewhere), which is exactly why the UI has an explicit unknown marker.
+ */
+export interface ToolSourceEvent {
+  readonly title: string;
+  readonly url: string;
+  readonly snippet?: string;
+  readonly publishedAt?: string | null;
+  readonly fetchedAt?: string;
+  readonly provider?: string;
+  readonly query?: string;
+  readonly costUsd?: number;
+}
+
 export interface ToolResultEvent {
   readonly type: 'tool_result';
   readonly callId: string;
@@ -107,6 +126,12 @@ export interface ToolResultEvent {
   readonly summary?: string;
   /** Present when `ok` is false; bounded by the tool, never a stack trace. */
   readonly error?: string;
+  /**
+   * Real web sources from `structuredContent`, for the source cards.
+   *
+   * Bounded to the handful a search returns; never the page text itself.
+   */
+  readonly sources?: readonly ToolSourceEvent[];
   /** How many images the result imported into the conversation's media store. */
   readonly images?: number;
   /**

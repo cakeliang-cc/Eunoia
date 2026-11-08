@@ -424,7 +424,10 @@ export class ProcessService {
     const result = await context.executor.run({
       command: ['sh', '-c', script],
       timeoutMs,
-      toolCallId: context.toolCallId,
+      // A status/probe command is not the user's mutating tool call. Using the
+      // same idempotency key as `start` made a second probe return the cached
+      // start result (a real bug the preview readiness loop exposed).
+      toolCallId: `proc_control_${randomUUID()}`,
       ...(context.signal ? { signal: context.signal } : {}),
     });
     if (result.status === 'TIMEOUT') {

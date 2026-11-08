@@ -38,7 +38,22 @@ export const writeFileTool = defineTool({
             'For a targeted change, use edit with the exact old_string instead.',
         );
       }
-      const result = await workspace.writeText(file_path, content);
+      const expectedSha = target ? context.ledger.digestFor(target.path, target) : null;
+      if (target && expectedSha === null) {
+        return toolError(
+          `refusing to overwrite ${target.path}: the complete read did not produce a version digest; read it again.`,
+        );
+      }
+      let result: { path: string; bytes: number; lines: number; created: boolean };
+      try {
+        result = context.changes?.writeText
+          ? await context.changes.writeText({ path: file_path, content, expectedSha })
+          : await workspace.writeText(file_path, content);
+      } catch (error) {
+        return toolError(error instanceof Error ? error.message : String(error), {
+          code: (error as { code?: string }).code ?? 'WRITE_FAILED',
+        });
+      }
       return toolOk(
         `已${result.created ? '创建' : '写入'} ${result.path}（${result.bytes} 字节，${result.lines} 行）。`,
         {
@@ -70,12 +85,28 @@ export const editFileTool = defineTool({
   execute: async ({ file_path, old_string, new_string, replace_all }, context) => {
     return guardToolResult(async () => {
       const workspace = requireWorkspace(context);
-      const result = await workspace.editText({
-        path: file_path,
-        oldString: old_string,
-        newString: new_string,
-        ...(replace_all === undefined ? {} : { replaceAll: replace_all }),
-      });
+      const expectedSha = context.ledger.digestFor(file_path);
+      let result: { path: string; replacements: number; bytes: number };
+      try {
+        result = context.changes?.editText
+          ? await context.changes.editText({
+              path: file_path,
+              oldString: old_string,
+              newString: new_string,
+              replaceAll: replace_all === true,
+              expectedSha,
+            })
+          : await workspace.editText({
+              path: file_path,
+              oldString: old_string,
+              newString: new_string,
+              ...(replace_all === undefined ? {} : { replaceAll: replace_all }),
+            });
+      } catch (error) {
+        return toolError(error instanceof Error ? error.message : String(error), {
+          code: (error as { code?: string }).code ?? 'EDIT_FAILED',
+        });
+      }
       if (result.replacements === 0) {
         return toolOk(`${result.path} 没有变化（新内容与原文相同）。`, {
           summary: `${result.path} 无变化`,

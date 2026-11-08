@@ -50,6 +50,20 @@ export class TurnReadLedger implements ReadLedger {
     return (this.entries.get(path)?.length ?? 0) > 0;
   }
 
+  digestFor(path: string, version?: { mtimeMs: number; size: number }): string | null {
+    const records = this.entries.get(path) ?? [];
+    for (const record of records) {
+      if (!record.complete || !record.sha256) continue;
+      if (
+        version === undefined ||
+        (record.mtimeMs === version.mtimeMs && record.size === version.size)
+      ) {
+        return record.sha256;
+      }
+    }
+    return null;
+  }
+
   hasComplete(path: string, version?: { mtimeMs: number; size: number }): boolean {
     return (this.entries.get(path) ?? []).some(
       (entry) =>

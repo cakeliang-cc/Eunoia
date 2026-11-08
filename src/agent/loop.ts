@@ -44,9 +44,10 @@ import type {
 import { renderToolResult, toolError } from '../tools/types.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import { contractOf } from '../tools/registry.ts';
+import { toolAllowed } from '../tools/scope.ts';
 import { toolOriginLabel } from '../tools/contract.ts';
 import type { ToolPermissionPort, ToolPermissionDecision } from '../tools/types.ts';
-import type { AgentEvent, ThinkingDoneEvent } from './events.ts';
+import type { AgentEvent, ThinkingDoneEvent, ToolSourceEvent } from './events.ts';
 import type { ExecutionRecorder } from './execution-log.ts';
 import { fitContext, type ContextBudget } from './context-budget.ts';
 import type { PreparedMediaPlan } from './request-plan.ts';
@@ -847,6 +848,13 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
     if (plan.parseError !== null || !plan.definition || plan.validationError !== null) {
       return { kind: 'allow' };
     }
+    const scope = options.toolContext.scope;
+    if (scope && !toolAllowed(scope, plan.call.name)) {
+      return {
+        kind: 'deny',
+        reason: `工具 ${plan.call.name} 不在当前执行身份的授权范围内，调用已拒绝。`,
+      };
+    }
     const contract = contractOf(plan.definition);
     if (contract.source !== 'mcp') return { kind: 'allow' };
     if (!options.permission) {
@@ -863,6 +871,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       userId: options.toolContext.userId ?? null,
       conversationId: options.toolContext.conversationId ?? null,
       summary: plan.summary,
+      ...(options.toolContext.scope ? { scope: options.toolContext.scope } : {}),
     });
   }
 
@@ -983,6 +992,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
   function toolResultEvent(plan: CallPlan, invocation: Invocation): AgentEvent {
     const { result } = invocation;
     const images = resultImages(result);
+    const sources = sourcesForEvent(result);
     return {
       type: 'tool_result',
       callId: plan.call.callId,
@@ -992,6 +1002,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       summary: summarizeToolResult(plan.call.name, result),
       ...callOrigin(plan),
       ...(images.length > 0 ? { images: images.length } : {}),
+      ...(sources.length > 0 ? { sources } : {}),
       ...(result.ok
         ? {}
         : { error: truncateLine(result.error ?? 'tool failed', 300) }),
@@ -1122,4 +1133,65 @@ function resultImages(result: ToolResult): ToolResultImage[] {
       bytes: block.bytes,
       name: block.name,
     }));
+}
+
+/**
+ * The real sources a web tool returned, for the source card.
+ *
+ * `structuredContent` is the tool's own contract (see `web-tools.ts`); this
+ * projection is deliberately narrower than it: a card needs a title and an
+ * http(s) URL, and everything else stays optional. A result without either is
+ * dropped rather than filled in — the source card must never invent a title or
+ * a date to look complete.
+ */
+function sourcesForEvent(result: ToolResult): ToolSourceEvent[] {
+  const structured = result.structuredContent;
+  const record =
+    structured && typeof structured === 'object' ? (structured as Record<string, unknown>) : null;
+  const metaSources = result.meta?.['sources'];
+  const raw: unknown[] = record && Array.isArray(record['sources'])
+    ? record['sources']
+    : record && (typeof record['finalUrl'] === 'string' || typeof record['url'] === 'string')
+      ? [record]
+      : Array.isArray(metaSources)
+        ? metaSources
+        : [];
+  if (raw.length === 0) return [];
+  const sources: ToolSourceEvent[] = [];
+  for (const entry of raw.slice(0, 12)) {
+    if (!entry || typeof entry !== 'object') continue;
+    const source = entry as Record<string, unknown>;
+    const rawUrl =
+      typeof source['finalUrl'] === 'string'
+        ? source['finalUrl']
+        : typeof source['url'] === 'string'
+          ? source['url']
+          : '';
+    const rawTitle = typeof source['title'] === 'string' ? source['title'].trim() : '';
+    const url = rawUrl.trim();
+    if (rawTitle.length === 0 || !/^https?:\/\//i.test(url)) continue;
+    const snippet = typeof source['snippet'] === 'string' ? source['snippet'].trim() : '';
+    const publishedAt =
+      typeof source['publishedAt'] === 'string' && source['publishedAt'].trim().length > 0
+        ? source['publishedAt'].trim()
+        : undefined;
+    const fetchedAt =
+      typeof source['fetchedAt'] === 'string' && source['fetchedAt'].trim().length > 0
+        ? source['fetchedAt'].trim()
+        : undefined;
+    const provider = typeof source['provider'] === 'string' ? source['provider'].trim() : '';
+    const query = typeof source['query'] === 'string' ? source['query'].trim() : '';
+    const costUsd = source['costUsd'];
+    sources.push({
+      title: truncateLine(rawTitle, 300),
+      url: truncateLine(url, 2_000),
+      ...(snippet.length > 0 ? { snippet: truncateMiddle(snippet, 400) } : {}),
+      ...(publishedAt ? { publishedAt } : {}),
+      ...(fetchedAt ? { fetchedAt } : {}),
+      ...(provider.length > 0 ? { provider: truncateLine(provider, 80) } : {}),
+      ...(query.length > 0 ? { query: truncateLine(query, 200) } : {}),
+      ...(typeof costUsd === 'number' && Number.isFinite(costUsd) ? { costUsd } : {}),
+    });
+  }
+  return sources;
 }

@@ -1,46 +1,26 @@
 /**
  * DeepSeek adapter.
  *
- * The only provider today. It serves both the Agents runtime (Responses API)
- * and the small OpenAI-compatible client used for summaries. The adapter is
- * cached so the provider's connection wrappers are not rebuilt per call.
+ * DeepSeek's OpenAI-compatible surface implements the Responses API natively,
+ * so this is the generic OpenAI-compatible adapter with DeepSeek's profile.
+ * The vendor-specific parts are only the base URL, the credential names and the
+ * protocol declaration; nothing in the orchestration branches on "deepseek".
  */
 
-import { OpenAIProvider } from '@openai/agents';
-import OpenAI from 'openai';
-import { DEEPSEEK_BASE_URL, resolveApiKey } from '../config.ts';
+import { DEEPSEEK_BASE_URL } from '../config.ts';
+import { createOpenAICompatibleAdapter } from './openai-compatible.ts';
 import type { ProviderAdapter, ProviderProfile } from './types.ts';
 
-const PROFILE: ProviderProfile = {
+export const DEEPSEEK_PROFILE: ProviderProfile = {
   id: 'deepseek',
   baseURL: DEEPSEEK_BASE_URL,
   apiKeyEnv: 'DEEPSEEK_API_KEY',
+  // `ANTHROPIC_AUTH_TOKEN` is accepted because this development environment
+  // already exports it and it is a working DeepSeek key on every route.
+  apiKeyFallbackEnvs: ['ANTHROPIC_AUTH_TOKEN'],
+  protocol: 'responses',
 };
 
 export function createDeepSeekAdapter(): ProviderAdapter {
-  let provider: OpenAIProvider | null = null;
-
-  return {
-    profile: PROFILE,
-    createModelProvider() {
-      provider ??= new OpenAIProvider({
-        apiKey: resolveApiKey(),
-        baseURL: DEEPSEEK_BASE_URL,
-        useResponses: true,
-      });
-      return provider;
-    },
-    createClient() {
-      return new OpenAI({
-        apiKey: resolveApiKey(),
-        baseURL: DEEPSEEK_BASE_URL,
-        maxRetries: 1,
-        timeout: 60_000,
-      });
-    },
-    async close() {
-      await provider?.close();
-      provider = null;
-    },
-  };
+  return createOpenAICompatibleAdapter(DEEPSEEK_PROFILE);
 }

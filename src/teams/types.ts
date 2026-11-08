@@ -263,6 +263,18 @@ export interface MemberPermissions {
   readonly maxOutputChars: number;
   /** Private images this member explicitly received. */
   readonly imageAssetIds: readonly string[];
+  /**
+   * External-tool ceiling (R02). Absent means no MCP tools for a member:
+   * generic MCP parameters cannot be constrained by local path/network checks,
+   * so a restricted member only receives what a parent explicitly grants.
+   */
+  readonly mcp?: {
+    readonly servers?: readonly string[] | null;
+    readonly tools?: readonly string[] | null;
+    readonly externalWrite?: boolean;
+    readonly externalUnknown?: boolean;
+    readonly accounts?: readonly string[] | null;
+  };
 }
 
 export interface MemberProfile {
@@ -639,6 +651,7 @@ export type TeamErrorCode =
   | 'TEAM_BUDGET_EXHAUSTED'
   | 'TEAM_BUDGET_CONFLICT'
   | 'TEAM_CAPABILITY'
+  | 'TEAM_FORK_INCOMPATIBLE'
   | 'TEAM_WORKSPACE'
   | 'TEAM_INTEGRATION_CONFLICT'
   | 'TEAM_INTEGRATION_STALE'

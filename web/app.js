@@ -998,6 +998,7 @@ function addToolTrace(bubble) {
           : '';
       entry.state.textContent = `${event.ok ? '完成' : '失败'}${duration}`;
       if (!event.ok && event.error) entry.row.title = event.error;
+      if (event.sources) addSourceCards(entry.row, event.sources);
       noteToolResult(event.name, event.summary || entry.summary.textContent, event.ok);
     },
     finish() {
@@ -1008,6 +1009,65 @@ function addToolTrace(bubble) {
       }
     },
   };
+}
+
+/**
+ * The sources a web tool actually returned, under its trace row.
+ *
+ * The server only forwards a title, an http(s) URL and the metadata it really
+ * has. This function trusts none of that blindly: it drops anything without a
+ * title or a safe URL instead of inventing one, and it always says either the
+ * real cost or "费用未知". A missing date is printed as unknown; today's date
+ * is never substituted for a search result's publication date.
+ */
+function addSourceCards(row, sources) {
+  if (!Array.isArray(sources) || sources.length === 0) return;
+  const box = el('div', 'source-cards');
+  box.setAttribute('role', 'list');
+  box.setAttribute('aria-label', '来源');
+  let count = 0;
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    const url = typeof source.url === 'string' ? source.url.trim() : '';
+    const title = typeof source.title === 'string' ? source.title.trim() : '';
+    if (title.length === 0 || !/^https?:\/\//i.test(url)) continue;
+    const card = el('div', 'source-card');
+    card.setAttribute('role', 'listitem');
+    const link = el('a', 'source-title', title);
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    card.append(link);
+    card.append(el('span', 'source-url', url));
+    const meta = el('div', 'source-meta');
+    if (typeof source.costUsd === 'number' && Number.isFinite(source.costUsd)) {
+      meta.append(el('span', 'source-cost', `费用 $${source.costUsd.toFixed(4)}`));
+    } else {
+      meta.append(el('span', 'source-cost unknown', '费用未知'));
+    }
+    if (typeof source.provider === 'string' && source.provider.length > 0) {
+      meta.append(el('span', null, source.provider));
+    }
+    if (typeof source.publishedAt === 'string' && source.publishedAt.length > 0) {
+      meta.append(el('span', null, `日期 ${source.publishedAt}`));
+    } else if (typeof source.fetchedAt === 'string' && source.fetchedAt.length > 0) {
+      meta.append(el('span', null, `抓取 ${source.fetchedAt}`));
+    } else {
+      meta.append(el('span', 'source-date unknown', '日期未知'));
+    }
+    if (typeof source.query === 'string' && source.query.length > 0) {
+      meta.append(el('span', null, `查询「${source.query}」`));
+    }
+    card.append(meta);
+    if (typeof source.snippet === 'string' && source.snippet.length > 0) {
+      card.append(el('p', 'source-snippet', source.snippet));
+    }
+    box.append(card);
+    count += 1;
+  }
+  if (count === 0) return;
+  box.dataset.callId = row.dataset.callId || '';
+  row.after(box);
 }
 
 function scrollToEnd() {

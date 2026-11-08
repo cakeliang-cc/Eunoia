@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json && node --experimental-strip-types scripts/copy-assets.ts",
+    "build": "tsc -p tsconfig.build.json && node --experimental-strip-types scripts/copy-assets.ts && node --experimental-strip-types scripts/build-info.ts",
     "start": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning dist/api/server.js",
     "test": "NODE_OPTIONS='--experimental-sqlite --disable-warning=ExperimentalWarning' vitest run",
     "test:watch": "NODE_OPTIONS='--experimental-sqlite --disable-warning=ExperimentalWarning' vitest",
@@ -33,8 +33,10 @@
     "browser:check": "node --experimental-strip-types scripts/browser-check.ts",
     "experiment:transcript": "node --experimental-strip-types scripts/model-transcript-experiment.ts",
     "experiment:transcript:live": "node --env-file-if-exists=.env --experimental-strip-types scripts/model-transcript-experiment.ts --live",
-    "toolkit:doctor": "node --experimental-strip-types scripts/toolkit-doctor.ts",
-    "toolkit:setup": "node --experimental-strip-types scripts/toolkit-setup.ts"
+    "toolkit:doctor": "node --env-file-if-exists=.env --experimental-strip-types scripts/toolkit-doctor.ts",
+    "toolkit:setup": "node --env-file-if-exists=.env --experimental-strip-types scripts/toolkit-setup.ts",
+    "acceptance:manifest": "node --experimental-strip-types scripts/acceptance-manifest.ts --write",
+    "acceptance:check": "node --experimental-strip-types scripts/acceptance-manifest.ts --check"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "^2.1.0",

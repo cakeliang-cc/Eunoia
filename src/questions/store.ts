@@ -9,6 +9,8 @@ export interface QuestionStore {
     callId: string,
   ): Promise<UserQuestionRecord | null>;
   listPendingQuestions(userId: string, conversationId: string): Promise<UserQuestionRecord[]>;
+  /** Pending questions asked by one member, for close/recovery cleanup. */
+  listPendingQuestionsByMember(userId: string, memberId: string): Promise<UserQuestionRecord[]>;
   /** Atomically pending → answered/cancelled/expired; false when not pending. */
   resolveUserQuestion(input: {
     readonly userId: string;

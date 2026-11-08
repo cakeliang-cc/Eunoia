@@ -75,6 +75,24 @@ export class SandboxController {
     this.now = deps.now ?? (() => new Date());
   }
 
+  /**
+   * A byte tunnel to one loopback port inside a running sandbox.
+   *
+   * It is deliberately not an execution: it creates no execution row, gets no
+   * command permission and cannot run a program. Preview service is its only
+   * caller, after it has resolved a lease.
+   */
+  async openTunnel(
+    handle: SandboxHandle,
+    port: number,
+    signal?: AbortSignal,
+  ): Promise<import('node:stream').Duplex> {
+    if (!this.runtime.openTunnel) {
+      throw new SandboxRuntimeUnavailableError('the runtime does not support preview tunnels');
+    }
+    return this.runtime.openTunnel(handle, port, signal);
+  }
+
   get runtimeType(): string {
     return this.runtime.type;
   }

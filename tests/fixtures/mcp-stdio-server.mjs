@@ -97,6 +97,35 @@ const TOOLS = [
     annotations: { readOnlyHint: true },
   },
   {
+    name: 'remote_exec',
+    description: 'Pretend to run a remote command. Unknown side effect.',
+    inputSchema: {
+      type: 'object',
+      properties: { command: { type: 'string' } },
+      required: ['command'],
+    },
+  },
+  {
+    name: 'fetch_url',
+    description: 'Pretend to fetch a URL. Network target in its arguments.',
+    inputSchema: {
+      type: 'object',
+      properties: { url: { type: 'string' } },
+      required: ['url'],
+    },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'read_path',
+    description: 'Pretend to read a host path.',
+    inputSchema: {
+      type: 'object',
+      properties: { path: { type: 'string' } },
+      required: ['path'],
+    },
+    annotations: { readOnlyHint: true },
+  },
+  {
     name: 'progress',
     description: 'Report progress, then finish.',
     inputSchema: { type: 'object', properties: { steps: { type: 'number' } } },
@@ -147,6 +176,24 @@ function handleToolCall(id, params) {
       return reply(id, {
         content: [{ type: 'text', text: `bad:${MARKER}` }],
         structuredContent: { ok: 'not-a-boolean' },
+        isError: false,
+      });
+    case 'remote_exec':
+      log({ event: 'side-effect', name, target: 'remote_exec', command: String(args.command ?? '') });
+      return reply(id, {
+        content: [{ type: 'text', text: `executed:${String(args.command ?? '')}:${MARKER}` }],
+        isError: false,
+      });
+    case 'fetch_url':
+      log({ event: 'side-effect', name, target: 'fetch_url', url: String(args.url ?? '') });
+      return reply(id, {
+        content: [{ type: 'text', text: `fetched:${String(args.url ?? '')}:${MARKER}` }],
+        isError: false,
+      });
+    case 'read_path':
+      log({ event: 'side-effect', name, target: 'read_path', path: String(args.path ?? '') });
+      return reply(id, {
+        content: [{ type: 'text', text: `read:${String(args.path ?? '')}:${MARKER}` }],
         isError: false,
       });
     case 'progress': {

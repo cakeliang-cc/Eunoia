@@ -78,6 +78,7 @@ import type { McpService } from '../mcp/service.ts';
 import type { WebService } from '../web/service.ts';
 import type { QuestionService } from '../questions/service.ts';
 import type { ProcessService } from '../processes/service.ts';
+import type { PreviewService } from '../previews/service.ts';
 import { createProcessTools } from '../tools/process-tools.ts';
 import { createPreviewTools } from '../tools/preview-tools.ts';
 import { createWebTools } from '../tools/web-tools.ts';
@@ -225,6 +226,8 @@ export interface TurnDependencies {
   readonly questions?: QuestionService | null;
   /** Container-backed long-running jobs and previews. */
   readonly processes?: ProcessService | null;
+  /** Preview leases and ingress (R04). */
+  readonly previews?: PreviewService | null;
 }
 
 /**
@@ -626,8 +629,9 @@ async function* runTurnInner(
      * Arm undo before any tool can write. The baseline itself is captured by the
      * recorder at the first actual mutation, so a read-only turn pays nothing.
      */
+    let workspaceChangePort: import('../tools/types.ts').ToolChangeJournal | null = null;
     if (deps.workspaceChanges && persist && request.requestId) {
-      await deps.workspaceChanges
+      const armed = await deps.workspaceChanges
         .arm({
           userId: request.userId,
           conversationId,
@@ -639,7 +643,9 @@ async function* runTurnInner(
             conversation_id: conversationId,
             error: error instanceof Error ? error.message : String(error),
           });
+          return false;
         });
+      if (armed) workspaceChangePort = deps.workspaceChanges.port(conversationId);
     }
     const toolRegistry = new ToolRegistry(
       createMemoryTools({
@@ -656,7 +662,9 @@ async function* runTurnInner(
     }
     if (deps.processes && sandboxSession) {
       toolRegistry.registerAll(createProcessTools(deps.processes));
-      toolRegistry.registerAll(createPreviewTools(deps.processes));
+    }
+    if (deps.previews && sandboxSession) {
+      toolRegistry.registerAll(createPreviewTools(deps.previews));
     }
     if (sandboxSession) toolRegistry.registerAll(codingTools);
     const skills = deps.skills ?? null;
@@ -759,6 +767,10 @@ async function* runTurnInner(
       policy,
       workspace: sandboxSession?.workspace ?? null,
       executor: sandboxSession?.executor ?? null,
+      // R10: the semantic tools get the real workspace root for
+      // typescript-language-server, resolved by the Gateway from the task, not
+      // from a model argument.
+      language: sandboxSession?.language ?? null,
       // ADR 021: the run gets the task's working-directory port beside the file and
       // command ports, so `change_directory` needs no access to the sandbox.
       cwd: sandboxSession?.cwd ?? null,
@@ -945,14 +957,7 @@ async function* runTurnInner(
       ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
       ...(deps.mcp ? { permission: deps.mcp.permissionPort() } : {}),
       ...(deps.media ? { toolMedia: createToolMediaPort(deps.media) } : {}),
-      ...(deps.workspaceChanges
-        ? {
-            toolChanges: {
-              beforeWrite: (path: string) =>
-                deps.workspaceChanges!.beforeWrite({ taskId: conversationId, path }),
-            },
-          }
-        : {}),
+      ...(workspaceChangePort ? { toolChanges: workspaceChangePort } : {}),
       ...(prepareMedia ? { prepareMedia } : {}),
       userId: request.userId,
       conversationId,

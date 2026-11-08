@@ -2081,6 +2081,19 @@ export class SqliteStore implements Store, TurnStore, MediaAssetStore, ModelTran
     ).map(toQuestion);
   }
 
+  async listPendingQuestionsByMember(
+    userId: string,
+    memberId: string,
+  ): Promise<UserQuestionRecord[]> {
+    return this.#all<Record<string, unknown>>(
+      `SELECT * FROM user_questions
+        WHERE user_id = ? AND member_id = ? AND status = 'pending'
+        ORDER BY created_at`,
+      userId,
+      memberId,
+    ).map(toQuestion);
+  }
+
   async resolveUserQuestion(input: {
     readonly userId: string;
     readonly id: string;

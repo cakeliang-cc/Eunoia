@@ -57,12 +57,22 @@ export function createQuestionTools(questions: QuestionService): ToolDefinition[
           })),
           ...(allowOther ? { allowOther: true } : {}),
         };
+        const identity = context.scope?.identity;
+        // A member asks into the user's root conversation; the card carries its
+        // member/generation so a stale or already-closed question cannot be
+        // answered and mistaken for the current one.
+        const conversationId =
+          identity?.role === 'member'
+            ? (identity.rootConversationId ?? context.conversationId)
+            : context.conversationId;
         try {
           const record = await questions.ask({
             userId: context.userId,
-            conversationId: context.conversationId,
-            turnId: null,
+            conversationId,
+            turnId: identity?.activationId ?? null,
             callId: context.toolCallId ?? context.actionId ?? null,
+            ...(identity?.memberId ? { memberId: identity.memberId } : {}),
+            ...(identity?.generation !== undefined ? { generation: identity.generation } : {}),
             prompt: question,
             schema,
           });

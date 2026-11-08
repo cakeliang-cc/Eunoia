@@ -1,0 +1,4 @@
+   ✓ R04 — preview tunnel in a real container > starts a real dev server, leases it and serves the user URL through the gateway  2082ms
+   ✓ R04 — preview tunnel in a real container > serves HTTP inside network:none only through the tunnel, with no published host port  1123ms
+ Test Files  1 passed (1)
+      Tests  2 passed (2)

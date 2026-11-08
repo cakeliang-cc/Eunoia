@@ -538,6 +538,14 @@ export interface SandboxRuntime {
   execute(handle: SandboxHandle, request: RuntimeExecutionRequest): Promise<RuntimeExecutionResult>;
   inspect(handle: SandboxHandle): Promise<RuntimeStatus>;
   interrupt(handle: SandboxHandle, executionId: string): Promise<void>;
+  /**
+   * Open one byte tunnel to a loopback port inside this sandbox (preview only).
+   *
+   * The transport is `exec -i` over stdio, so the container keeps `network:none`
+   * and the host never publishes a port. The returned duplex is a single TCP
+   * connection to `127.0.0.1:<port>` in the container.
+   */
+  openTunnel?(handle: SandboxHandle, port: number, signal?: AbortSignal): Promise<import('node:stream').Duplex>;
   /** Reads the marker an execution wrapper wrote, for reconciliation. */
   readExitMarker(handle: SandboxHandle, executionId: string): Promise<number | null>;
   destroy(handle: SandboxHandle): Promise<void>;

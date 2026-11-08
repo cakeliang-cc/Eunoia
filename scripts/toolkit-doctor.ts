@@ -4,14 +4,19 @@
  * It exits non-zero only for a missing core piece the toolkit cannot work
  * without (Node/Docker/workspace). Missing optional credentials (Tavily) and
  * missing browser binaries are reported as `blocked`, not silently green.
+ *
+ * `--json` prints the same facts as machine-readable JSON for the acceptance
+ * manifest; the text form is for a person.
  */
 
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { diagnoseBrowserEnvironment } from '../src/browser/environment.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+const json = process.argv.includes('--json');
 
 function commandVersion(command: string, args: string[] = ['--version']): string | null {
   try {
@@ -51,8 +56,24 @@ add(
   playwrightVersion ? `${playwrightVersion} at ${playwright}` : 'npm install --save-dev @playwright/mcp@0.0.80',
 );
 
-const chrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-add('chrome', existsSync(chrome) ? 'ok' : 'missing', chrome);
+const environment = await diagnoseBrowserEnvironment({ repoRoot: root });
+for (const check of environment.checks) {
+  const detail = [
+    check.detail,
+    check.realpath && check.realpath !== check.detail ? `realpath=${check.realpath}` : null,
+    check.uid !== undefined ? `uid=${check.uid} gid=${check.gid} mode=${(check.mode ?? 0).toString(8)}` : null,
+    check.writable !== undefined ? `writable=${check.writable}` : null,
+    check.error ? `error=${check.error}` : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  add(check.id, check.status, detail);
+}
+add(
+  'browser-user',
+  environment.process.uid >= 0 ? 'ok' : 'blocked',
+  `uid=${environment.process.uid} gid=${environment.process.gid} platform=${environment.process.platform}`,
+);
 
 const lsp = join(root, 'node_modules', '.bin', 'typescript-language-server');
 add(
@@ -80,7 +101,11 @@ add(
 const coreMissing = checks.some(
   (check) => check.status === 'missing' && ['node', 'docker', 'docker-runtime'].includes(check.id),
 );
-process.stdout.write(
-  `${checks.map((check) => `${check.status.padEnd(7)} ${check.id}: ${check.detail}`).join('\n')}\n`,
-);
+if (json) {
+  process.stdout.write(`${JSON.stringify({ checks, environment }, null, 2)}\n`);
+} else {
+  process.stdout.write(
+    `${checks.map((check) => `${check.status.padEnd(7)} ${check.id}: ${check.detail}`).join('\n')}\n`,
+  );
+}
 process.exitCode = coreMissing ? 2 : 0;

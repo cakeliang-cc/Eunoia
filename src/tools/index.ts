@@ -41,6 +41,7 @@ export type {
   ToolExecutor,
   ToolFileSlice,
   ToolGrepResult,
+  ToolLanguagePort,
   ToolSandboxSession,
   ToolWorkspacePort,
   ToolWriteResult,

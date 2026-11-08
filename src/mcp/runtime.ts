@@ -72,6 +72,10 @@ export function createMcpRuntime(options: McpRuntimeOptions): McpRuntime {
     vault,
     now,
     ...(options.onStatus ? { onStatus: options.onStatus } : {}),
+    // A browser screenshot file is bounded by the same byte limit the media
+    // service enforces after decoding, so a too-large file is refused before it
+    // is read rather than after it is in memory.
+    ...(options.media ? { browserOutput: { maxBytes: options.media.limits.maxImageBytes } } : {}),
     onElicit: async ({ userId, serverId, conversationId, request }) =>
       handleElicitation(holder, broker, userId, serverId, conversationId, request, now),
   });

@@ -289,6 +289,44 @@ export class SandboxGateway {
     );
   }
 
+  /**
+   * Open a preview tunnel to a loopback port inside this task's sandbox.
+   *
+   * Unlike `execute`, this does not create an execution, accept a command or
+   * consult the command policy. The PreviewService has already resolved a
+   * lease for this owner/workspace/port; this method only proves the task still
+   * owns the sandbox and asks the runtime for one byte pipe.
+   */
+  async openTunnel(
+    context: SandboxContext,
+    sandboxId: string,
+    port: number,
+    signal?: AbortSignal,
+  ): Promise<import('node:stream').Duplex> {
+    const task = await this.loadTask(context);
+    const sandbox = await this.requireSandbox(sandboxId);
+    if (sandbox.taskId !== task.taskId) {
+      throw new SandboxPolicyError('sandbox belongs to a different task');
+    }
+    if (sandbox.status === 'DESTROYED' || sandbox.status === 'EXPIRED') {
+      throw new SandboxPolicyError('sandbox is no longer running');
+    }
+    const workspace = await this.store.getWorkspace(task.workspaceId);
+    if (!workspace) throw new SandboxNotFoundError('workspace is missing');
+    const config = await this.runtimeConfig(sandbox, workspace);
+    const handle = await this.controller.ensureRunning(sandbox, config);
+    await this.audit.record({
+      taskId: task.taskId,
+      sessionId: context.sessionId ?? null,
+      sandboxId: sandbox.sandboxId,
+      toolCallId: context.toolCallId ?? null,
+      action: 'preview.tunnel.open',
+      outcome: 'succeeded',
+      detail: { port },
+    });
+    return this.controller.openTunnel(handle, port, signal);
+  }
+
   // --------------------------------------------------------------- lifecycle ---
 
   async create(input: CreateSandboxInput, context?: SandboxContext): Promise<Sandbox> {

@@ -90,11 +90,25 @@ export interface BeginTranscriptInput {
   /** The current user message, or null on regenerate (it is already in replay). */
   readonly user: { readonly content: UserContentV1; readonly messageId: string | null; readonly seq: number } | null;
   readonly regenerate?: boolean;
+  /**
+   * Portable items inherited through a cross-protocol fork.
+   *
+   * They are inserted *after* the message at `afterMessageIndex` in the replayed
+   * window, which is how a complete tool group keeps its position relative to
+   * the assistant message that produced it. The fork path only ever puts
+   * function-call/result items here; messages are already session rows.
+   */
+  readonly forkSeed?: readonly ForkSeedGroup[];
   readonly context: ContextBlockInput;
   readonly policy: ToolPolicy;
   readonly protocolRevision?: string;
   readonly encoderRevision?: string;
   readonly now?: Date;
+}
+
+export interface ForkSeedGroup {
+  readonly afterMessageIndex: number;
+  readonly items: readonly LoopInputItem[];
 }
 
 export interface BegunTranscript {
@@ -1053,18 +1067,87 @@ async function buildSeedItems(
     });
   }
 
-  for (const message of input.replay.messages) {
+  for (const [index, message] of input.replay.messages.entries()) {
     if (knownMessages.has(message.id)) {
       throughSeq = Math.max(throughSeq, message.seq);
-      continue;
+    } else {
+      const item = messageSeedItem(input, epochId, message);
+      items.push(item);
+      throughSeq = Math.max(throughSeq, message.seq);
     }
-    const item = messageSeedItem(input, epochId, message);
-    items.push(item);
-    throughSeq = Math.max(throughSeq, message.seq);
+    for (const group of input.forkSeed ?? []) {
+      if (group.afterMessageIndex !== index) continue;
+      let seedIndex = 0;
+      for (const loopItem of group.items) {
+        const seeded = forkSeedItem(input, epochId, loopItem, index, seedIndex);
+        seedIndex += 1;
+        if (seeded) items.push(seeded);
+      }
+    }
   }
   void reason;
   void now;
   return { items, throughSeq };
+}
+
+/**
+ * A transcript row for an item inherited through a fork.
+ *
+ * Only tool items reach here: the fork copies messages through the session
+ * service (so the UI and the model share one row) and seeds the complete tool
+ * groups that have no session representation. No reasoning item is ever seeded,
+ * so a vendor-private replay payload cannot cross the boundary by accident.
+ */
+function forkSeedItem(
+  input: BeginTranscriptInput,
+  epochId: string,
+  item: LoopInputItem,
+  messageIndex: number,
+  itemIndex: number,
+): NewModelItem | null {
+  const base = {
+    conversationId: input.conversationId,
+    epochId,
+    idempotencyKey: `fork:${sha256(canonicalJson({ messageIndex, itemIndex, item }))}`,
+    requestId: input.requestId,
+    turnId: input.turnId,
+    step: null,
+    contentVersion: CONTENT_VERSION,
+    status: 'complete' as const,
+  };
+  if (item.type === 'function_call') {
+    const payload: TranscriptPayload = {
+      type: 'function_call',
+      callId: item.callId,
+      name: item.name,
+      arguments: item.arguments,
+    };
+    return {
+      ...base,
+      kind: 'tool_call',
+      source: 'assistant',
+      scope: 'conversation',
+      payload,
+      callId: item.callId,
+    };
+  }
+  if (item.type === 'function_call_result') {
+    const payload: TranscriptPayload = {
+      type: 'function_call_result',
+      callId: item.callId,
+      name: item.name,
+      output: item.output,
+    };
+    return {
+      ...base,
+      kind: 'tool_result',
+      source: 'tool',
+      scope: 'conversation',
+      payload,
+      callId: item.callId,
+    };
+  }
+  return null;
 }
 
 function messageSeedItem(

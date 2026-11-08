@@ -1230,6 +1230,21 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore, ModelTr
       .map((record) => ({ ...record }));
   }
 
+  async listPendingQuestionsByMember(
+    userId: string,
+    memberId: string,
+  ): Promise<UserQuestionRecord[]> {
+    return [...this.#questions.values()]
+      .filter(
+        (record) =>
+          record.userId === userId &&
+          record.memberId === memberId &&
+          record.status === 'pending',
+      )
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map((record) => ({ ...record }));
+  }
+
   async resolveUserQuestion(input: {
     readonly userId: string;
     readonly id: string;

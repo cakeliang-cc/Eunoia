@@ -30,6 +30,7 @@ import type {
   ToolExecutor,
   ToolFileSlice,
   ToolGrepResult,
+  ToolLanguagePort,
   ToolSandboxSession,
   ToolWorkspacePort,
   ToolWriteResult,
@@ -108,6 +109,17 @@ class GatewayToolSession implements ToolWorkspacePort, ToolExecutor, ToolCwdPort
   relative(hostPath: string): string {
     if (!this.workspaceRoot) return hostPath;
     return pathRelative(this.workspaceRoot, hostPath);
+  }
+
+  /**
+   * The host directory a language server may own.
+   *
+   * The Gateway resolves this from the persisted workspace, never from a tool
+   * argument. Until `ready()` has run it is null, and the semantic tools fall
+   * back to the in-memory LanguageService rather than guessing a directory.
+   */
+  get language(): ToolLanguagePort | null {
+    return this.workspaceRoot ? { hostRoot: this.workspaceRoot } : null;
   }
 
   async readLines(input: string, start?: number, end?: number): Promise<ToolFileSlice> {
@@ -212,6 +224,14 @@ class GatewayToolSession implements ToolWorkspacePort, ToolExecutor, ToolCwdPort
       // the base its relative paths actually had.
       cwd: cwd.cwd,
     };
+  }
+
+  async tunnel(input: {
+    readonly port: number;
+    readonly signal?: AbortSignal;
+  }): Promise<import('node:stream').Duplex> {
+    const sandboxId = await this.ensureSandbox();
+    return this.gateway.openTunnel(this.call(), sandboxId, input.port, input.signal);
   }
 
   private call(toolCallId?: string): SandboxContext {

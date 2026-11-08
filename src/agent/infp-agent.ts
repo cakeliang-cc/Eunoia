@@ -18,6 +18,7 @@
  * The reasons are in ADR 014; the provider is still the SDK's.
  */
 
+import { rootExecutionScope } from '../tools/scope.ts';
 import type { ModelProvider } from '@openai/agents';
 import { COMPANION_MODEL, createProvider } from './model-client.ts';
 import { buildRuntimeContext } from './runtime-context.ts';
@@ -40,6 +41,7 @@ import type {
   ToolCwdPort,
   ToolDefinition,
   ToolExecutor,
+  ToolLanguagePort,
   ToolPolicy,
   ToolWorkspacePort,
 } from '../tools/types.ts';
@@ -72,6 +74,8 @@ export interface CompanionOptions {
   readonly executor?: ToolExecutor | null;
   /** Task working-directory port (ADR 021); null when no sandbox is configured. */
   readonly cwd?: ToolCwdPort | null;
+  /** Host root for the semantic language server (ADR 037 / R10). */
+  readonly language?: ToolLanguagePort | null;
   readonly ledger?: ReadLedger;
   /** Where this run's tool calls and results are persisted, when anywhere. */
   readonly recorder?: ExecutionRecorder;
@@ -101,6 +105,7 @@ export interface CompanionRun {
   readonly workspace: ToolWorkspacePort | null;
   readonly executor: ToolExecutor | null;
   readonly cwd: ToolCwdPort | null;
+  readonly language: ToolLanguagePort | null;
   readonly ledger: ReadLedger;
   readonly recorder?: ExecutionRecorder;
   readonly contextBudget?: ContextBudget;
@@ -135,6 +140,7 @@ export function createCompanionAgent(options: CompanionOptions = {}): CompanionR
     workspace: options.workspace ?? null,
     executor: options.executor ?? null,
     cwd: options.cwd ?? null,
+    language: options.language ?? null,
     ledger: options.ledger ?? new TurnReadLedger(),
     ...(options.recorder ? { recorder: options.recorder } : {}),
     ...(options.contextBudget ? { contextBudget: options.contextBudget } : {}),
@@ -293,6 +299,7 @@ export async function* streamReply(
       workspace: agent.workspace,
       executor: agent.executor,
       cwd: agent.cwd,
+      language: agent.language,
       policy: agent.policy,
       ledger: agent.ledger,
       now: agent.now,
@@ -301,6 +308,9 @@ export async function* streamReply(
       ...(options.permission ? { permission: options.permission } : {}),
       ...(options.toolMedia ? { media: options.toolMedia } : {}),
       ...(options.toolChanges ? { changes: options.toolChanges } : {}),
+      ...(options.userId && options.conversationId
+        ? { scope: rootExecutionScope({ userId: options.userId, conversationId: options.conversationId }) }
+        : {}),
     },
     maxSteps: options.maxTurns ?? agent.maxSteps,
     ...(options.signal ? { signal: options.signal } : {}),

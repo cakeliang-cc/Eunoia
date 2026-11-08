@@ -20,6 +20,32 @@ import { WebError, type FetchProvider, type FetchedDocument } from './types.ts';
 
 const USER_AGENT = 'Eunoia/0.1 (+local companion; web_fetch)';
 
+/**
+ * The `lookup` hook Node's http client calls with the validated address.
+ *
+ * Node enables `autoSelectFamily` by default and then calls `lookup` with
+ * `{all: true}`, expecting an array. Returning a bare string in that mode makes
+ * Node read `address[0].address` and fail with ERR_INVALID_IP_ADDRESS, which is
+ * what a real `web_fetch` exposed. Both shapes are provided here.
+ */
+export function pinnedLookup(resolved: { readonly address: string; readonly family: number }) {
+  return (
+    _hostname: string,
+    options: { readonly all?: boolean } | number,
+    callback: (
+      error: NodeJS.ErrnoException | null,
+      address: string | Array<{ address: string; family: number }>,
+      family?: number,
+    ) => void,
+  ): void => {
+    if (typeof options === 'object' && options.all === true) {
+      callback(null, [{ address: resolved.address, family: resolved.family }]);
+      return;
+    }
+    callback(null, resolved.address, resolved.family);
+  };
+}
+
 export interface HttpFetchOptions {
   readonly policy?: UrlPolicyOptions;
   readonly now?: () => Date;
@@ -94,9 +120,7 @@ export class HttpFetchProvider implements FetchProvider {
           },
           // The validated address is pinned here. Verification is still on, so
           // a certificate for the hostname is required; `servername` keeps SNI.
-          lookup: (_hostname, _options, callback) => {
-            callback(null, resolved.address, resolved.family);
-          },
+          lookup: pinnedLookup(resolved),
           servername: target.hostname,
           timeout: input.timeoutMs,
         },

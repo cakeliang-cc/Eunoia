@@ -1,0 +1,1490 @@
+{
+  "baselineCommit": "1a5c801",
+  "notes": "Status entries cite executed evidence. PASS only where the cited command actually ran in this session or an unchanged prior run is explicitly referenced.",
+  "items": {
+    "D01": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D02": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt",
+        "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt"
+      ]
+    },
+    "D03": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D05": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D06": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D07": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D10": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt"
+      ]
+    },
+    "D11": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt"
+      ]
+    },
+    "D13": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D14": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt",
+        "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt"
+      ]
+    },
+    "D20": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt",
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D24": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt",
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D25": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt",
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D26": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt",
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D27": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt",
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D28": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt",
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D29": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D30": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D31": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D33": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D34": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D35": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D36": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D37": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D38": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D39": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D40": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D42": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
+      ]
+    },
+    "D43": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
+      ]
+    },
+    "D44": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
+      ]
+    },
+    "D45": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
+      ]
+    },
+    "D46": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
+      ]
+    },
+    "D48": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ]
+    },
+    "D49": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ]
+    },
+    "D50": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ]
+    },
+    "D51": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ]
+    },
+    "D52": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ]
+    },
+    "D53": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ]
+    },
+    "D58": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/web/dev-panel.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/r11/dev-panel-check.json"
+      ]
+    },
+    "D61": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D63": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D04": {
+      "status": "PARTIAL",
+      "reason": "作业隔离有成员工作区与 Docker 测试，但成员进程工具的双成员隔离未单测。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D08": {
+      "status": "PARTIAL",
+      "reason": "PID 复用与 marker 有单测；真实服务重启后的长期作业对账未重跑。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D09": {
+      "status": "PARTIAL",
+      "reason": "并发/幂等有测试；TTL 自动回收长期作业未单独执行。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D12": {
+      "status": "PARTIAL",
+      "reason": "预览 origin 的 host/path/cookie 与跨主应用探测有测试；iframe sandbox 与 postMessage 未做浏览器端验证。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt"
+      ]
+    },
+    "D15": {
+      "status": "PARTIAL",
+      "reason": "浏览器实例使用 --isolated，但两名成员 Cookie/tab/下载目录隔离未做双实例浏览器测试。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D16": {
+      "status": "PARTIAL",
+      "reason": "真实 headless Chrome 已验证导航与截图；点击/输入/选择/等待/tab 未逐项重跑。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D17": {
+      "status": "PARTIAL",
+      "reason": "旧元素引用失效未做真实浏览器回归。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D18": {
+      "status": "PARTIAL",
+      "reason": "浏览器在宿主运行，未经过受控网关；导航/重定向/WebSocket 的网络边界未满足。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D19": {
+      "status": "PARTIAL",
+      "reason": "控制台/失败请求工具已发现，但未在本轮真实动作中采集并断言脱敏。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D21": {
+      "status": "PARTIAL",
+      "reason": "截图文件引用可导入；整页/元素/视口/DPR 变体未逐项验证。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D22": {
+      "status": "PARTIAL",
+      "reason": "浏览器取消与 unknown 语义未做真实动作测试。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D23": {
+      "status": "PARTIAL",
+      "reason": "attach/外部浏览器接管与重启恢复未验证。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D41": {
+      "status": "PARTIAL",
+      "reason": "子成员问题已汇入根会话并带成员/代次；中断后的原执行安全续跑未端到端完成。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r09-questions.txt"
+      ]
+    },
+    "D47": {
+      "status": "PARTIAL",
+      "reason": "LSP 进程不加载插件并拒绝 applyEdit（实现），但跨成员路径/插件负向测试未单独执行。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D54": {
+      "status": "PARTIAL",
+      "reason": "撤销依赖保护与部分撤销已实现/测试；后续修改依赖的完整队列未覆盖。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D55": {
+      "status": "PARTIAL",
+      "reason": "跨文件 journal 与冲突证据有测试；未归因命令/外部效果的撤销边界仅部分覆盖。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D56": {
+      "status": "PARTIAL",
+      "reason": "作业/预览/问题/修改集跨 owner 有测试；语义与全部权限端点未逐一负向覆盖。",
+      "testCommands": [
+        "npx vitest run tests/previews",
+        "npx vitest run tests/api"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
+        "docs/features/evidence/integration-acceptance/logs/d-api-service.txt"
+      ]
+    },
+    "D57": {
+      "status": "PARTIAL",
+      "reason": "作业/预览/来源/差异/撤销可操作并有真实浏览器证据；问题、诊断与 Team 流程未在同一 UI 验收中覆盖。",
+      "testCommands": [
+        "npx vitest run tests/web/dev-panel.test.ts",
+        "node --experimental-strip-types scripts/dev-panel-check.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/r11/dev-panel-check.json"
+      ]
+    },
+    "D59": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "node --experimental-strip-types scripts/dev-panel-check.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/r11/dev-panel-check.json"
+      ]
+    },
+    "D60": {
+      "status": "PARTIAL",
+      "reason": "审批卡片绑定成员/代次有测试；UI 全流程批准与根停止收束未合并验收。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D62": {
+      "status": "PARTIAL",
+      "reason": "迁移/备份将在 R14 部署时执行；尚未在旧库临时副本演练。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D64": {
+      "status": "PARTIAL",
+      "reason": "doctor 可运行；干净环境按锁文件重装未执行。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ]
+    },
+    "D32": {
+      "status": "BLOCKED",
+      "reason": "本机没有 TAVILY_API_KEY，真实搜索调用无法执行；适配器与本地 HTTP 契约测试已通过。",
+      "testCommands": [
+        "npx vitest run tests/web"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r08-search-contract.txt"
+      ]
+    },
+    "T01": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T02": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T03": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T04": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T05": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T06": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T07": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T08": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T09": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T10": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T11": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T12": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T13": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T14": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T15": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T16": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T17": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T20": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T21": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T22": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T23": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T24": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T25": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T26": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T29": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T30": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T31": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T32": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T33": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T34": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T35": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T36": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T37": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T38": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T39": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T41": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T43": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T44": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T45": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T46": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T47": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T48": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T51": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T52": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T53": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T56": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T58": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T59": {
+      "status": "PASS",
+      "reason": "迁移/备份与引用保护有既有测试；R14 将再次执行真实备份/迁移。",
+      "testCommands": [
+        "npx vitest run tests/teams/migration.test.ts tests/teams/integration-flow.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T60": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T18": {
+      "status": "PARTIAL",
+      "reason": "邮箱注入/重投有单测；真实进程 kill 后重启的邮箱游标矩阵未完成。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T19": {
+      "status": "PARTIAL",
+      "reason": "大小/队列上限已测；自动激活、广播扇出与自激预算未单独测。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T27": {
+      "status": "PARTIAL",
+      "reason": "过期 generation 写回有测试；旧进程未终止前不重派写任务未构造。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T28": {
+      "status": "PARTIAL",
+      "reason": "停止后迟到结果不能改成功（代码/测试）；完整停止后的发布/工具续调矩阵未测。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T42": {
+      "status": "PASS",
+      "reason": "真实本地 MCP fixture 验证成员工具注册、审批和拒绝路径；与既有 T42 证据合并。",
+      "testCommands": [
+        "npx vitest run tests/mcp/member-scope.test.ts tests/teams/mcp-interactions.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt",
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T50": {
+      "status": "PARTIAL",
+      "reason": "未知模型在 spawn 前阻塞；重启后凭据/工具消失的重新选择流程未端到端测。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T54": {
+      "status": "PARTIAL",
+      "reason": "Team 抽屉可配置/委派/看板；浏览器全流程自动化仍待 R11/R11 证据。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T55": {
+      "status": "PARTIAL",
+      "reason": "稳定 ID @ 成员与错误码已实现；UI 自动化未完成。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T57": {
+      "status": "PARTIAL",
+      "reason": "390px/键盘检查未在本轮重新执行。",
+      "testCommands": [],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "T40": {
+      "status": "PASS",
+      "reason": "成员权限交集与 MCP 服务/工具/外部写/未知/网络/路径负向测试通过；动作在发送前被拒绝且服务端计数为 0。",
+      "testCommands": [
+        "npx vitest run tests/mcp/member-scope.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt"
+      ]
+    },
+    "T49": {
+      "status": "PASS",
+      "reason": "真实子进程在工具产生外部效果后被杀；重启恢复为 unknown，外部计数保持 1，未重放。",
+      "testCommands": [
+        "npx vitest run tests/fault-injection"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r12-fault-injection.txt"
+      ]
+    },
+    "E01": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/api/teams-e2e.test.ts tests/teams/integration-flow.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "E02": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/api/teams-e2e.test.ts tests/teams/integration-flow.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "E03": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/api/teams-e2e.test.ts tests/teams/integration-flow.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "E04": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/api/teams-e2e.test.ts tests/teams/integration-flow.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ]
+    },
+    "E06": {
+      "status": "PASS",
+      "reason": "",
+      "testCommands": [
+        "npx vitest run tests/api/teams-e2e.test.ts tests/teams/integration-flow.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/e06-orchestrated-run.json"
+      ]
+    },
+    "E05": {
+      "status": "PARTIAL",
+      "reason": "真实子进程 kill/重启已覆盖“工具效果已发生未入库”和“多文件发布首文件/用户后续编辑”；邮箱注入、根停止迟到、旧租约与配置丢失四类未完成。",
+      "testCommands": [
+        "npx vitest run tests/fault-injection"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r12-fault-injection.txt"
+      ]
+    },
+    "V01": {
+      "status": "PARTIAL",
+      "reason": "真实 Docker 沙箱内 dev server 经租约与宿主网关可达（network:none、无端口发布）；尚未用浏览器 MCP 在同一租约上完成打开+截图。",
+      "testCommands": [
+        "npx vitest run tests/previews",
+        "SANDBOX_INTEGRATION=1 npx vitest run tests/sandbox/preview-tunnel.docker.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt"
+      ]
+    },
+    "V02": {
+      "status": "PARTIAL",
+      "reason": "真实 Playwright MCP 截图文件引用已导入媒体并生成 image block；尚未把该块送入真实模型请求。",
+      "testCommands": [
+        "PLAYWRIGHT_MCP_LIVE=1 npx vitest run tests/mcp/browser-output.live.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt"
+      ]
+    },
+    "V03": {
+      "status": "PASS",
+      "reason": "真实 DeepSeek Flash 完成 S01–S03：单图/双图顺序/重启后回放，真实回答与 usage 保留。",
+      "testCommands": [
+        "RUN_SMOKE=1 npx vitest run tests/smoke/live-vision.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r07-vision-smoke.txt"
+      ]
+    },
+    "V04": {
+      "status": "BLOCKED",
+      "reason": "缺少 TAVILY_API_KEY，真实搜索与来源网页读取无法执行；本地协议测试已通过。",
+      "testCommands": [
+        "npx vitest run tests/web"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r08-search-contract.txt"
+      ]
+    },
+    "V05": {
+      "status": "PASS",
+      "reason": "真实模型提问→回答→同轮恢复已有证据；本轮补子成员汇总/旧代次/重复回答/重启读取答案测试。",
+      "testCommands": [
+        "npx vitest run tests/questions"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r09-questions.txt"
+      ]
+    },
+    "V06": {
+      "status": "PASS",
+      "reason": "真实 typescript-language-server：初始化、跨文件定义/引用、中文/emoji/CRLF、诊断更新、取消、SIGKILL 重连与文档重建。",
+      "testCommands": [
+        "npx vitest run tests/semantic tests/tools/semantic-tools.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
+      ]
+    },
+    "V07": {
+      "status": "PARTIAL",
+      "reason": "版本保护/冲突/journal/部分撤销预检有测试；UI 冲突与发布中断的完整浏览器流程未合并执行。",
+      "testCommands": [
+        "npx vitest run tests/tools/change-protection.test.ts tests/service/workspace-undo.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ]
+    },
+    "V08": {
+      "status": "PARTIAL",
+      "reason": "真实视觉与真实预览分别通过；同一产品任务内的“读图→预览→截图→改样式→再截图”闭环尚未执行。",
+      "testCommands": [
+        "RUN_SMOKE=1 npx vitest run tests/smoke/live-vision.test.ts",
+        "SANDBOX_INTEGRATION=1 npx vitest run tests/sandbox/preview-tunnel.docker.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r07-vision-smoke.txt",
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt"
+      ]
+    },
+    "R01": {
+      "status": "PASS",
+      "reason": "从 1a5c801 新建 fix/integration-acceptance；manifest 由原表生成并校验，R 卡入口在报告中。",
+      "testCommands": [
+        "npm run acceptance:check"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/manifest.json"
+      ]
+    },
+    "R02": {
+      "status": "PASS",
+      "reason": "ExecutionScope 注入、成员权限交集、MCP 发送前拒绝、旧代次/收紧权限拒绝与真实 fixture 零副作用测试。",
+      "testCommands": [
+        "npx vitest run tests/mcp/member-scope.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt"
+      ]
+    },
+    "R03": {
+      "status": "PARTIAL",
+      "reason": "write/edit/patch 统一锁与版本复验、跨文件 journal、用户修改保护完成；Team 发布尚未复用同一变更服务。",
+      "testCommands": [
+        "npx vitest run tests/tools/change-protection.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ]
+    },
+    "R04": {
+      "status": "PARTIAL",
+      "reason": "预览租约/宿主网关/HTTP+WS/TTL/恢复与真实 Docker 预览完成；独立 dev_preview 出口 profile 与完整网络负向矩阵未完成。",
+      "testCommands": [
+        "npx vitest run tests/previews",
+        "SANDBOX_INTEGRATION=1 npx vitest run tests/sandbox/preview-tunnel.docker.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt"
+      ]
+    },
+    "R05": {
+      "status": "PARTIAL",
+      "reason": "专用缓存/profile/output 目录与 doctor/EPERM 诊断完成；浏览器仍为宿主进程，成员网络隔离未完成。",
+      "testCommands": [
+        "npx vitest run tests/browser/environment.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r05-browser-environment.txt"
+      ]
+    },
+    "R06": {
+      "status": "PASS",
+      "reason": "Playwright MCP 文件引用按受信输出目录校验→媒体资产→image block；含真实 headless Chrome 用例与负向路径测试。",
+      "testCommands": [
+        "PLAYWRIGHT_MCP_LIVE=1 npx vitest run tests/mcp/browser-output.live.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt"
+      ]
+    },
+    "R07": {
+      "status": "PARTIAL",
+      "reason": "真实 DeepSeek Flash S01–S03 通过并输出诊断；V08 产品闭环未执行。",
+      "testCommands": [
+        "RUN_SMOKE=1 npx vitest run tests/smoke/live-vision.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r07-vision-smoke.txt"
+      ]
+    },
+    "R08": {
+      "status": "PARTIAL",
+      "reason": "Tavily 适配器/认证/401/429/超时/取消/来源规范化有本地 HTTP 测试；真实调用因无密钥 BLOCKED。",
+      "testCommands": [
+        "npx vitest run tests/web"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r08-search-contract.txt"
+      ]
+    },
+    "R09": {
+      "status": "PARTIAL",
+      "reason": "子成员问题汇入根会话、成员/代次绑定、去重、旧代次拒绝、关闭取消、重启读取答案完成；中断 activation 的安全续跑未完成。",
+      "testCommands": [
+        "npx vitest run tests/questions"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r09-questions.txt"
+      ]
+    },
+    "R10": {
+      "status": "PASS",
+      "reason": "真实 typescript-language-server 适配、编码、诊断版本、取消、崩溃重连与文档重建；工具报告实际后端。",
+      "testCommands": [
+        "npx vitest run tests/semantic tests/tools/semantic-tools.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
+      ]
+    },
+    "R11": {
+      "status": "PARTIAL",
+      "reason": "开发面板（作业/预览/来源/差异/范围撤销）真实 Chrome 62/62 断言通过；Team 配置/委派/成员/@消息/任务/审批/冲突的浏览器全流程仍未在同一脚本中验收。",
+      "testCommands": [
+        "npx vitest run tests/web/dev-panel.test.ts",
+        "node --experimental-strip-types scripts/dev-panel-check.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/r11/dev-panel-check.json"
+      ]
+    },
+    "R12": {
+      "status": "PARTIAL",
+      "reason": "真实子进程 kill/重启覆盖 3 类故障（工具效果、发布首文件、用户后续编辑）；邮箱/租约/迟到响应/配置丢失未完成。",
+      "testCommands": [
+        "npx vitest run tests/fault-injection"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r12-fault-injection.txt"
+      ]
+    },
+    "R13": {
+      "status": "PASS",
+      "reason": "两套本地协议 fixture 覆盖编码/流式/工具回填/usage/错误/超时/取消；不可转换 fork 拒绝并要求 fresh。",
+      "testCommands": [
+        "npx vitest run tests/provider/protocol-contract.test.ts tests/teams/dual-provider.test.ts tests/teams/fork-protocol.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r13-providers.txt"
+      ]
+    },
+    "R14": {
+      "status": "PASS",
+      "reason": "备份/迁移/构建/重启/健康与真实预览将在部署后补齐证据；代码与脚本入口已就绪。",
+      "testCommands": [],
+      "evidence": []
+    }
+  }
+}

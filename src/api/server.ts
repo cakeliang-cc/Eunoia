@@ -17,7 +17,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { access, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { extname, join, sep } from 'node:path';
+import { dirname, extname, join, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -56,6 +56,10 @@ import { HttpFetchProvider } from '../web/fetch-http.ts';
 import { createDefaultSearchProvider } from '../web/tavily.ts';
 import { QuestionService } from '../questions/service.ts';
 import { ProcessService } from '../processes/service.ts';
+import { PreviewService } from '../previews/service.ts';
+import { PreviewGateway } from '../previews/gateway.ts';
+import { FilePreviewStore, MemoryPreviewStore } from '../previews/store.ts';
+import { previewSettings } from '../previews/config.ts';
 import {
   ConversationBusyError,
   TurnCoordinator,
@@ -727,6 +731,8 @@ export interface AppDependencies {
   readonly questions?: QuestionService | null;
   /** Container-backed long-running jobs and previews. */
   readonly processes?: ProcessService | null;
+  /** Preview leases and ingress gateway (R04). */
+  readonly previews?: PreviewService | null;
   /** Subagent/Agent Team orchestration, when the deployment enables it. */
   readonly teamService?: TeamService | null;
 }
@@ -990,6 +996,8 @@ export function createApp(deps: AppDependencies) {
   }
 
   /** The dependencies every streamed turn shares. */
+  const previews = deps.previews ?? null;
+
   function turnDependencies(): Parameters<typeof runTurn>[0] {
     return {
       store,
@@ -1013,6 +1021,7 @@ export function createApp(deps: AppDependencies) {
       ...(deps.web ? { web: deps.web } : {}),
       ...(deps.questions ? { questions: deps.questions } : {}),
       ...(deps.processes ? { processes: deps.processes } : {}),
+      ...(deps.previews ? { previews: deps.previews } : {}),
     };
   }
 
@@ -1740,7 +1749,7 @@ export function createApp(deps: AppDependencies) {
         ...(web ? createWebTools(web) : []),
         ...(questions ? createQuestionTools(questions) : []),
         ...(processes ? createProcessTools(processes) : []),
-        ...(processes ? createPreviewTools(processes) : []),
+        ...(previews ? createPreviewTools(previews) : []),
       ];
       const tools = builtins.map((tool) => ({
         name: tool.name,
@@ -1833,6 +1842,182 @@ export function createApp(deps: AppDependencies) {
       return false;
     };
 
+    const handlePreviewGroup = async (
+      request: IncomingMessage,
+      response: ServerResponse,
+      requestUrl: URL,
+    ): Promise<boolean> => {
+      if (!previews) return false;
+      const { pathname } = requestUrl;
+      if (pathname === '/api/previews' && request.method === 'GET') {
+        if (!guardPermissionRead(request, response)) return true;
+        const userId = await identify(request, response);
+        const conversationId = requestUrl.searchParams.get('conversationId') ?? '';
+        if (!isUuid(conversationId) || !(await sessions.get(userId, conversationId))) {
+          sendJson(response, 404, { error: 'conversation not found' });
+          return true;
+        }
+        sendJson(response, 200, {
+          previews: await previews.list(userId, conversationId),
+          available: true,
+        });
+        return true;
+      }
+      if (pathname === '/api/previews' && request.method === 'POST') {
+        if (!guardPermissionWrite(request, response)) return true;
+        const userId = await identify(request, response);
+        const parsed = await readBodyOrReject(request, response);
+        if (!parsed.ok) return true;
+        const body = parsed.value as Record<string, unknown>;
+        const conversationId = typeof body['conversationId'] === 'string' ? body['conversationId'] : '';
+        const command = typeof body['command'] === 'string' ? body['command'].trim() : '';
+        const port = Number(body['port']);
+        if (!isUuid(conversationId) || !(await sessions.get(userId, conversationId))) {
+          sendJson(response, 404, { error: 'conversation not found' });
+          return true;
+        }
+        if (command.length === 0 || command.length > 8_000) {
+          sendJson(response, 400, { error: 'command is required' });
+          return true;
+        }
+        if (!Number.isInteger(port) || port < 1024 || port > 65_535) {
+          sendJson(response, 400, { error: 'port must be an integer between 1024 and 65535' });
+          return true;
+        }
+        const session = await deps.sandbox?.provider.forTask({
+          taskId: conversationId,
+          sessionId: conversationId,
+          userId,
+        });
+        if (!session?.executor) {
+          sendJson(response, 409, { error: 'sandbox is not available' });
+          return true;
+        }
+        const started = await previews.start(
+          {
+            executor: session.executor,
+            userId,
+            conversationId,
+            taskId: conversationId,
+            toolCallId: `api-preview-${randomUUID()}`,
+          },
+          {
+            command,
+            port,
+            ...(typeof body['cwd'] === 'string' ? { cwd: body['cwd'] } : {}),
+            ...(typeof body['ready_timeout_ms'] === 'number'
+              ? { readyTimeoutMs: body['ready_timeout_ms'] }
+              : {}),
+          },
+        );
+        sendJson(response, started.ready ? 201 : 409, {
+          preview: started.lease,
+          job: started.job,
+          ready: started.ready,
+          detail: started.detail,
+          internalUrl: started.internalUrl,
+        });
+        return true;
+      }
+      const stopMatch = /^\/api\/previews\/([^/]+)\/stop$/.exec(pathname);
+      if (stopMatch && request.method === 'POST') {
+        if (!guardPermissionWrite(request, response)) return true;
+        const userId = await identify(request, response);
+        const parsed = await readBodyOrReject(request, response);
+        if (!parsed.ok) return true;
+        const body = parsed.value as Record<string, unknown>;
+        const conversationId = typeof body['conversationId'] === 'string' ? body['conversationId'] : '';
+        if (!isUuid(conversationId)) {
+          sendJson(response, 400, { error: 'conversationId is required' });
+          return true;
+        }
+        const session = await deps.sandbox?.provider.forTask({
+          taskId: conversationId,
+          sessionId: conversationId,
+          userId,
+        });
+        if (!session?.executor) {
+          sendJson(response, 409, { error: 'sandbox is not available' });
+          return true;
+        }
+        const stopped = await previews.stop(
+          {
+            executor: session.executor,
+            userId,
+            conversationId,
+            taskId: conversationId,
+            toolCallId: `api-preview-stop-${randomUUID()}`,
+          },
+          stopMatch[1] as string,
+        );
+        sendJson(response, 200, { preview: stopped });
+        return true;
+      }
+      const logsMatch = /^\/api\/processes\/([^/]+)\/logs$/.exec(pathname);
+      if (logsMatch && request.method === 'GET' && processes) {
+        if (!guardPermissionRead(request, response)) return true;
+        const userId = await identify(request, response);
+        const conversationId = requestUrl.searchParams.get('conversationId') ?? '';
+        if (!isUuid(conversationId) || !(await sessions.get(userId, conversationId))) {
+          sendJson(response, 404, { error: 'conversation not found' });
+          return true;
+        }
+        const session = await deps.sandbox?.provider.forTask({
+          taskId: conversationId,
+          sessionId: conversationId,
+          userId,
+        });
+        if (!session?.executor) {
+          sendJson(response, 409, { error: 'sandbox is not available' });
+          return true;
+        }
+        const cursor = Number.parseInt(requestUrl.searchParams.get('cursor') ?? '0', 10) || 0;
+        const read = await processes.read(
+          {
+            executor: session.executor,
+            userId,
+            conversationId,
+            taskId: conversationId,
+            toolCallId: `api-logs-${randomUUID()}`,
+          },
+          { jobId: logsMatch[1] as string, stream: 'both', cursor },
+        );
+        sendJson(response, 200, read);
+        return true;
+      }
+      const processStop = /^\/api\/processes\/([^/]+)\/stop$/.exec(pathname);
+      if (processStop && request.method === 'POST' && processes) {
+        if (!guardPermissionWrite(request, response)) return true;
+        const userId = await identify(request, response);
+        const parsed = await readBodyOrReject(request, response);
+        if (!parsed.ok) return true;
+        const body = parsed.value as Record<string, unknown>;
+        const conversationId = typeof body['conversationId'] === 'string' ? body['conversationId'] : '';
+        const session = await deps.sandbox?.provider.forTask({
+          taskId: conversationId,
+          sessionId: conversationId,
+          userId,
+        });
+        if (!session?.executor) {
+          sendJson(response, 409, { error: 'sandbox is not available' });
+          return true;
+        }
+        const stopped = await processes.stop(
+          {
+            executor: session.executor,
+            userId,
+            conversationId,
+            taskId: conversationId,
+            toolCallId: `api-process-stop-${randomUUID()}`,
+          },
+          processStop[1] as string,
+        );
+        sendJson(response, 200, { job: stopped });
+        return true;
+      }
+      return false;
+    };
+
     const handleQuestionGroup = async (
       request: IncomingMessage,
       response: ServerResponse,
@@ -1865,6 +2050,9 @@ export function createApp(deps: AppDependencies) {
                   userId,
                   questionId: match[1] as string,
                   answer: body.answer,
+                  ...(typeof body.generation === 'number'
+                    ? { generation: body.generation }
+                    : {}),
                 })
               : await questions.cancel(userId, match[1] as string);
           sendJson(response, 200, { question: record });
@@ -1911,6 +2099,7 @@ export function createApp(deps: AppDependencies) {
       handleMcpGroup,
       handleQuestionGroup,
       handleProcessGroup,
+      handlePreviewGroup,
       handleToolGroup,
     ]) {
       if (await group(req, res, url)) return true;
@@ -1928,9 +2117,11 @@ export function createApp(deps: AppDependencies) {
 
     if (req.method === 'GET' && pathname === '/health') {
       const ok = await store.ping();
+      const build = await readBuildInfo();
       sendJson(res, ok ? 200 : 503, {
         status: ok ? 'ok' : 'degraded',
         prompt_version: PROMPT_VERSION,
+        build,
         store: deps.storeKind ?? 'unknown',
         persistent: deps.storeKind === 'sqlite',
         single_user: singleUserId() !== null,
@@ -2477,6 +2668,46 @@ export function createApp(deps: AppDependencies) {
       }
     }
 
+    const preflightMatch =
+      /^\/api\/conversations\/([0-9a-f-]{36})\/changes\/(wcs_[0-9a-f-]{36})\/undo\/preflight$/.exec(
+        pathname,
+      );
+    if (preflightMatch && req.method === 'POST') {
+      if (!guardPermissionRead(req, res)) return true;
+      if (!workspaceChanges) {
+        sendJson(res, 503, { error: '撤销不可用：这个进程没有工作区变更服务' });
+        return true;
+      }
+      const conversationId = preflightMatch[1] as string;
+      const changesetId = preflightMatch[2] as string;
+      const parsedBody = await readBodyOrReject(req, res);
+      if (!parsedBody.ok) return true;
+      const body = asObject(parsedBody.value) ?? {};
+      const userId = await identify(req, res);
+      if (!(await sessions.get(userId, conversationId))) {
+        sendJson(res, 404, { error: 'conversation not found' });
+        return true;
+      }
+      try {
+        const plan = await workspaceChanges.planUndo({
+          userId,
+          conversationId,
+          changesetId,
+          ...(Array.isArray(body.paths)
+            ? { paths: body.paths.filter((entry): entry is string => typeof entry === 'string') }
+            : {}),
+        });
+        sendJson(res, 200, plan);
+      } catch (error) {
+        if (error instanceof WorkspaceUndoError) {
+          sendJson(res, error.status, { error: error.message, code: error.code });
+          return true;
+        }
+        throw error;
+      }
+      return true;
+    }
+
     const undoMatch =
       /^\/api\/conversations\/([0-9a-f-]{36})\/changes\/(wcs_[0-9a-f-]{36})\/undo$/.exec(
         pathname,
@@ -2503,6 +2734,9 @@ export function createApp(deps: AppDependencies) {
           conversationId,
           changesetId,
           force: body.force === true,
+          ...(Array.isArray(body.paths)
+            ? { paths: body.paths.filter((entry): entry is string => typeof entry === 'string') }
+            : {}),
         });
         sendJson(res, 200, result);
       } catch (error) {
@@ -2821,6 +3055,25 @@ function isAbortError(error: unknown): boolean {
  * `web/index.html` a plain static page that still opens from disk for layout
  * work (in that case the permission control simply stays hidden).
  */
+/**
+ * The build that produced the running artifacts, if the build wrote one.
+ *
+ * Absent in a source-mode dev run; that is reported as null, not invented.
+ */
+async function readBuildInfo(): Promise<Record<string, unknown> | null> {
+  for (const candidate of [
+    join(process.cwd(), 'dist', 'build-info.json'),
+    join(import.meta.dirname, '..', 'build-info.json'),
+  ]) {
+    try {
+      return JSON.parse(await readFile(candidate, 'utf8')) as Record<string, unknown>;
+    } catch {
+      // Try the next location.
+    }
+  }
+  return null;
+}
+
 async function serveIndex(res: ServerResponse, token: string): Promise<void> {
   try {
     const html = await readFile(join(WEB_DIR, 'index.html'), 'utf8');
@@ -2941,6 +3194,61 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
    */
   const processService = new ProcessService({ store });
   const questionService = new QuestionService({ store });
+  /**
+   * Preview ingress (R04): a loopback gateway over durable leases. It exists
+   * only when a sandbox does; a deployment without one returns PREVIEW_DISABLED
+   * instead of pretending a URL exists.
+   */
+  const previewConfig = previewSettings(
+    process.env,
+    kind === 'sqlite' ? join(dirname(sqlitePath()), 'previews.json') : null,
+  );
+  let previewGateway: PreviewGateway | null = null;
+  let previewService: PreviewService | null = null;
+  if (sandboxPlatform && previewConfig.enabled) {
+    previewGateway = new PreviewGateway({
+      host: previewConfig.host,
+      port: previewConfig.port,
+      baseDomain: previewConfig.baseDomain,
+    });
+    previewService = new PreviewService({
+      processes: processService,
+      store: previewConfig.leaseFile
+        ? new FilePreviewStore(previewConfig.leaseFile)
+        : new MemoryPreviewStore(),
+      gateway: previewGateway,
+      baseDomain: previewConfig.baseDomain,
+      gatewayPort: previewConfig.port,
+      limits: {
+        maxPerConversation: previewConfig.maxPerConversation,
+        ttlMs: previewConfig.ttlMs,
+      },
+      sessionFor: async (lease) =>
+        sandboxPlatform.provider.forTask({
+          taskId: lease.conversationId,
+          sessionId: lease.conversationId,
+          userId: lease.userId,
+        }),
+    });
+    try {
+      const address = await previewGateway.start();
+      const resumed = await previewService.resume();
+      log.info('server.preview_gateway', {
+        host: address.host,
+        port: address.port,
+        base_domain: previewConfig.baseDomain,
+        live_leases: resumed.live,
+        expired_leases: resumed.expired,
+      });
+    } catch (error) {
+      log.error('server.preview_gateway_unavailable', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await previewGateway.stop().catch(() => undefined);
+      previewGateway = null;
+      previewService = null;
+    }
+  }
   void questionService.expireStale().catch(() => undefined);
 
   const webService = new WebService({
@@ -2956,6 +3264,8 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
         store: sandboxStore,
         workspaces: sandboxPlatform.workspaces,
         changesets: store,
+        journalRoot:
+          kind === 'sqlite' ? join(dirname(sqlitePath()), 'change-journal') : null,
       })
     : null;
   sandboxPlatform?.gateway.setChangeRecorder(workspaceChanges);
@@ -3088,6 +3398,7 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
       sessionConfig: config,
       availableImageModels,
       mcp: mcpRuntime.service,
+      questions: questionService,
       ...(sandboxPlatform
         ? { approvals: createSandboxApprovalPort(sandboxPlatform) }
         : {}),
@@ -3121,6 +3432,7 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     web: webService,
     questions: questionService,
     processes: processService,
+    ...(previewService ? { previews: previewService } : {}),
     ...(teamService ? { teamService } : {}),
   });
   log.info('server.model_transcript', { mode: transcriptMode() });
@@ -3144,7 +3456,16 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     });
   }
 
+  if (previewService) {
+    const every = 60_000;
+    const sweeper = setInterval(() => {
+      void previewService.expireDue().catch(() => undefined);
+    }, every);
+    sweeper.unref();
+    server.on('close', () => clearInterval(sweeper));
+  }
   server.on('close', () => {
+    void previewGateway?.stop();
     sandboxPlatform?.stop();
     void mcpRuntime.shutdown();
     void teamStore?.close();

@@ -31,11 +31,14 @@ import type { LoopInputItem, ModelTurn, ModelUsage } from '../agent/model-port.t
 import { buildRunInput } from '../agent/infp-agent.ts';
 import type { ContextBudget } from '../agent/context-budget.ts';
 import { contentImageIds, legacyContent, messageContent } from '../agent/content.ts';
-import type { UserContentV1 } from '../agent/content.ts';
+import type { ModelMessageContent, UserContentV1 } from '../agent/content.ts';
+import type { Message } from '../session/types.ts';
 import { preflightTeamMedia, loadMediaPlan } from '../service/media-turn.ts';
 import type { ToolDefinition, ToolPolicy } from '../tools/types.ts';
 import { TurnReadLedger } from '../tools/ledger.ts';
 import { ToolRegistry } from '../tools/registry.ts';
+import { guardToolForScope, memberExecutionScope, toolAllowed } from '../tools/scope.ts';
+import type { ExecutionScope } from '../tools/scope.ts';
 import { codingTools } from '../tools/coding/index.ts';
 import type { ModelProfile } from '../models/types.ts';
 import type { ToolSandboxSession } from '../tools/types.ts';
@@ -44,7 +47,15 @@ import type { Store } from '../store.ts';
 import { TurnCoordinator } from '../service/turns.ts';
 import { StoreTurnRecorder } from '../service/turn-recorder.ts';
 import { DurableTranscript } from '../service/model-transcript.ts';
-import { transcriptMode, type TranscriptMode } from '../session/model-transcript.ts';
+import type { ForkSeedGroup } from '../service/model-transcript.ts';
+import { transcriptMode, type ModelItem, type TranscriptMode } from '../session/model-transcript.ts';
+import { providerProtocol } from '../provider/index.ts';
+import {
+  convertForkHistory,
+  toolItemsOf,
+  type ForkInputItem,
+  type ForkTurn,
+} from './fork-protocol.ts';
 import type { FinishReason } from '../finish-reason.ts';
 import type { TurnFinishPatch } from '../session/turn-types.ts';
 import { contentFingerprint, log } from '../observability/logging.ts';
@@ -319,7 +330,11 @@ export class SubagentRuntime {
       // committed messages; when the member is less privileged than the source,
       // it refuses rather than inheriting history it may not read.
       if (member.contextMode === 'fork' && parent) {
-        await this.#forkHistory(team, run, parent, member, input.forkSeq ?? null);
+        // The returned cutoff is the *resolved* committed boundary. Storing it
+        // means a later activation cannot inherit turns that were written
+        // after the fork was requested.
+        const cutoffSeq = await this.#forkHistory(team, run, parent, member, input.forkSeq ?? null);
+        member = { ...member, forkSeq: cutoffSeq };
       }
       const workspace = await this.#deps.host.provisionWorkspace({
         team,
@@ -668,9 +683,52 @@ export class SubagentRuntime {
     try {
       const conversation = await this.#deps.sessions.ensure(team.ownerId, member.internalConversationId);
       const profile = this.#deps.host.profileFor(member);
-      const tools = new ToolRegistry(await this.#deps.host.toolsFor(member, activation));
+      /**
+       * R02: one execution scope for this activation. Every tool and every MCP
+       * approval is checked against it, and against a freshly loaded member
+       * record immediately before execution. The scope is never read from a
+       * model argument.
+       */
+      const scopeInput = {
+        userId: team.ownerId,
+        conversationId: member.internalConversationId,
+        rootConversationId: run.rootConversationId,
+        teamId: team.id,
+        runId: run.id,
+        memberId: member.id,
+        activationId: activation.id,
+        ...(taskId ? { taskAttemptId: taskId } : {}),
+        generation: activation.generation,
+      };
+      const scope = memberExecutionScope({ ...scopeInput, permissions: member.permissions });
+      const currentScope = async (): Promise<ExecutionScope> => {
+        const [fresh, freshActivation] = await Promise.all([
+          this.#deps.teamStore.getMember(member.id),
+          this.#deps.teamStore.getActivation(activation.id),
+        ]);
+        if (!fresh || fresh.status === 'closed' || !freshActivation) {
+          throw new Error('成员已关闭或激活记录不存在');
+        }
+        if (freshActivation.generation !== activation.generation) {
+          throw new Error('激活代次已变化');
+        }
+        return memberExecutionScope({
+          ...scopeInput,
+          generation: freshActivation.generation,
+          permissions: fresh.permissions,
+        });
+      };
+      const registerScoped = (registry: ToolRegistry, definitions: readonly ToolDefinition[]): void => {
+        for (const definition of definitions) {
+          if (!toolAllowed(scope, definition.name)) continue;
+          registry.register(guardToolForScope(definition, scope, currentScope));
+        }
+      };
+      const tools = new ToolRegistry(
+        (await this.#deps.host.toolsFor(member, activation)).filter((tool) => toolAllowed(scope, tool.name)),
+      );
       const workspace = await this.#deps.host.workspaceFor(member);
-      if (workspace) tools.registerAll(codingTools);
+      if (workspace) registerScoped(tools, codingTools);
       /** MCP tools are granted to the member, not to the root's conversation. */
       let mcpGuidelines = '';
       let permissionPort: import('../tools/types.ts').ToolPermissionPort | null = null;
@@ -680,7 +738,7 @@ export class SubagentRuntime {
           conversationId: member.internalConversationId,
           ...(abort.signal ? { signal: abort.signal } : {}),
         });
-        tools.registerAll(mcpTurn.tools);
+        registerScoped(tools, mcpTurn.tools);
         mcpGuidelines = mcpTurn.guidelines;
         permissionPort = this.#deps.mcp.permissionPort();
       }
@@ -769,6 +827,11 @@ export class SubagentRuntime {
       let input: readonly LoopInputItem[];
       let transcript: DurableTranscript | null = null;
       if (durable) {
+        // A cross-protocol fork seeds its complete tool groups into the child's
+        // first epoch. Same-protocol forks keep the existing behaviour (session
+        // messages only): replaying the vendor's own reasoning signature is the
+        // source provider's job and is not a cross-protocol conversion.
+        const forkSeed = await this.#forkSeedItems(team.ownerId, member);
         const begun = await DurableTranscript.begin({
           store: this.#deps.store,
           userId: team.ownerId,
@@ -795,6 +858,7 @@ export class SubagentRuntime {
           },
           policy,
           now,
+          ...(forkSeed && forkSeed.length > 0 ? { forkSeed } : {}),
         });
         transcript = begun.transcript;
         input = begun.input;
@@ -863,6 +927,7 @@ export class SubagentRuntime {
           workspace: workspace?.workspace ?? null,
           executor: workspace?.executor ?? null,
           cwd: workspace?.cwd ?? null,
+          language: workspace?.language ?? null,
           policy,
           ledger: new TurnReadLedger(),
           now,
@@ -872,6 +937,7 @@ export class SubagentRuntime {
           // root conversation.
           userId: team.ownerId,
           conversationId: member.internalConversationId,
+          scope,
         },
         maxSteps: this.#deps.host.maxStepsFor(member),
         signal: abort.signal,
@@ -1206,7 +1272,7 @@ export class SubagentRuntime {
     parent: Member,
     child: Member,
     forkSeq: number | null,
-  ): Promise<void> {
+  ): Promise<number> {
     // Fork inherits the parent's committed history, including whatever its
     // assistant text may contain. A child with *narrower* permissions must not
     // receive it; the safe options are fresh or an explicit material selection.
@@ -1231,6 +1297,32 @@ export class SubagentRuntime {
     );
     const requested = forkSeq ?? lastAssistantSeq;
     const cutoffSeq = Math.min(requested, lastAssistantSeq);
+
+    // Validate the protocol boundary before writing anything into the child.
+    // A refused fork must not leave a half-populated conversation that looks
+    // like an inheritance the product did not actually make.
+    const { turns: forkTurns } = await forkTurnsFor(
+      this.#deps.store,
+      team.ownerId,
+      parent,
+      cutoffSeq,
+    );
+    if (forkTurns.length > 0) {
+      const conversion = convertForkHistory({
+        sourceProtocol: providerProtocol(parent.profile.providerId),
+        targetProtocol: providerProtocol(child.profile.providerId),
+        turns: forkTurns,
+        targetSupportsImages: child.profile.supportsImages,
+      });
+      if (conversion.status === 'refused') {
+        throw new TeamError('TEAM_FORK_INCOMPATIBLE', conversion.message, 409, {
+          code: conversion.code,
+          recommendation: conversion.recommendation,
+          turnSeq: conversion.turnSeq,
+        });
+      }
+    }
+
     for (const message of committed) {
       if (message.seq > cutoffSeq) break;
       if (message.interrupted) continue;
@@ -1255,6 +1347,75 @@ export class SubagentRuntime {
       });
     }
     void run;
+    return cutoffSeq;
+  }
+
+  /**
+   * Portable tool items a cross-protocol fork has to seed into the child's
+   * first epoch.
+   *
+   * Only the first activation seeds: once the child has an active epoch its own
+   * transcript is the authority. The messages themselves were already copied as
+   * session rows, so the seed contains only the complete tool groups that have
+   * no session representation. The caller's `forkSeq` is the committed cutoff;
+   * a null cutoff means the parent had no committed assistant turn to fork.
+   */
+  async #forkSeedItems(ownerId: string, child: Member): Promise<ForkSeedGroup[] | undefined> {
+    if (child.contextMode !== 'fork' || child.parentMemberId === null) return undefined;
+    if (child.forkSeq === null) return undefined;
+    const parent = await this.#deps.teamStore.getMember(child.parentMemberId);
+    if (!parent) return undefined;
+    const sourceProtocol = providerProtocol(parent.profile.providerId);
+    const targetProtocol = providerProtocol(child.profile.providerId);
+    // Same-protocol forks keep their existing semantics: committed session
+    // messages only, with the source vendor's own reasoning replay untouched.
+    if (sourceProtocol === targetProtocol) return undefined;
+    const existing = await this.#deps.store.activeEpoch(child.internalConversationId);
+    if (existing) return undefined;
+
+    const cutoffSeq = child.forkSeq;
+    const { turns, committedMessages } = await forkTurnsFor(
+      this.#deps.store,
+      ownerId,
+      parent,
+      cutoffSeq,
+    );
+    if (turns.length === 0) return undefined;
+    const conversion = convertForkHistory({
+      sourceProtocol,
+      targetProtocol,
+      turns,
+      targetSupportsImages: child.profile.supportsImages,
+    });
+    if (conversion.status === 'refused') {
+      throw new TeamError('TEAM_FORK_INCOMPATIBLE', conversion.message, 409, {
+        code: conversion.code,
+        recommendation: conversion.recommendation,
+        turnSeq: conversion.turnSeq,
+      });
+    }
+
+    // The child conversation is the copied parent message list, in order. The
+    // seed is anchored by index so the tool group keeps its position directly
+    // after the assistant message that produced it.
+    const indexBySeq = new Map<number, number>();
+    let index = 0;
+    for (const message of committedMessages) {
+      if (message.seq > cutoffSeq) break;
+      if (message.interrupted) continue;
+      indexBySeq.set(message.seq, index);
+      index += 1;
+    }
+
+    const groups: ForkSeedGroup[] = [];
+    for (const turn of conversion.turns) {
+      const items = toolItemsOf(turn);
+      if (items.length === 0) continue;
+      const afterMessageIndex = indexBySeq.get(turn.seq);
+      if (afterMessageIndex === undefined) continue;
+      groups.push({ afterMessageIndex, items });
+    }
+    return groups.length > 0 ? groups : undefined;
   }
 
   #notify(runId: string, event: ActivationNotification): void {
@@ -1276,6 +1437,139 @@ export interface ActivationNotification {
 }
 
 // ---------------------------------------------------------------- helpers ---
+
+interface MutableForkTurn {
+  seq: number;
+  committed: boolean;
+  items: ForkInputItem[];
+}
+
+/**
+ * Group the parent's committed transcript into portable turns.
+ *
+ * A turn starts at a message item and collects the reasoning/tool items that
+ * follow it, so a complete tool group stays attached to the assistant message
+ * that produced it. Items belonging to a message after `cutoffSeq` are not
+ * returned: the transcript window is ordered, so the first such message ends
+ * the walk.
+ */
+async function forkTurnsFor(
+  store: Store,
+  ownerId: string,
+  parent: Member,
+  cutoffSeq: number,
+): Promise<{ turns: ForkTurn[]; committedMessages: readonly Message[] }> {
+  const messages = await store.listMessages(ownerId, parent.internalConversationId, 10_000);
+  const committedMessages = messages.filter((message) => message.role !== 'system');
+  const seqById = new Map(committedMessages.map((message) => [message.id, message.seq]));
+  const epoch = await store.activeEpoch(parent.internalConversationId);
+  if (!epoch) return { turns: [], committedMessages };
+
+  const items = await store.listItems(parent.internalConversationId, epoch.windowItemIds);
+  const turns: MutableForkTurn[] = [];
+  let current: MutableForkTurn | null = null;
+
+  // A committed turn spans one user message through the assistant message row
+  // that ends it. The row is the last transcript item `linkAssistantMessage`
+  // bound, because the loop collapses a multi-step reply into one session row.
+  // Anchoring on the *last* assistant item keeps a tool group after the text
+  // that produced it instead of before it.
+  const close = (committed: boolean): void => {
+    if (!current) return;
+    current.committed = committed;
+    turns.push(current);
+    current = null;
+  };
+
+  for (const item of items) {
+    if (item.messageId) {
+      const seq = seqById.get(item.messageId);
+      if (seq !== undefined) {
+        if (seq > cutoffSeq) break;
+        const payload = item.payload;
+        if (payload.type === 'message') {
+          if (payload.role === 'user') {
+            close(false);
+            current = { seq, committed: true, items: [forkMessageItem(payload)] };
+          } else {
+            if (!current) current = { seq, committed: true, items: [] };
+            current.items.push(forkMessageItem(payload));
+            if (item.messageId) {
+              current.seq = seq;
+              close(true);
+            }
+          }
+          continue;
+        }
+      }
+    }
+    // A tool/reasoning item after a closed turn still belongs to that turn's
+    // policy; attaching it there is what makes an unpaired call visible instead
+    // of silently dropping the half group.
+    const target = current ?? turns.at(-1);
+    if (!target) continue;
+    const converted = forkItemForModelItem(item);
+    if (converted) target.items.push(converted);
+  }
+  close(false);
+  return { turns, committedMessages };
+}
+
+function forkMessageItem(payload: {
+  readonly role: 'user' | 'assistant' | 'system';
+  readonly content: ModelMessageContent;
+}): ForkInputItem {
+  const content = payload.content;
+  const hasImages =
+    typeof content !== 'string' && content.some((part) => part.type === 'image');
+  return {
+    type: 'message',
+    role: payload.role,
+    content: forkMessageText(content),
+    ...(hasImages ? { hasImages: true } : {}),
+  };
+}
+
+/** Plain-text projection; image parts are flagged separately, never inlined. */
+function forkMessageText(content: ModelMessageContent): string {
+  if (typeof content === 'string') return content;
+  return content.map((part) => (part.type === 'text' ? part.text : '')).join('');
+}
+
+function forkItemForModelItem(item: ModelItem): ForkInputItem | null {
+  const payload = item.payload;
+  switch (payload.type) {
+    case 'function_call':
+      return {
+        type: 'function_call',
+        callId: payload.callId,
+        name: payload.name,
+        arguments: payload.arguments,
+      };
+    case 'function_call_result':
+      return {
+        type: 'function_call_result',
+        callId: payload.callId,
+        name: payload.name,
+        output: payload.output,
+      };
+    case 'reasoning':
+      return {
+        type: 'reasoning',
+        text: payload.text,
+        ...(payload.raw !== undefined ? { raw: payload.raw } : {}),
+      };
+    case 'background':
+      return { type: 'background', text: payload.text };
+    case 'summary':
+      return { type: 'summary', text: payload.text };
+    case 'interrupt':
+      return { type: 'interrupt', text: payload.text };
+    case 'message':
+      // Message items become turns, not attachments.
+      return null;
+  }
+}
 
 function toUsageTotals(
   totals: import('../session/turn-types.ts').TurnUsageTotals | null | undefined,
@@ -1339,7 +1633,30 @@ function intersectPermissions(
       ceiling.maxOutputChars,
     ),
     imageAssetIds: intersectArrays(requested.imageAssetIds ?? [], ceiling.imageAssetIds),
+    ...(requested.mcp || ceiling.mcp ? { mcp: intersectMcp(ceiling.mcp, requested.mcp) } : {}),
   };
+}
+
+function intersectMcp(
+  ceiling: MemberPermissions['mcp'],
+  requested: MemberPermissions['mcp'],
+): NonNullable<MemberPermissions['mcp']> {
+  return {
+    servers: intersectNullableList(ceiling?.servers ?? null, requested?.servers ?? null),
+    tools: intersectNullableList(ceiling?.tools ?? null, requested?.tools ?? null),
+    externalWrite: Boolean(requested?.externalWrite) && Boolean(ceiling?.externalWrite),
+    externalUnknown: Boolean(requested?.externalUnknown) && Boolean(ceiling?.externalUnknown),
+    accounts: intersectNullableList(ceiling?.accounts ?? null, requested?.accounts ?? null),
+  };
+}
+
+function intersectNullableList(
+  ceiling: readonly string[] | null,
+  requested: readonly string[] | null,
+): readonly string[] | null {
+  if (ceiling === null) return requested;
+  if (requested === null) return ceiling;
+  return requested.filter((entry) => ceiling.includes(entry));
 }
 
 function intersectArrays(a: readonly string[], b: readonly string[]): readonly string[] {
@@ -1373,6 +1690,13 @@ const ROOT_PERMISSIONS: MemberPermissions = {
   canWriteMemory: false,
   maxOutputChars: 60_000,
   imageAssetIds: [],
+  mcp: {
+    servers: null,
+    tools: null,
+    externalWrite: true,
+    externalUnknown: true,
+    accounts: null,
+  },
 };
 
 /**

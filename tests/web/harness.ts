@@ -38,7 +38,12 @@ export class El {
   files: unknown = null;
   title = '';
   disabled = false;
+  checked = false;
+  href = '';
+  target = '';
+  rel = '';
   onclick: (() => void) | null = null;
+  onchange: (() => void) | null = null;
 
   readonly tagName: string;
 
@@ -139,7 +144,10 @@ export class El {
     (this.listeners[type] ??= []).push(handler);
   }
   requestSubmit(): void {}
-  focus(): void {}
+  focus(): void {
+    const doc = (globalThis as { document?: { activeElement: unknown } }).document;
+    if (doc) doc.activeElement = this;
+  }
 
   /** Everything below this node matching a predicate, depth first. */
   find(predicate: (node: El) => boolean, found: El[] = []): El[] {
@@ -186,6 +194,8 @@ export interface Harness {
   send(text: string): Promise<void>;
   /** Let queued microtasks and the module's fire-and-forget calls settle. */
   settle(): Promise<void>;
+  /** Dispatch a document-level keyboard event (Escape, Tab) to the loaded modules. */
+  fireDocument(type: string, event: Record<string, unknown>): void;
 }
 
 /**
@@ -223,6 +233,13 @@ export async function boot(options: {
    * control hidden rather than sending mutations the server would refuse.
    */
   token?: string;
+  /**
+   * Additional browser modules to load after `app.js`, e.g. `dev-panel.js`.
+   *
+   * Each one is evaluated in the same globals, in order, as the browser would
+   * evaluate a second `<script type="module">`.
+   */
+  extraScripts?: readonly string[];
 } = {}): Promise<Harness> {
   const source = readFileSync(join(import.meta.dirname, '..', '..', 'web', 'app.js'), 'utf8');
 
@@ -255,6 +272,7 @@ export async function boot(options: {
 
   const documentElement = new El('html');
   const body = new El('body');
+  const documentListeners = new Map<string, ((event: unknown) => void)[]>();
   (globalThis as { window?: unknown }).window = {
     innerWidth: 1280,
     innerHeight: 800,
@@ -265,7 +283,11 @@ export async function boot(options: {
     activeElement: null,
     createElement: (tag: string) => new El(tag),
     getElementById: element,
-    addEventListener: () => {},
+    addEventListener: (type: string, handler: (event: unknown) => void) => {
+      const handlers = documentListeners.get(type) ?? [];
+      handlers.push(handler);
+      documentListeners.set(type, handlers);
+    },
     documentElement,
     querySelector: (selector: string) => {
       if (options.token && selector.includes('eunoia-token')) {
@@ -370,16 +392,26 @@ export async function boot(options: {
       ok: status >= 200 && status < 300,
       status,
       json: async () => payload,
+      // Modules that read the body as text (the Team and developer panels do,
+      // so they can surface a non-JSON error) must see the same payload.
+      text: async () => (payload === undefined ? '' : JSON.stringify(payload)),
       body: null,
     };
   };
 
   new Function(source)();
+  for (const script of options.extraScripts ?? []) {
+    const extra = readFileSync(join(import.meta.dirname, '..', '..', 'web', script), 'utf8');
+    new Function(extra)();
+  }
 
   const settle = (): Promise<void> =>
     new Promise((resolve) => {
       setTimeout(resolve, 20);
     });
+  const fireDocument = (type: string, event: Record<string, unknown>): void => {
+    for (const handler of documentListeners.get(type) ?? []) handler(event);
+  };
 
   const harness: Harness = {
     transcript: element('transcript'),
@@ -389,6 +421,7 @@ export async function boot(options: {
     requests,
     copied,
     settle,
+    fireDocument,
     async send(text: string) {
       element('input').value = text;
       const submit = element('composer').listeners.submit?.[0];

@@ -10,7 +10,7 @@
  * on the command line: argv is visible in `ps` and in shell history.
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -113,6 +113,23 @@ export class ContainerCli {
           durationMs: Date.now() - startedAt,
         });
       });
+    });
+  }
+
+  /**
+   * Start a long-lived byte stream (`exec -i`) for the preview tunnel.
+   *
+   * The caller owns the child and must kill it. Only the tunnel helper uses
+   * this; no lifecycle call and no model-facing tool reaches it.
+   */
+  spawnStream(args: readonly string[]): ChildProcessWithoutNullStreams {
+    return spawn(this.binary, [...this.globalArgs, ...args], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: {
+        PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+        HOME: process.env.HOME ?? tmpdir(),
+        LANG: 'C.UTF-8',
+      },
     });
   }
 

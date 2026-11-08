@@ -7,6 +7,7 @@
  * "when to call" rules live in the system prompt (ADR 023).
  */
 
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
   defineTool,
@@ -77,6 +78,7 @@ export const readFileTool = defineTool({
         chars: slice.chars,
         mtimeMs: slice.mtimeMs,
         size: slice.size,
+        ...(complete ? { sha256: deliveredDigest(slice.text) } : {}),
       });
 
       const trailer = kept.truncated
@@ -238,6 +240,20 @@ export async function guardToolResult(run: () => Promise<ToolResult>): Promise<T
     if (approval) return toolError(messageOf(error), { approval });
     return toolError(messageOf(error));
   }
+}
+
+/**
+ * Digest of the delivered content with the line-number gutter removed.
+ *
+ * The gutter is a presentation detail; a write must compare the same content
+ * the model read, not its rendering.
+ */
+function deliveredDigest(numbered: string): string {
+  const text = numbered
+    .split('\n')
+    .map((line) => line.replace(/^\s*\d+\t/, ''))
+    .join('\n');
+  return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
 function messageOf(error: unknown): string {

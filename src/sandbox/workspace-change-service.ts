@@ -22,7 +22,8 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { SandboxStore } from './store.ts';
 import type { Workspace } from './types.ts';
 import type { WorkspaceManager } from './workspace-manager.ts';
@@ -67,6 +68,12 @@ export interface WorkspaceChangeServiceDeps {
   readonly workspaces: WorkspaceManager;
   readonly changesets: ChangesetStore;
   readonly now?: () => Date;
+  /**
+   * Directory for the cross-file change journal. Absent keeps the journal in
+   * memory (tests); a deployment passes a private data directory so a crash
+   * leaves `prepared`/`needs_reconciliation` evidence on disk.
+   */
+  readonly journalRoot?: string | null;
 }
 
 export class WorkspaceChangeService implements WorkspaceChangeRecorder {
@@ -74,13 +81,199 @@ export class WorkspaceChangeService implements WorkspaceChangeRecorder {
   readonly #workspaces: WorkspaceManager;
   readonly #changesets: ChangesetStore;
   readonly #now: () => Date;
+  readonly #journalRoot: string | null;
   readonly #active = new Map<string, ActiveTurn>();
+  /** One mutation at a time per task: no path-order deadlock is possible. */
+  readonly #locks = new Map<string, Promise<void>>();
+  readonly #batches = new Map<string, ChangeBatchRecord>();
 
   constructor(deps: WorkspaceChangeServiceDeps) {
     this.#store = deps.store;
     this.#workspaces = deps.workspaces;
     this.#changesets = deps.changesets;
     this.#now = deps.now ?? (() => new Date());
+    this.#journalRoot = deps.journalRoot ?? null;
+  }
+
+  /**
+   * The tool-facing port for one task.
+   *
+   * Every write/edit/patch in that task goes through one lock and one version
+   * check. The port is what `ToolContext.changes` carries, so a tool cannot
+   * bypass it by calling the workspace port directly.
+   */
+  port(taskId: string): import('../tools/types.ts').ToolChangeJournal {
+    return {
+      beforeWrite: (path) => this.beforeWrite({ taskId, path }),
+      writeText: (input) => this.writeText({ taskId, ...input }),
+      editText: (input) => this.editText({ taskId, ...input }),
+      lockPaths: (paths, run) => this.#withLock(taskId, paths, run),
+      beginBatch: (input) => this.beginBatch({ taskId, ...input }),
+      markBatchApplied: (batchId, path, afterSha) =>
+        this.markBatchApplied({ batchId, path, afterSha }),
+      completeBatch: (batchId) => this.completeBatch(batchId),
+      markBatchReconciliation: (batchId, reasons) =>
+        this.markBatchReconciliation(batchId, reasons),
+    };
+  }
+
+  /**
+   * Version-checked overwrite/create.
+   *
+   * `expectedSha` is the digest of the complete file the model read. A
+   * mismatch means somebody changed the file after that read; writing anyway
+   * would be exactly the lost update R03 exists to prevent.
+   */
+  async writeText(input: {
+    readonly taskId: string;
+    readonly path: string;
+    readonly content: string;
+    readonly expectedSha: string | null;
+  }): Promise<{ readonly path: string; readonly bytes: number; readonly lines: number; readonly created: boolean }> {
+    return this.#withLock(input.taskId, [input.path], async () => {
+      const active = this.#requireActive(input.taskId);
+      const files = this.#workspaces.files(active.workspace.storageLocation);
+      const current = await readCurrentText(files, input.path);
+      if (input.expectedSha === null) {
+        if (current.exists) {
+          throw new WorkspaceChangeConflict(
+            `${input.path} 在执行期间被创建；请重新读取后再写，不能用空版本覆盖它。`,
+          );
+        }
+      } else if (!current.exists || current.sha256 !== input.expectedSha) {
+        throw new WorkspaceChangeConflict(
+          `${input.path} 在读取之后发生了变化；请重新读取当前内容再写，不能用旧版本覆盖。`,
+        );
+      }
+      await this.beforeWrite({ taskId: input.taskId, path: input.path });
+      const result = await files.writeText(input.path, input.content);
+      return {
+        path: result.path,
+        bytes: result.bytes,
+        lines: result.lines,
+        created: result.created,
+      };
+    });
+  }
+
+  async editText(input: {
+    readonly taskId: string;
+    readonly path: string;
+    readonly oldString: string;
+    readonly newString: string;
+    readonly replaceAll: boolean;
+    readonly expectedSha: string | null;
+  }): Promise<{ readonly path: string; readonly replacements: number; readonly bytes: number }> {
+    return this.#withLock(input.taskId, [input.path], async () => {
+      const active = this.#requireActive(input.taskId);
+      const files = this.#workspaces.files(active.workspace.storageLocation);
+      const current = await readCurrentText(files, input.path);
+      if (!current.exists) throw new WorkspaceChangeConflict(`${input.path} 不存在，不能编辑。`);
+      if (input.expectedSha !== null && current.sha256 !== input.expectedSha) {
+        throw new WorkspaceChangeConflict(
+          `${input.path} 在读取之后发生了变化；请重新读取后再编辑，不能覆盖别人的修改。`,
+        );
+      }
+      await this.beforeWrite({ taskId: input.taskId, path: input.path });
+      const result = await files.editText({
+        path: input.path,
+        oldString: input.oldString,
+        newString: input.newString,
+        replaceAll: input.replaceAll,
+      });
+      return {
+        path: result.path,
+        replacements: result.replacements,
+        bytes: result.bytes,
+      };
+    });
+  }
+
+  async beginBatch(input: {
+    readonly taskId: string;
+    readonly batchId: string;
+    readonly paths: readonly string[];
+    readonly before: Readonly<Record<string, string | null>>;
+    readonly after: Readonly<Record<string, string | null>>;
+  }): Promise<void> {
+    const record: ChangeBatchRecord = {
+      batchId: input.batchId,
+      taskId: input.taskId,
+      state: 'prepared',
+      before: input.before,
+      after: input.after,
+      applied: {},
+      reasons: [],
+      createdAt: this.#now().toISOString(),
+      updatedAt: this.#now().toISOString(),
+    };
+    this.#batches.set(input.batchId, record);
+    await this.#persistBatch(record);
+  }
+
+  async markBatchApplied(input: {
+    readonly batchId: string;
+    readonly path: string;
+    readonly afterSha: string | null;
+  }): Promise<void> {
+    const record = this.#batches.get(input.batchId);
+    if (!record) return;
+    record.applied[input.path] = input.afterSha;
+    record.updatedAt = this.#now().toISOString();
+    await this.#persistBatch(record);
+  }
+
+  async completeBatch(batchId: string): Promise<void> {
+    const record = this.#batches.get(batchId);
+    if (!record) return;
+    record.state = 'completed';
+    record.updatedAt = this.#now().toISOString();
+    await this.#persistBatch(record);
+  }
+
+  async markBatchReconciliation(batchId: string, reasons: readonly string[]): Promise<void> {
+    const record = this.#batches.get(batchId);
+    if (!record) return;
+    record.state = 'needs_reconciliation';
+    record.reasons = [...reasons];
+    record.updatedAt = this.#now().toISOString();
+    await this.#persistBatch(record);
+  }
+
+  /** Incomplete batches, for a restart report or an API; never auto-replayed. */
+  async listIncompleteBatches(): Promise<readonly ChangeBatchRecord[]> {
+    const records = [...this.#batches.values()].filter((record) => record.state !== 'completed');
+    if (this.#journalRoot) {
+      try {
+        const files = await readdir(this.#journalRoot);
+        for (const file of files.filter((entry) => entry.endsWith('.json'))) {
+          try {
+            const parsed = JSON.parse(
+              await readFile(join(this.#journalRoot, file), 'utf8'),
+            ) as ChangeBatchRecord;
+            if (parsed.state !== 'completed' && !records.some((r) => r.batchId === parsed.batchId)) {
+              records.push(parsed);
+            }
+          } catch {
+            // A malformed journal is not silently green: list it as unknown.
+            records.push({
+              batchId: file.replace(/\.json$/, ''),
+              taskId: '',
+              state: 'needs_reconciliation',
+              before: {},
+              after: {},
+              applied: {},
+              reasons: ['journal file is malformed'],
+              createdAt: '',
+              updatedAt: '',
+            });
+          }
+        }
+      } catch {
+        // No journal directory yet.
+      }
+    }
+    return records;
   }
 
   /**
@@ -278,11 +471,87 @@ export class WorkspaceChangeService implements WorkspaceChangeRecorder {
    * after-digest. A mismatch becomes a conflict; `force` is the explicit
    * override, and even then the reason is reported.
    */
+  /**
+   * Read-only undo preflight (R11): what would restore, what would conflict and
+   * which paths are blocked by a later changeset. It never writes.
+   */
+  async planUndo(input: {
+    readonly userId: string;
+    readonly conversationId: string;
+    readonly changesetId: string;
+    readonly paths?: readonly string[];
+  }): Promise<{
+    changesetId: string;
+    turnId: string;
+    files: Array<{
+      path: string;
+      kind: ChangesetFileRecord['kind'];
+      currentSha: string | null;
+      afterSha: string | null;
+      matches: boolean;
+      restorable: boolean;
+      reason: string | null;
+    }>;
+    blocked: Array<{ path: string; reason: string }>;
+  }> {
+    const changeset = await this.#changesets.getWorkspaceChangeset(
+      input.userId,
+      input.changesetId,
+    );
+    if (!changeset || changeset.conversationId !== input.conversationId) {
+      throw new WorkspaceUndoError('NO_CHANGESET', '这一轮没有可撤销的文件改动。', 404);
+    }
+    const workspace = await this.#store.getWorkspace(changeset.workspaceId);
+    if (!workspace) {
+      throw new WorkspaceUndoError('NO_WORKSPACE', '工作区已经不存在，无法撤销。', 409);
+    }
+    const files = this.#workspaces.files(workspace.storageLocation);
+    const selected = selectFiles(changeset, input.paths);
+    const blocked = await this.#laterDependencies(changeset, selected);
+    const results = [] as Array<{
+      path: string;
+      kind: ChangesetFileRecord['kind'];
+      currentSha: string | null;
+      afterSha: string | null;
+      matches: boolean;
+      restorable: boolean;
+      reason: string | null;
+    }>;
+    for (const file of selected) {
+      const current = await currentDigest(files, file.path).catch(() => undefined);
+      const matches = current !== undefined && current.sha256 === file.afterSha;
+      const blocker = blocked.find((entry) => entry.path === file.path);
+      results.push({
+        path: file.path,
+        kind: file.kind,
+        currentSha: current?.sha256 ?? null,
+        afterSha: file.afterSha,
+        matches,
+        restorable: !file.restored && matches && !blocker,
+        reason: file.restored
+          ? '已经撤销过'
+          : blocker
+            ? blocker.reason
+            : matches
+              ? null
+              : '文件在本轮之后被修改或重建',
+      });
+    }
+    return {
+      changesetId: changeset.id,
+      turnId: changeset.turnId,
+      files: results,
+      blocked,
+    };
+  }
+
   async undo(input: {
     readonly userId: string;
     readonly conversationId: string;
     readonly changesetId: string;
     readonly force?: boolean;
+    /** A strict subset. Absent means every file in the changeset. */
+    readonly paths?: readonly string[];
   }): Promise<WorkspaceUndoResult> {
     const changeset = await this.#changesets.getWorkspaceChangeset(
       input.userId,
@@ -303,8 +572,20 @@ export class WorkspaceChangeService implements WorkspaceChangeRecorder {
     const deleted: string[] = [];
     const conflicts: { path: string; reason: string }[] = [];
     const skipped: { path: string; reason: string }[] = [];
+    const selected = selectFiles(changeset, input.paths);
+    if (input.paths && input.paths.length > 0) {
+      // A partial undo must not break a later change that depends on this one.
+      const blocked = await this.#laterDependencies(changeset, selected);
+      if (blocked.length > 0 && input.force !== true) {
+        throw new WorkspaceUndoError(
+          'UNDO_SCOPE_BLOCKED',
+          `这些文件在后续修改中仍被使用，不能单独撤销：${blocked.map((entry) => entry.path).join('、')}。请先撤销后续修改，或选择完整范围。`,
+          409,
+        );
+      }
+    }
 
-    for (const file of changeset.files) {
+    for (const file of selected) {
       if (file.restored) continue;
       const current = await currentDigest(files, file.path).catch(() => undefined);
       const matches = current !== undefined && current.sha256 === file.afterSha;
@@ -378,6 +659,78 @@ export class WorkspaceChangeService implements WorkspaceChangeRecorder {
     };
   }
 
+  #requireActive(taskId: string): ActiveTurn {
+    const active = this.#active.get(taskId);
+    if (!active) {
+      throw new WorkspaceChangeConflict(
+        '本轮没有启用修改记录或工作区未就绪，不能执行受版本保护的写入。',
+      );
+    }
+    return active;
+  }
+
+  async #withLock<T>(taskId: string, _paths: readonly string[], run: () => Promise<T>): Promise<T> {
+    const previous = this.#locks.get(taskId) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const next = previous.then(() => gate);
+    this.#locks.set(taskId, next);
+    await previous;
+    try {
+      return await run();
+    } finally {
+      release();
+      if (this.#locks.get(taskId) === next) this.#locks.delete(taskId);
+    }
+  }
+
+  async #persistBatch(record: ChangeBatchRecord): Promise<void> {
+    if (!this.#journalRoot) return;
+    await mkdir(this.#journalRoot, { recursive: true });
+    await writeFile(
+      join(this.#journalRoot, `${record.batchId}.json`),
+      `${JSON.stringify(record, null, 2)}\n`,
+      { mode: 0o600, encoding: 'utf8' },
+    );
+  }
+
+  /**
+   * Later turns that still have an available/partial changeset on a selected
+   * path. Undoing the earlier file under them would make the later record a lie.
+   */
+  async #laterDependencies(
+    changeset: WorkspaceChangesetRecord,
+    selected: readonly ChangesetFileRecord[],
+  ): Promise<Array<{ path: string; reason: string }>> {
+    const all = await this.#changesets.listWorkspaceChangesets(
+      changeset.userId,
+      changeset.conversationId,
+      1_000,
+    );
+    const later = all.filter(
+      (entry) => entry.id !== changeset.id && entry.createdAt > changeset.createdAt,
+    );
+    if (later.length === 0) return [];
+    const blocked: Array<{ path: string; reason: string }> = [];
+    for (const summary of later) {
+      if (summary.status === 'undone') continue;
+      const record = await this.#changesets.getWorkspaceChangeset(changeset.userId, summary.id);
+      if (!record) continue;
+      for (const file of selected) {
+        if (record.files.some((entry) => entry.path === file.path)) {
+          blocked.push({
+            path: file.path,
+            reason: `后续第 ${record.turnId.slice(0, 8)} 轮仍引用了这个文件`,
+          });
+          break;
+        }
+      }
+    }
+    return blocked;
+  }
+
   async #beforeContent(
     changeset: WorkspaceChangesetRecord,
     file: ChangesetFileRecord,
@@ -392,6 +745,28 @@ export class WorkspaceChangeService implements WorkspaceChangeRecorder {
     if (!buffer) return null;
     const text = buffer.toString('utf8');
     return text.includes('\u0000') ? null : text;
+  }
+}
+
+export interface ChangeBatchRecord {
+  readonly batchId: string;
+  readonly taskId: string;
+  state: 'prepared' | 'completed' | 'needs_reconciliation';
+  readonly before: Readonly<Record<string, string | null>>;
+  readonly after: Readonly<Record<string, string | null>>;
+  readonly applied: Record<string, string | null>;
+  reasons: readonly string[];
+  readonly createdAt: string;
+  updatedAt: string;
+}
+
+export class WorkspaceChangeConflict extends Error {
+  readonly code = 'CHANGE_CONFLICT';
+  readonly status = 409;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'WorkspaceChangeConflict';
   }
 }
 
@@ -462,6 +837,37 @@ async function currentDigest(
   if (!info) return { sha256: null, size: 0 };
   const buffer = await readFile(resolved.host);
   return { sha256: sha256(buffer), size: buffer.length };
+}
+
+async function readCurrentText(
+  files: ReturnType<WorkspaceManager['files']>,
+  path: string,
+): Promise<{ readonly exists: boolean; readonly sha256: string | null; readonly text: string | null }> {
+  try {
+    const info = await files.stat(path);
+    if (!info) return { exists: false, sha256: null, text: null };
+    const slice = await files.readLines(path, 1, 0);
+    const text = slice.text
+      .split('\n')
+      .map((line) => line.replace(/^\s*\d+\t/, ''))
+      .join('\n');
+    return { exists: true, sha256: sha256(Buffer.from(text, 'utf8')), text };
+  } catch {
+    return { exists: false, sha256: null, text: null };
+  }
+}
+
+function selectFiles(
+  changeset: WorkspaceChangesetRecord,
+  paths: readonly string[] | undefined,
+): readonly ChangesetFileRecord[] {
+  if (!paths || paths.length === 0) return changeset.files;
+  const wanted = new Set(paths.map((path) => path.replace(/^\/+/, '')));
+  const selected = changeset.files.filter((file) => wanted.has(file.path));
+  if (selected.length === 0) {
+    throw new WorkspaceUndoError('UNDO_SCOPE_EMPTY', '选择的文件不在这轮修改集中。', 400);
+  }
+  return selected;
 }
 
 function emptyResult(

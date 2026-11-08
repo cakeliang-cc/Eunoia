@@ -27,6 +27,7 @@ import type { InteractionBroker } from './interactions.ts';
 import type { McpStore } from './store.ts';
 import type { McpActionRecord, McpCatalog, McpServerConfig } from './types.ts';
 import { McpError } from './types.ts';
+import { checkMcpScope, scopeFingerprint } from '../tools/scope.ts';
 
 export interface McpPermissionDeps {
   readonly store: McpStore;
@@ -60,6 +61,20 @@ export class McpPermissionPort implements ToolPermissionPort {
     }
     if (!request.conversationId) {
       return { kind: 'deny', reason: '外部工具调用必须属于一个会话。' };
+    }
+    if (request.scope) {
+      const scoped = checkMcpScope(request.scope, {
+        serverId: origin.serverId,
+        toolName: origin.originalName,
+        classification: origin.classification,
+        arguments: request.args,
+        account: (await this.#store.getMcpCatalog(request.userId, origin.serverId))?.identity ?? null,
+      });
+      if (!scoped.ok) {
+        // Denied before an action is persisted or a byte leaves the process:
+        // the remote side must observe zero calls for this decision.
+        return { kind: 'deny', reason: scoped.reason };
+      }
     }
     const record = await this.#store.getMcpServer(request.userId, origin.serverId);
     if (!record) {
@@ -133,6 +148,7 @@ export class McpPermissionPort implements ToolPermissionPort {
         catalog,
         request,
         digest,
+        ...(request.scope ? { scopeFingerprint: scopeFingerprint(request.scope) } : {}),
         ...(this.#describeEndpoint ? { endpoint: this.#describeEndpoint(config) } : {}),
       }),
     });
@@ -180,6 +196,17 @@ function approvalPayload(input: {
     // token, and an approval card is not a reason to show them.
     argumentKeys: Object.keys(input.request.args).sort(),
     catalogRevision: origin.catalogRevision,
+    execution: input.request.scope
+      ? {
+          role: input.request.scope.identity.role,
+          teamId: input.request.scope.identity.teamId ?? null,
+          runId: input.request.scope.identity.runId ?? null,
+          memberId: input.request.scope.identity.memberId ?? null,
+          activationId: input.request.scope.identity.activationId ?? null,
+          generation: input.request.scope.identity.generation ?? null,
+          scopeFingerprint: scopeFingerprint(input.request.scope),
+        }
+      : null,
   };
 }
 

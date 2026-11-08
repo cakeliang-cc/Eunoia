@@ -2,13 +2,13 @@
   {
     "test": "S01",
     "model": "deepseek-flash",
-    "code": "5390",
-    "color": "绿色",
-    "reply": "数字是 **5390**，背景是**绿色**。",
+    "code": "5777",
+    "color": "红色",
+    "reply": "数字：5777\n颜色：红色",
     "usage": {
-      "inputTokens": 2501,
-      "outputTokens": 14,
-      "totalTokens": 2515,
+      "inputTokens": 2670,
+      "outputTokens": 9,
+      "totalTokens": 2679,
       "cachedTokens": 1920,
       "imageTokensUnknown": true
     }
@@ -16,26 +16,26 @@
   {
     "test": "S02",
     "model": "deepseek-flash",
-    "forward": "2, 7",
+    "forward": "2、7",
     "swapped": "7, 2",
     "usageForward": {
-      "inputTokens": 2654,
-      "outputTokens": 5,
-      "totalTokens": 2659,
-      "cachedTokens": 2304,
+      "inputTokens": 2823,
+      "outputTokens": 4,
+      "totalTokens": 2827,
+      "cachedTokens": 2560,
       "imageTokensUnknown": true
     },
     "usageSwapped": {
-      "inputTokens": 2638,
+      "inputTokens": 2807,
       "outputTokens": 5,
-      "totalTokens": 2643,
-      "cachedTokens": 2304,
+      "totalTokens": 2812,
+      "cachedTokens": 2560,
       "imageTokensUnknown": true
     }
   },
   {
     "test": "S03",
-    "reply": "图里的数字是 **7**，绿色。",
+    "reply": "图片里是绿色的数字 **7**。",
     "refusedStatus": 422,
     "refusedBody": {
       "error": {
