@@ -31,7 +31,7 @@
 
 - `SQLITE_SCHEMA_VERSION = 12`；`TEAM_SCHEMA` 的 11 张表（teams、runs、members、activations、tasks、attempts、messages、artifacts、events、budget entries、integrations）已加入基础 schema 与 `SQLITE_MIGRATION_12`。
 - 迁移幂等：全部 `CREATE TABLE/INDEX IF NOT EXISTS`；旧库从 10/11 打开时依次执行 `MIGRATION_11`（若该开发线已合入）与 `MIGRATION_12`。
-- 已验证：`npm run typecheck` 通过；`npm run lint` 0 error（3 个既有 warning）；`npm test` **1546 passed, 28 skipped**（116 个文件通过，5 个文件按环境跳过）；T31 的 Docker 用例另以 `TEAM_INTEGRATION=1` 单独运行通过（1 passed）。
+- 已验证：`npm run typecheck` 通过；`npm run lint` 0 error（3 个既有 warning）；`npm test` **1551 passed, 28 skipped**（116 个文件通过，5 个文件按环境跳过）；T31 的 Docker 用例另以 `TEAM_INTEGRATION=1` 单独运行通过（1 passed）。
 - 迁移命令：`npm run migrate`；备份：`npm run backup`（未在本报告运行，见 §8）。
 
 ## 4. 自动化证据位置
@@ -42,7 +42,7 @@
 | 服务编排 | `tests/teams/service.test.ts` | 14 |
 | 工作区/快照/差异 | `tests/teams/workspaces.test.ts` | 12 |
 | 候选集成/发布 journal | `tests/teams/integration.test.ts` | 22 |
-| T 项补充验收 | `tests/teams/acceptance.test.ts` | 21 |
+| T 项补充验收 | `tests/teams/acceptance.test.ts` | 26 |
 | 审批绑定 | `tests/teams/approvals.test.ts` | 2 |
 | steering / 忙时派发 | `tests/teams/steering.test.ts` | 3 |
 | E01/E02 API+SQLite | `tests/api/teams-e2e.test.ts` | 2 |
@@ -51,7 +51,7 @@
 | 迁移/备份 | `tests/teams/migration.test.ts` | 1 |
 | 容器隔离（gated） | `tests/teams/workspaces.docker.test.ts` | 1 |
 | E03/E04 集成发布 | `tests/teams/integration-flow.test.ts` | 3 |
-| 既有回归 | `tests/` 其余套件 | 1378+ |
+| 既有回归 | `tests/` 其余套件 | 1383+ |
 
 ## 5. T01–T60 逐项结果
 
@@ -59,10 +59,10 @@
 
 | ID | 结果 | 证据与说明 |
 | --- | --- | --- |
-| T01 | ✅ | 既有 1546 项测试全绿；普通聊天/工具/停止/历史未改传输语义；Team 仅在显式 run 时启用。 |
+| T01 | ✅ | 既有 1551 项测试全绿；普通聊天/工具/停止/历史未改传输语义；Team 仅在显式 run 时启用。 |
 | T02 | ✅ | `service.test.ts` fresh 成员有独立内部 conversation；`acceptance.test.ts` T05/T11 记录独立模型请求。 |
-| T03 | ⚠️ | fork 只复制已提交、非 interrupted 轮次（`acceptance.test.ts`、`service.test.ts`）；低权限 fork 拒绝已实现，但"敏感工具输出裁剪"未单独构造用例。 |
-| T04 | ⚠️ | 初始化失败写 `failed` 成员并释放，不产生可激活幽灵成员；工作区失败后的清理未单独断言。 |
+| T03 | ✅ | fork 只复制已提交、非 interrupted 轮次；子成员权限低于父级时拒绝 fork（`acceptance.test.ts` T03），避免继承父轨迹。助手文本中的敏感内容未做分类裁剪，策略是保守拒绝低权限 fork。 |
+| T04 | ✅ | `acceptance.test.ts` T04：工作区 provision 失败后成员记为 failed、无 activation、不可运行；容量在失败时释放。 |
 | T05 | ✅ | `acceptance.test.ts` T05：忙成员跟进为 queued，前一轮结束后串行执行。 |
 | T06 | ⛔ | 部署只有 DeepSeek 一个 provider，无法用两个真实 provider 验证；模型 id/能力走端口而非名称分支。 |
 | T07 | ⚠️ | 未知模型/不支持工具在 spawn 前拒绝；图片能力只做预检，图片执行路径未接入。 |
@@ -78,10 +78,10 @@
 | T17 | ✅ | `acceptance.test.ts` T17：忙时消息在下一模型步骤以带来源 user item 注入，写入轨迹，不进入工具组。 |
 | T18 | ⚠️ | `mailbox.test.ts`：注入后未完成步骤时 requeue 回 accepted，重投只注入一次并 processed。未做真实进程 kill -9 重启；store durability 另有测试。 |
 | T19 | ⚠️ | 单条大小与每成员队列上限已测；自动激活次数、广播扇出与"互相确认"自激预算未单独测。 |
-| T20 | ⚠️ | 认领要求 ready/owner 匹配、关闭成员拒绝已实现；历史成员/外树成员不能认领未单测。 |
+| T20 | ✅ | `acceptance.test.ts` T20：关闭成员即使传入陈旧 member 对象也不能认领；认领同时校验最新成员状态、Team 归属、ready 与 owner。 |
 | T21 | ✅ | `service.test.ts`：自依赖、环、跨运行/不存在依赖拒绝；合法图与修改成功。 |
 | T22 | ✅ | `sqlite-store.test.ts`：两个连接竞争同 task，仅一方成功，版本递增。 |
-| T23 | ⚠️ | `acceptance.test.ts` T23：worker 不能改验收；验收人不能是提交者的代码存在但未单测。 |
+| T23 | ✅ | `acceptance.test.ts` T23：worker 不能改验收条件；提交者不能验收自己的 submission，任务保持 submitted。 |
 | T24 | ✅ | `steering.test.ts` T24：owner 忙碌时任务仍被认领并排队，空闲后执行；依赖 accepted 才 ready、失败/取消阻塞。outbox 重投的独立注入未单测。 |
 | T25 | ✅ | `service.test.ts`：required 未验收时 root activation 成功但 run 为 `waiting_user`。 |
 | T26 | ✅ | `acceptance.test.ts` T26：拒绝后任务回 pending，旧 attempt/submission/review 保留。 |
@@ -120,7 +120,7 @@
 | T59 | ⚠️ | `migration.test.ts`：把 v11（无 Team 表）库升级到 12、保留会话消息、备份/恢复成功；清理仍只覆盖「referenced 工作区不删除」，未覆盖 artifact 引用计数。 |
 | T60 | ✅ | `acceptance.test.ts` T60 + E06：required 未验收时 run 为 `waiting_user`，不成功。 |
 
-统计：✅ 36，⚠️ 18，⛔ 6，❌ 0（T 维度）。**未全部通过。**
+统计：✅ 40，⚠️ 14，⛔ 6，❌ 0（T 维度）。**未全部通过。**
 
 ## 6. E01–E06 端到端结果
 

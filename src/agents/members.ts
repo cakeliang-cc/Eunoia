@@ -1110,7 +1110,10 @@ export class SubagentRuntime {
     child: Member,
     forkSeq: number | null,
   ): Promise<void> {
-    if (!isPermissionSubset(child.permissions, parent.permissions)) {
+    // Fork inherits the parent's committed history, including whatever its
+    // assistant text may contain. A child with *narrower* permissions must not
+    // receive it; the safe options are fresh or an explicit material selection.
+    if (!canInheritHistory(parent.permissions, child.permissions)) {
       throw new TeamError(
         'TEAM_FORBIDDEN',
         '子成员权限低于父成员，不能通过 fork 继承父轨迹；请使用 fresh 或显式选择资料。',
@@ -1224,16 +1227,22 @@ function intersectArrays(a: readonly string[], b: readonly string[]): readonly s
   return a.filter((entry) => b.includes(entry));
 }
 
-function isPermissionSubset(child: MemberPermissions, parent: MemberPermissions): boolean {
-  const childTools = child.allowedTools ?? parent.allowedTools;
+/**
+ * Whether a child may inherit the parent's committed history.
+ *
+ * This is about *reading* the parent's content: the child must not be more
+ * restricted on file visibility, commands or image resources. Spawning depth is
+ * unrelated (a depth-limited child can still read a fork), so it is not checked
+ * here; the child's own spawn permission is enforced separately.
+ */
+function canInheritHistory(
+  parent: MemberPermissions,
+  child: MemberPermissions,
+): boolean {
   return (
-    (!child.allowWorkspaceWrites || parent.allowWorkspaceWrites) &&
-    (!child.allowCommands || parent.allowCommands) &&
-    (!child.canSpawn || parent.canSpawn) &&
-    (!child.canWriteMemory || parent.canWriteMemory) &&
-    child.imageAssetIds.every((id) => parent.imageAssetIds.includes(id)) &&
-    (childTools === null ||
-      childTools.every((tool) => parent.allowedTools === null || parent.allowedTools.includes(tool)))
+    (!parent.allowWorkspaceWrites || child.allowWorkspaceWrites) &&
+    (!parent.allowCommands || child.allowCommands) &&
+    parent.imageAssetIds.every((id) => child.imageAssetIds.includes(id))
   );
 }
 

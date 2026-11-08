@@ -52,6 +52,7 @@ interface Harness {
 async function harness(input?: {
   readonly config?: Partial<TeamConfig>;
   readonly turn?: (member: string, request: ModelTurnRequest) => AsyncGenerator<unknown>;
+  readonly workspace?: TeamWorkspacePort;
 }): Promise<Harness> {
   const store = new InMemoryStore();
   const teamStore = new MemoryTeamStore();
@@ -71,7 +72,7 @@ async function harness(input?: {
     teamStore,
     store,
     sessions,
-    workspace,
+    workspace: input?.workspace ?? workspace,
     ceiling: { ...defaultTeamConfig('deepseek-flash'), ...input?.config },
     toolPolicy: { allowWorkspaceWrites: true, allowCommands: true, maxOutputChars: 60_000 },
     resolveModelTurn: async (member) => {
@@ -826,5 +827,167 @@ describe('T60 — completion is a conjunction, not a status', () => {
     h.releaseRoot();
     await waitTerminal(h.service, root.activation);
     expect((await h.teamStore.getRun(run.id))?.status).toBe('waiting_user');
+  });
+});
+
+
+describe('T03 — fork refuses a lower-permission child', () => {
+  it('does not let a read-only child inherit the parent history', async () => {
+    const h = await harness();
+    const root = await createRun(h);
+    await expect(
+      h.service.spawnMember({
+        ownerId: USER,
+        runId: root.runId,
+        parentMemberId: root.rootId,
+        name: '低权限 fork',
+        contextMode: 'fork',
+        message: '继续',
+        permissions: {
+          allowWorkspaceWrites: false,
+          allowCommands: false,
+          canSpawn: false,
+          imageAssetIds: [],
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'TEAM_FORBIDDEN' });
+    h.releaseRoot();
+    await waitTerminal(h.service, root.activation);
+  });
+});
+
+describe('T04 — a failed provision leaves no runnable ghost', () => {
+  it('marks the member failed and never starts an activation', async () => {
+    let calls = 0;
+    const failing: TeamWorkspacePort = {
+      ...workspace,
+      async provision(input) {
+        calls += 1;
+        if (calls > 1) throw new Error('simulated workspace failure');
+        return workspace.provision(input);
+      },
+    };
+    const h = await harness({ workspace: failing });
+    const root = await createRun(h);
+    const membersBefore = await h.teamStore.listMembers((await h.service.getRun(USER, root.runId)).teamId);
+    await expect(
+      h.service.spawnMember({
+        ownerId: USER,
+        runId: root.runId,
+        parentMemberId: root.rootId,
+        name: '失败成员',
+        message: 'x',
+      }),
+    ).rejects.toThrow('simulated workspace failure');
+    const members = await h.teamStore.listMembers((await h.service.getRun(USER, root.runId)).teamId);
+    expect(members.length).toBe(membersBefore.length + 1);
+    const failed = members.find((member) => member.name === '失败成员');
+    expect(failed?.status).toBe('failed');
+    expect(failed?.currentActivationId).toBeNull();
+    expect(await h.teamStore.listActivations(root.runId, failed!.id)).toHaveLength(0);
+    h.releaseRoot();
+    await waitTerminal(h.service, root.activation);
+  });
+});
+
+describe('T07 — capability preflight rejects images on a text-only model', () => {
+  it('fails before spawn instead of silently dropping the image', async () => {
+    const h = await harness();
+    const root = await createRun(h);
+    await expect(
+      h.service.spawnMember({
+        ownerId: USER,
+        runId: root.runId,
+        parentMemberId: root.rootId,
+        name: '图片成员',
+        message: '看图',
+        modelId: 'deepseek-v4-pro',
+        images: ['asset_does_not_exist'],
+      }),
+    ).rejects.toMatchObject({ code: 'TEAM_CAPABILITY' });
+    h.releaseRoot();
+    await waitTerminal(h.service, root.activation);
+  });
+});
+
+describe('T20 — closed members cannot claim', () => {
+  it('refuses a claim from a closed member even with a stale member object', async () => {
+    const h = await harness();
+    const root = await createRun(h);
+    const child = await h.service.spawnMember({
+      ownerId: USER,
+      runId: root.runId,
+      parentMemberId: root.rootId,
+      name: '关闭后认领',
+      message: 'x',
+    });
+    await waitTerminal(h.service, child.activation);
+    const run = await h.service.getRun(USER, root.runId);
+    const task = await h.service.createTask(
+      { run, member: null, userId: USER },
+      { title: '被关闭的成员不能领', specification: '', acceptance: '证据', required: true },
+    );
+    const stale = await h.service.getMember(USER, child.member.id);
+    const activation = (await h.teamStore.listActivations(run.id, child.member.id))[0]!;
+    await h.service.closeMember(USER, child.member.id);
+    await expect(
+      h.service.claimTask(
+        { team: await h.service.getTeam(USER, run.teamId), run, member: stale, activation },
+        task.id,
+        task.revision,
+      ),
+    ).rejects.toMatchObject({ code: 'TEAM_MEMBER_CLOSED' });
+    h.releaseRoot();
+    await waitTerminal(h.service, root.activation);
+  });
+});
+
+describe('T23 — a member cannot review its own submission', () => {
+  it('refuses self-review and keeps the task submitted', async () => {
+    const h = await harness();
+    const root = await createRun(h);
+    const child = await h.service.spawnMember({
+      ownerId: USER,
+      runId: root.runId,
+      parentMemberId: root.rootId,
+      name: '自审成员',
+      message: 'x',
+    });
+    await waitTerminal(h.service, child.activation);
+    const run = await h.service.getRun(USER, root.runId);
+    const member = await h.service.getMember(USER, child.member.id);
+    const activation = (await h.teamStore.listActivations(run.id, member.id))[0]!;
+    const task = await h.service.createTask(
+      { run, member: null, userId: USER },
+      { title: '自审', specification: '', acceptance: '证据', required: true },
+    );
+    const claimed = await h.service.claimTask(
+      { team: await h.service.getTeam(USER, run.teamId), run, member, activation },
+      task.id,
+      task.revision,
+    );
+    const submitted = await h.service.submitTask(
+      { team: await h.service.getTeam(USER, run.teamId), run, member, activation },
+      {
+        taskId: task.id,
+        expectedRevision: claimed.task.revision,
+        summary: '自审提交',
+        testEvidence: ['e:self'],
+      },
+    );
+    await expect(
+      h.service.reviewTask(
+        { team: await h.service.getTeam(USER, run.teamId), run, member, activation },
+        {
+          taskId: task.id,
+          expectedRevision: submitted.task.revision,
+          decision: 'accepted',
+          reason: '自己通过',
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'TEAM_FORBIDDEN' });
+    expect((await h.teamStore.getTask(task.id))?.status).toBe('submitted');
+    h.releaseRoot();
+    await waitTerminal(h.service, root.activation);
   });
 });

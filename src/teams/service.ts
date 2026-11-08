@@ -637,6 +637,8 @@ export class TeamService implements ActivationHost, TeamToolHost {
     readonly workspaceMode?: Member['workspaceMode'];
     readonly message: string;
     readonly requestId?: string;
+    readonly images?: readonly string[];
+    readonly permissions?: Partial<MemberPermissions>;
   }): Promise<{ member: Member; activation: Activation | null }> {
     const run = await this.getRun(input.ownerId, input.runId);
     const team = await this.getTeam(input.ownerId, run.teamId);
@@ -654,7 +656,12 @@ export class TeamService implements ActivationHost, TeamToolHost {
       ...(input.forkSeq !== undefined ? { forkSeq: input.forkSeq } : {}),
       ...(input.modelId ? { profile: { modelId: input.modelId } } : {}),
       ...(input.workspaceMode ? { workspaceMode: input.workspaceMode } : {}),
-      input: { kind: 'spawn', text: input.message },
+      ...(input.permissions ? { permissions: input.permissions } : {}),
+      input: {
+        kind: 'spawn',
+        text: input.message,
+        ...(input.images && input.images.length > 0 ? { images: input.images } : {}),
+      },
       ...(input.requestId ? { requestId: input.requestId } : {}),
     });
   }
@@ -881,6 +888,13 @@ export class TeamService implements ActivationHost, TeamToolHost {
     expectedRevision: number,
   ): Promise<{ task: Task; attempt: import('./types.ts').TaskAttempt }> {
     const member = caller.member!;
+    const freshMember = await this.teamStore.getMember(member.id);
+    if (!freshMember || freshMember.teamId !== caller.team.id) {
+      throw new TeamError('TEAM_FORBIDDEN', '这不是当前 Team 的成员。', 403);
+    }
+    if (['closed', 'closing', 'failed', 'provisioning'].includes(freshMember.status)) {
+      throw new TeamError('TEAM_MEMBER_CLOSED', '关闭或失败的成员不能认领任务。', 409);
+    }
     const { task } = await this.getTask(caller, taskId);
     if (task.ownerId !== null && task.ownerId !== member.id) {
       throw new TeamError('TEAM_TASK_NOT_ELIGIBLE', '这个任务已经分配给其他成员。', 409);
