@@ -1,0 +1,11 @@
+{
+  "applied": true,
+  "servers": [
+    {
+      "id": "7ba02f40-5322-452a-a8f6-c2bc99c3c656",
+      "name": "Playwright",
+      "from": "host",
+      "to": "browser"
+    }
+  ]
+}

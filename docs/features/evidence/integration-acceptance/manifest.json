@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T14:42:32.669Z",
+  "generatedAt": "2026-11-08T15:58:01.193Z",
   "baselineCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
   "report": "docs/features/eunoia-联调整改验收报告.md",
   "statusVocabulary": [
@@ -12,15 +12,15 @@
   ],
   "totals": {
     "all": {
-      "PASS": 129,
-      "PARTIAL": 21,
+      "PASS": 132,
+      "PARTIAL": 17,
       "FAIL": 0,
-      "BLOCKED": 2,
+      "BLOCKED": 3,
       "TODO": 0
     },
     "D": {
-      "PASS": 50,
-      "PARTIAL": 13,
+      "PASS": 51,
+      "PARTIAL": 12,
       "FAIL": 0,
       "BLOCKED": 1,
       "TODO": 0
@@ -47,10 +47,10 @@
       "TODO": 0
     },
     "R": {
-      "PASS": 10,
-      "PARTIAL": 4,
+      "PASS": 12,
+      "PARTIAL": 1,
       "FAIL": 0,
-      "BLOCKED": 0,
+      "BLOCKED": 1,
       "TODO": 0
     }
   },
@@ -65,7 +65,8 @@
         "npm test"
       ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt",
+        "docs/features/evidence/integration-acceptance/network/regression.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
       "reason": ""
@@ -273,10 +274,11 @@
       "status": "PARTIAL",
       "testCommands": [],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt",
+        "docs/features/evidence/integration-acceptance/network/docker-live.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "浏览器实例使用 --isolated，但两名成员 Cookie/tab/下载目录隔离未做双实例浏览器测试。"
+      "reason": "双成员同源 Cookie/localStorage/tab 与独立容器/tmpfs 隔离已真实验证；下载动作的专项矩阵尚未执行。"
     },
     {
       "id": "D16",
@@ -309,13 +311,18 @@
       "title": "浏览器网络限制",
       "requirement": "导航、跳转、子资源、脚本/WebSocket 不能绕过授权网络边界",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L256",
-      "status": "PARTIAL",
-      "testCommands": [],
-      "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      "status": "PASS",
+      "testCommands": [
+        "BROWSER_INTEGRATION=1 SANDBOX_INTEGRATION=1 EUNOIA_BROWSER_IMAGE_DIGEST=sha256:c41f0761d0e692242db3b63342d2ed3f0a7a25bb8f353c518dd332f7b426b9f6 SANDBOX_TEST_IMAGE_DIGEST=sha256:d46d4112cae653cc0ea1421a9f572764d61cfd7a4d43083d01f2529b6a9988a8 npm test -- tests/browser/isolation.docker.test.ts tests/sandbox/egress.docker.test.ts tests/sandbox/preview-tunnel.docker.test.ts",
+        "npm test"
       ],
-      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "浏览器在宿主运行，未经过受控网关；导航/重定向/WebSocket 的网络边界未满足。"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/network/docker-live.txt",
+        "docs/features/evidence/integration-acceptance/network/regression.txt",
+        "docs/features/evidence/integration-acceptance/network/deployment.json"
+      ],
+      "implementationCommit": "b08bd45519f80d1184cd08eb6611a5f65db0276e",
+      "reason": "导航、重定向、WebSocket 经成员专属代理；CONNECT 内层 origin 复核；元数据/宿主/未允许域名及直连 TCP/DNS/UDP/IPv6 均拒绝。"
     },
     {
       "id": "D19",
@@ -1015,10 +1022,11 @@
       ],
       "evidence": [
         "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
-        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt"
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt",
+        "docs/features/evidence/integration-acceptance/network/docker-live.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "真实 Docker 沙箱内 dev server 经租约与宿主网关可达（network:none、无端口发布）；尚未用浏览器 MCP 在同一租约上完成打开+截图。"
+      "reason": "已完成真实项目容器→租约→托管浏览器→DOM/PNG 媒体链路；本次未从 UI 重跑完整的启动、操作和停止闭环。"
     },
     {
       "id": "V02",
@@ -1030,10 +1038,12 @@
         "PLAYWRIGHT_MCP_LIVE=1 npx vitest run tests/mcp/browser-output.live.test.ts"
       ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt"
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt",
+        "docs/features/evidence/integration-acceptance/network/docker-live.txt",
+        "docs/features/evidence/integration-acceptance/network/vision-loop.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "真实 Playwright MCP 截图文件引用已导入媒体并生成 image block；尚未把该块送入真实模型请求。"
+      "reason": "托管浏览器截图与真实模型视觉闭环已通过；点击/输入/选择与 390px 等浏览器专项矩阵仍未逐项复验。"
     },
     {
       "id": "V03",
@@ -2164,32 +2174,36 @@
       "title": "受控出口、工作区网络和预览 HTTP/WebSocket 网关",
       "requirement": "D10–D12、D18；V01",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L137",
-      "status": "PARTIAL",
+      "status": "PASS",
       "testCommands": [
-        "npx vitest run tests/previews",
-        "SANDBOX_INTEGRATION=1 npx vitest run tests/sandbox/preview-tunnel.docker.test.ts"
+        "BROWSER_INTEGRATION=1 SANDBOX_INTEGRATION=1 EUNOIA_BROWSER_IMAGE_DIGEST=sha256:c41f0761d0e692242db3b63342d2ed3f0a7a25bb8f353c518dd332f7b426b9f6 SANDBOX_TEST_IMAGE_DIGEST=sha256:d46d4112cae653cc0ea1421a9f572764d61cfd7a4d43083d01f2529b6a9988a8 npm test -- tests/browser/isolation.docker.test.ts tests/sandbox/egress.docker.test.ts tests/sandbox/preview-tunnel.docker.test.ts",
+        "npm test"
       ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
-        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt"
+        "docs/features/evidence/integration-acceptance/network/docker-live.txt",
+        "docs/features/evidence/integration-acceptance/network/regression.txt",
+        "docs/features/evidence/integration-acceptance/network/deployment.json"
       ],
-      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "预览租约/宿主网关/HTTP+WS/TTL/恢复与真实 Docker 预览完成；独立 dev_preview 出口 profile 与完整网络负向矩阵未完成。"
+      "implementationCommit": "b08bd45519f80d1184cd08eb6611a5f65db0276e",
+      "reason": "本次生产网络范围通过：dev_preview 独立依赖白名单、network:none 控制管道代理、断链恢复、真实 npm、项目预览→浏览器截图、HTTP/WS 与 CONNECT 换 Host/嵌套负向矩阵。"
     },
     {
       "id": "R05",
       "title": "浏览器运行环境、缓存及成员网络隔离",
       "requirement": "D13–D19、D22、D23；V02",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L138",
-      "status": "PARTIAL",
+      "status": "PASS",
       "testCommands": [
-        "npx vitest run tests/browser/environment.test.ts"
+        "BROWSER_INTEGRATION=1 SANDBOX_INTEGRATION=1 EUNOIA_BROWSER_IMAGE_DIGEST=sha256:c41f0761d0e692242db3b63342d2ed3f0a7a25bb8f353c518dd332f7b426b9f6 SANDBOX_TEST_IMAGE_DIGEST=sha256:d46d4112cae653cc0ea1421a9f572764d61cfd7a4d43083d01f2529b6a9988a8 npm test -- tests/browser/isolation.docker.test.ts tests/sandbox/egress.docker.test.ts tests/sandbox/preview-tunnel.docker.test.ts",
+        "npm test"
       ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/r05-browser-environment.txt"
+        "docs/features/evidence/integration-acceptance/network/docker-live.txt",
+        "docs/features/evidence/integration-acceptance/network/regression.txt",
+        "docs/features/evidence/integration-acceptance/network/deployment.json"
       ],
-      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "专用缓存/profile/output 目录与 doctor/EPERM 诊断完成；浏览器仍为宿主进程，成员网络隔离未完成。"
+      "implementationCommit": "b08bd45519f80d1184cd08eb6611a5f65db0276e",
+      "reason": "本次运行环境与成员隔离通过：固定镜像、独立容器/tmpfs、双成员同源 Cookie/localStorage/tab、无直连网络、权限变更替换、SIGKILL 回收。D16/D17/D19/D21/D22/D23 的专项验收仍独立保留原状态。"
     },
     {
       "id": "R06",
@@ -2227,15 +2241,16 @@
       "title": "配置真实搜索凭据并验收，不伪造数据",
       "requirement": "D32、D33、D36；V04",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L141",
-      "status": "PARTIAL",
+      "status": "BLOCKED",
       "testCommands": [
         "npx vitest run tests/web"
       ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/r08-search-contract.txt"
+        "docs/features/evidence/integration-acceptance/logs/r08-search-contract.txt",
+        "docs/features/evidence/integration-acceptance/network/doctor.json"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "Tavily 适配器/认证/401/429/超时/取消/来源规范化有本地 HTTP 测试；真实调用因无密钥 BLOCKED。"
+      "reason": "Tavily 本地协议契约通过；真实搜索缺 TAVILY_API_KEY，运行时网络修复不会生成第三方凭据。"
     },
     {
       "id": "R09",
@@ -2318,12 +2333,21 @@
       "requirement": "T59、T60；D09、D62–D64",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L147",
       "status": "PARTIAL",
-      "testCommands": [],
-      "evidence": [
-        "docs/features/evidence/integration-acceptance/r14-deploy.json"
+      "testCommands": [
+        "npm run backup",
+        "npm run build",
+        "python3 docs/features/evidence/integration-acceptance/network/deploy-smoke.py",
+        "npm run acceptance:check"
       ],
-      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "备份/构建/迁移/重启/真实预览/真实工具、旧库 v1→v15、干净 npm ci、作业 TTL 均已完成；但浏览器仍是宿主进程、成员网络/资源隔离未完成，R04/R05 仍为 PARTIAL，故 R14 不能无条件 PASS。"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/r14-deploy.json",
+        "docs/features/evidence/integration-acceptance/network/deployment.json",
+        "docs/features/evidence/integration-acceptance/network/deployed-browser-call.json",
+        "docs/features/evidence/integration-acceptance/network/migration-applied.json",
+        "docs/features/evidence/integration-acceptance/network/migration-idempotent.json"
+      ],
+      "implementationCommit": "b08bd45519f80d1184cd08eb6611a5f65db0276e",
+      "reason": "本次隔离配置迁移、备份、实际构建/进程重启、生产浏览器导航与 image block、会话删除回收已完成；整体无条件 PASS 仍受 R08 凭据阻塞及原清单其他 PARTIAL 项约束。"
     }
   ]
 }

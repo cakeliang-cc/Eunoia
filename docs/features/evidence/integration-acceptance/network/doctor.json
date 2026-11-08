@@ -1,0 +1,44 @@
+{
+  "checks": [
+    {
+      "id": "node",
+      "status": "ok",
+      "detail": "v24.7.0"
+    },
+    {
+      "id": "docker",
+      "status": "ok",
+      "detail": "Docker version 28.3.3, build 980b856"
+    },
+    {
+      "id": "docker-runtime",
+      "status": "ok",
+      "detail": "docker daemon reachable"
+    },
+    {
+      "id": "playwright-mcp",
+      "status": "ok",
+      "detail": "Version 0.0.80 at /Users/Zhuanz/Projects/designFree/.worktrees/browser-network-isolation/node_modules/.bin/playwright-mcp"
+    },
+    {
+      "id": "isolated-browser",
+      "status": "ok",
+      "detail": "image=sha256:c41f0761d0e692242db3b63342d2ed3f0a7a25bb8f353c518dd332f7b426b9f6; network:none; per-conversation/member pipe proxy"
+    },
+    {
+      "id": "typescript-language-server",
+      "status": "ok",
+      "detail": "/Users/Zhuanz/Projects/designFree/.worktrees/browser-network-isolation/node_modules/.bin/typescript-language-server"
+    },
+    {
+      "id": "search",
+      "status": "blocked",
+      "detail": "TAVILY_API_KEY missing; web_search will return WEB_NOT_CONFIGURED"
+    },
+    {
+      "id": "docker-image",
+      "status": "ok",
+      "detail": "pinned sandbox image configured"
+    }
+  ]
+}

@@ -19,7 +19,7 @@
 
 ## 当前执行入口
 
-- [托管浏览器与开发任务网络隔离](./sandbox/browser-network-isolation.md)
+- [托管浏览器与开发任务网络隔离](./sandbox/browser-network-isolation.md)（[真实验收记录](./features/eunoia-浏览器与开发网络隔离验收.md)）
 
 - [MCP 完整接入清单与验收](./plans/eunoia-MCP接入实施清单.md)（已实施，状态见
   [验收报告](./mcp/acceptance.md)）

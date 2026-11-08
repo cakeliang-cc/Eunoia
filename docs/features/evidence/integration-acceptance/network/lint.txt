@@ -1,0 +1,22 @@
+
+> eunoia@0.1.0 lint
+> eslint .
+
+
+/Users/Zhuanz/Projects/designFree/.worktrees/browser-network-isolation/scripts/browser-check.ts
+   34:87  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   41:54  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  182:58  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/Zhuanz/Projects/designFree/.worktrees/browser-network-isolation/scripts/dev-panel-check.ts
+  483:87  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  490:54  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  621:58  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/Zhuanz/Projects/designFree/.worktrees/browser-network-isolation/scripts/team-browser-check.ts
+  1026:87  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1033:54  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1206:58  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+✖ 9 problems (0 errors, 9 warnings)
+

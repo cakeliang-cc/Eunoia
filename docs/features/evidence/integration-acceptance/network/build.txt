@@ -1,0 +1,11 @@
+
+> eunoia@0.1.0 build
+> tsc -p tsconfig.build.json && node --experimental-strip-types scripts/copy-assets.ts && node --experimental-strip-types scripts/build-info.ts
+
+assets · 5 copied
+  src/agent/prompts/companion.md → dist/agent/prompts/companion.md
+  src/agent/prompts/companion.personality.md → dist/agent/prompts/companion.personality.md
+  src/skills/builtin/code-change-verification/SKILL.md → dist/skills/builtin/code-change-verification/SKILL.md
+  src/skills/builtin/docs-sync/SKILL.md → dist/skills/builtin/docs-sync/SKILL.md
+  src/skills/builtin/release-review/SKILL.md → dist/skills/builtin/release-review/SKILL.md
+build info: b08bd45519f80d1184cd08eb6611a5f65db0276e at 2026-11-08T15:46:49.168Z

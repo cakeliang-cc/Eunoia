@@ -1,0 +1,124 @@
+{
+  "verifiedAt": "2026-11-08T15:54:09.467218+00:00",
+  "branch": "fix/browser-network-isolation",
+  "codeCommit": "b08bd45519f80d1184cd08eb6611a5f65db0276e",
+  "servicePid": 24874,
+  "host": "127.0.0.1",
+  "port": 8788,
+  "database": "/Users/Zhuanz/Projects/designFree/data/eunoia.sqlite",
+  "mediaRoot": "/Users/Zhuanz/Projects/designFree/data/media",
+  "backup": "backups/eunoia-2026-11-08T15-41-29-443Z",
+  "health": {
+    "status": "ok",
+    "prompt_version": "ec490dad544f",
+    "build": {
+      "commit": "b08bd45519f80d1184cd08eb6611a5f65db0276e",
+      "dirty": false,
+      "builtAt": "2026-11-08T15:46:49.168Z",
+      "packageVersion": "0.1.0"
+    },
+    "store": "sqlite",
+    "persistent": true,
+    "single_user": true,
+    "workspace": "/Users/Zhuanz/Projects/designFree",
+    "workspace_mode": "bind",
+    "workspace_writes": true,
+    "workspace_commands": true,
+    "sandbox": {
+      "enabled": true,
+      "runtime": "docker",
+      "runtime_class": "runc",
+      "gvisor_required": false,
+      "non_gvisor_acknowledged": true,
+      "runtime_ok": true,
+      "runtime_detail": "available runtimes: io.containerd.runc.v2, runc; gvisor=absent",
+      "image": "sha256:d46d4112cae653cc0ea1421a9f572764d61cfd7a4d43083d01f2529b6a9988a8",
+      "workspace_mode": "bind",
+      "network_mode": "proxy_only",
+      "network_profile": "dev_preview",
+      "writes": true,
+      "commands": true,
+      "permission_mode": "auto",
+      "permission_allowed_modes": [
+        "read-only",
+        "auto",
+        "on-request",
+        "restricted"
+      ],
+      "auto_review": true,
+      "metrics": {
+        "uptime_ms": 19203,
+        "sandbox_created": 0,
+        "sandbox_create_failed": 0,
+        "sandbox_creation_success_rate": null,
+        "sandbox_start_total_ms": 0,
+        "sandbox_start_latency_ms": null,
+        "sandbox_destroyed": 0,
+        "sandbox_recovered": 2,
+        "sandbox_recovery_success_rate": 1,
+        "execution_total": 0,
+        "execution_success_rate": null,
+        "execution_unknown": 0,
+        "execution_duplicate": 0,
+        "duplicate_execution_rate": null,
+        "unauthorized_access_block_rate": null,
+        "resource_limit_triggered": 0,
+        "permission_allowed": 0,
+        "permission_denied": 0,
+        "permission_escalated": 0,
+        "permission_auto_approved": 0,
+        "permission_auto_denied": 0,
+        "permission_human_approved": 0,
+        "permission_human_denied": 0,
+        "permission_fail_closed": 0
+      }
+    },
+    "max_steps": 12,
+    "skills": 3,
+    "skills_version": "352f0d2afe7c",
+    "media": true,
+    "mcp": true,
+    "web": true,
+    "team": {
+      "enabled": true,
+      "persistence": "store",
+      "recovery": "on-start"
+    }
+  },
+  "mcp": [
+    {
+      "id": "7ba02f40-5322-452a-a8f6-c2bc99c3c656",
+      "name": "Playwright",
+      "runLocation": "browser",
+      "configRevision": 2,
+      "state": "ready",
+      "toolCount": 28,
+      "protocolRevision": "2025-11-25"
+    }
+  ],
+  "browserContainers": [
+    {
+      "name": "eunoia-browser-a7caf364-cdd4-48c0-8cec-3729d5a3acdd",
+      "image": "sha256:c41f0761d0e692242db3b63342d2ed3f0a7a25bb8f353c518dd332f7b426b9f6",
+      "running": true,
+      "mainPid": 43340,
+      "user": "1000:1000",
+      "network": "none",
+      "readOnlyRoot": true,
+      "capDrop": [
+        "ALL"
+      ],
+      "mounts": [],
+      "tmpfs": {
+        "/tmp": "rw,nosuid,nodev,size=256m,mode=1777"
+      },
+      "publishedPorts": {},
+      "environmentNames": [
+        "PATH",
+        "HOME",
+        "LANG"
+      ]
+    }
+  ],
+  "tavily": "BLOCKED: TAVILY_API_KEY absent"
+}

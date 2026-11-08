@@ -4,13 +4,16 @@
 
 ## 0 结论先行
 
-**本次不是“R01–R14 全部完成”。** 共 152 个原编号项：PASS 129、PARTIAL 21、FAIL 0、BLOCKED 2、TODO 0。
+**本次不是“R01–R14 全部完成”。** 共 152 个原编号项：PASS 132、PARTIAL 17、FAIL 0、BLOCKED 3、TODO 0。
 
-- 已真实完成并有可复现证据：R01、R02、R03（规范路径锁与 Team 发布协调）、R06、R07（真实视觉 + V08 产品闭环）、R09（安全续跑）、R10、R11（开发面板 62/62 + Team 96/96）、R12（8 类真实进程故障）、R13、R14 的部署部分。
-- 仍未全部完成：R04 的浏览器网络隔离/成员隔离与 `dev_preview` 独立出口；R05 的浏览器仍是宿主进程；R08/V04 因缺少 Tavily 凭据 BLOCKED；R14 因 R04/R05 仍为 PARTIAL 不能无条件 PASS。
+- 已真实完成并有可复现证据：R01、R02、R03（规范路径锁与 Team 发布协调）、R04/R05（托管浏览器与网络）、R06、R07（真实视觉 + V08 产品闭环）、R09（安全续跑）、R10、R11（开发面板 62/62 + Team 96/96）、R12（8 类真实进程故障）、R13、R14 的部署部分。
+- 本次补齐：R04/R05 的生产网络与托管浏览器隔离，实际服务已迁移并重启。详见 [专项验收](./eunoia-浏览器与开发网络隔离验收.md)。
+- 仍未全部完成：R08/D32/V04 因缺 Tavily 凭据 BLOCKED；其余专项 PARTIAL 项保留，R14 不写整体无条件 PASS。
 - 本报告不把“工具注册、接口 200、mock、截图文件存在、旧进程仍返回 200”当作完成；每个 PASS 都指向本次实际执行的命令与证据。
 
 ## 1 基线与最终提交
+
+最新隔离修复：`fix/browser-network-isolation` / `b08bd455…`，运行 PID `24874`，构建与容器证据见 [专项报告](./eunoia-浏览器与开发网络隔离验收.md)。下表保留上一次整改基线。
 
 | 项 | 值 |
 | --- | --- |
@@ -36,28 +39,28 @@
 | R01 | PASS | `evidence/integration-acceptance/manifest.json`、`scripts/acceptance-manifest.ts`、`package.json` | `npm run acceptance:manifest` / `npm run acceptance:check`；原表生成，缺项/重复/证据缺失/PASS 无证据均失败 |
 | R02 | PASS | `src/tools/scope.ts`、`src/agents/members.ts`、`src/mcp/permissions.ts`、`src/tools/types.ts`、`src/agent/loop.ts` | 受限成员 MCP 负向测试 5 项；拒绝时服务端动作计数 0 |
 | R03 | PASS | `src/sandbox/write-lock.ts`、`workspace-change-service.ts`、`src/teams/integration.ts` | 规范绝对路径锁、版本复验、跨文件 journal、撤销依赖；跨任务/Team 发布同源文件屏障测试通过 |
-| R04 | PARTIAL | `src/previews/gateway.ts`、`src/sandbox/network/`、`tests/sandbox/egress.docker.test.ts` | 严格完整 Origin（HTTP/WS）、无路径回退、Cookie/Auth 边界、真实 Docker `network:none` 预览、真实受控出口代理与拒绝矩阵；浏览器网络隔离仍未并入 |
-| R05 | PARTIAL | `src/browser/environment.ts`、`scripts/toolkit-setup.ts`、`scripts/toolkit-doctor.ts` | 专用 cache/profile/output/download（0700）、realpath/uid/mode/可写探测、EPERM 诊断；浏览器仍宿主运行 |
+| R04 | PASS | [专项实现与配置](../sandbox/browser-network-isolation.md) | 本次生产网络范围通过：dev_preview 独立依赖白名单、network:none 控制管道代理、断链恢复、真实 npm、项目预览→浏览器截图、HTTP/WS 与 CONNECT 换 Host/嵌套负向矩阵。 |
+| R05 | PASS | [专项实现与配置](../sandbox/browser-network-isolation.md) | 本次运行环境与成员隔离通过：固定镜像、独立容器/tmpfs、双成员同源 Cookie/localStorage/tab、无直连网络、权限变更替换、SIGKILL 回收。D16/D17/D19/D21/D22/D23 的专项验收仍独立保留原状态。 |
 | R06 | PASS | `src/mcp/browser-output.ts`、`src/mcp/manager.ts`、`src/mcp/content.ts`、`src/media/tool-media.ts` | 真实 Playwright MCP 文件引用→媒体资产→image block；路径/符号链接/伪扩展/超大负向测试 |
 | R07 | PASS | `tests/smoke/live-vision.test.ts`、`tests/smoke/live-v08.test.ts` | 真实 DeepSeek Flash S01–S03 + V08 读图→预览→截图→改 CSS→再截图→像素断言 |
-| R08 | PARTIAL | `src/web/tavily.ts`、`src/web/fetch-http.ts`、`scripts/toolkit-doctor.ts` | 本地 HTTP 认证/401/429/超时/取消/来源分页；真实 V04 因缺密钥 BLOCKED |
+| R08 | BLOCKED | [专项实现与配置](../sandbox/browser-network-isolation.md) | Tavily 本地协议契约通过；真实搜索缺 TAVILY_API_KEY，运行时网络修复不会生成第三方凭据。 |
 | R09 | PASS | `src/questions/`、`src/teams/service.ts`、`src/api/server.ts` | 子成员问题、成员/代次、去重、旧代次拒绝、关闭取消、重启读取答案、显式安全续跑与幂等 |
 | R10 | PASS | `src/semantic/lsp-client.ts`、`lsp-provider.ts`、`language-service-provider.ts`、`src/tools/coding/semantic-tools.ts` | 真实 LSP 初始化/跨文件定义引用/中文 emoji CRLF/诊断版本/取消/SIGKILL 重连 |
 | R11 | PASS | `web/team.js`、`scripts/dev-panel-check.ts`、`scripts/team-browser-check.ts` | 开发面板 62/62 + Team 96/96（配置/委派/任务/消息/审批/冲突/SSE/390px/键盘） |
 | R12 | PASS | `tests/fault-injection/process-faults.test.ts`、`tests/fixtures/fault-child.ts` | 8 类真实故障：工具效果、发布首文件、用户后续编辑、两个邮箱点、旧租约、停止后迟到、配置丢失 |
 | R13 | PASS | `src/provider/`、`src/agents/fork-protocol.ts`、`src/agents/members.ts`、`tests/provider/` | 两套本地协议 fixture、流式/工具回填/usage/错误/超时/取消；不可转换 fork 拒绝并提示 fresh |
-| R14 | PARTIAL | `scripts/backup.ts`、`dist/build-info.json`、部署命令 | 备份、构建、schema 15、重启、真实预览/工具、旧库 v1→v15、干净 npm ci、作业 TTL；浏览器/成员隔离未完成，不能无条件 PASS |
+| R14 | PARTIAL | [专项实现与配置](../sandbox/browser-network-isolation.md) | 本次隔离配置迁移、备份、实际构建/进程重启、生产浏览器导航与 image block、会话删除回收已完成；整体无条件 PASS 仍受 R08 凭据阻塞及原清单其他 PARTIAL 项约束。 |
 
 ## 3 原编号统计
 
 | 维度 | PASS | PARTIAL | FAIL | BLOCKED | TODO |
 | --- | --- | --- | --- | --- | --- |
-| D01–D64 | 50 | 13 | 0 | 1 | 0 |
+| D01–D64 | 51 | 12 | 0 | 1 | 0 |
 | V01–V08 | 4 | 3 | 0 | 1 | 0 |
 | T01–T60 | 59 | 1 | 0 | 0 | 0 |
 | E01–E06 | 6 | 0 | 0 | 0 | 0 |
-| R01–R14 | 10 | 4 | 0 | 0 | 0 |
-| 合计 | 129 | 21 | 0 | 2 | 0 |
+| R01–R14 | 12 | 1 | 0 | 1 | 0 |
+| 合计 | 132 | 17 | 0 | 3 | 0 |
 
 本报告的逐项表由 `manifest.json` 生成；`npm run acceptance:check` 校验缺项、重复 ID、要求文本与原文不一致、证据路径不存在、PASS 无测试/证据/实现提交。它只校验报告完整性，不会把测试结果自动解释为全部需求通过。
 
@@ -81,7 +84,7 @@
 
 - 预览不再依赖端口发布：`docker exec -i` 在容器内建立到 `127.0.0.1:<port>` 的字节隧道，宿主 `PreviewGateway` 只转发活跃租约；容器保持 `network:none`，宿主无发布端口（真实测试同时断言直连失败）。
 - 租约绑定 job/owner/conversation/member/port/route/generation/状态/TTL；停止、过期、跨会话、未知路由分别 404/410；HTTP、chunked 流、HMR WebSocket 升级与 Origin 校验均有测试。
-- 独立预览 origin：`<route>.preview.localhost`；path fallback 剥离 Cookie/Authorization；主应用 API 不被代理。
+- 独立预览 origin：`<route>.preview.localhost`；不提供 path fallback，Cookie/Authorization 受租约 origin 边界约束；主应用 API 不被代理。
 - 真实 Docker：容器内 dev server → 租约 ready → `userUrl` 经 8790 网关返回 `hello preview`/`final-preview-ok`；停止后旧地址 404。
 - 证据：`evidence/integration-acceptance/logs/r04-preview-gateway.txt`（11/11）、`evidence/integration-acceptance/logs/r04-preview-docker.txt`（2/2）、`r14-deploy.json`。
 
@@ -96,13 +99,13 @@
 
 - 诊断脚本输出部署提交、选中 modelId、provider endpoint（脱敏）、能力 revision、image policy、错误发生层；明确区分本地预检拒绝与厂商响应。
 - 真实 DeepSeek Flash S01–S03：单图识别数字/颜色、双图顺序交换、重启后同资产回放；真实 usage 记录在 `docs/captures/live-vision.json`。
-- 仍未完成 V08：同一产品任务内“读设计图→启动预览→截图→据图改样式→再截图”未执行。
+- V08 后续已通过：真实模型读取设计与托管浏览器截图、修改 CSS、二次截图像素断言，见专项验收记录。
 - 证据：`evidence/integration-acceptance/logs/r07-vision-smoke.txt`（3/3 real）、`scripts/vision-diagnostic.ts`。
 
 ### 4.6 R09 子成员提问
 
 - 子成员问题写入根会话，携带 memberId/generation/activation；同一 prompt+schema 的重复问题合并为一张卡；答案只路由到原等待者；旧代次 `QUESTION_CONFLICT`；重复回答 `QUESTION_ALREADY_ANSWERED`；关闭成员 `cancelForMember` 取消等待；重启后已答问题可读。
-- 未完成：中断 activation 的显式安全续跑（不重放副作用）。
+- 后续已补齐中断 activation 的显式安全续跑（不重放副作用），见 R09 与故障注入证据。
 - 证据：`evidence/integration-acceptance/logs/r09-questions.txt`（12/12）。
 
 ### 4.7 R10 真实 LSP
@@ -161,9 +164,7 @@
 | 项 | 状态 | 原因 | 最小条件 |
 | --- | --- | --- | --- |
 | D32、V04 | BLOCKED | 无 `TAVILY_API_KEY`；真实搜索与来源网页读取无法执行 | 在环境/加密凭据入口提供 Tavily key；其余本地契约已通过 |
-| R04 浏览器隔离 / 成员隔离 | PARTIAL | 预览入站、严格 Origin、真实 Docker `network:none`、受控出口代理（`example.com` 允许，example.org/元数据/私网/绕过代理均拒绝）已完成；浏览器仍是宿主进程，成员间网络/资源隔离未在真实浏览器中完成 | 浏览器容器化或 OS 级网络命名空间；每工作区独立网络 |
-| R05 浏览器网络隔离 | PARTIAL | 浏览器仍为宿主进程 + `--isolated`；profile 隔离不等于网络隔离 | 浏览器容器/受控网关运行环境 |
-| R14 无条件 PASS | PARTIAL | R04/R05 仍 PARTIAL；D15–D19 浏览器隔离项未完成 | 完成浏览器容器/成员网络隔离后重跑部署验收 |
+| R14 无条件 PASS | PARTIAL | 本次隔离部署与回收已验证；整体仍有 Tavily 凭据阻塞和其他专项 PARTIAL | 完成其余原编号项的验收 |
 
 ## 8 逐项原编号表
 
@@ -185,10 +186,10 @@
 | D12 | 预览 origin：被预览脚本无法读取主应用私有 API、控制 token 或 Cookie | **PASS** | `npx vitest run tests/previews` | [r04-preview-gateway.txt](evidence/integration-acceptance/logs/r04-preview-gateway.txt)<br>[r04-preview-docker.txt](evidence/integration-acceptance/logs/r04-preview-docker.txt) | 预览 origin 的 host/path/cookie 与跨主应用探测有测试；iframe sandbox 与 postMessage 未做浏览器端验证。 |
 | D13 | setup/doctor：依赖、浏览器、版本、网络、能力和账号状态准确，不自动安装 | **PASS** | `npm test` | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | — |
 | D14 | 浏览器实际连接：真实 Playwright MCP 能发现全部必需能力，锁定版本可复现 | **PASS** | `npm test` | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt)<br>[r06-screenshot-live.txt](evidence/integration-acceptance/logs/r06-screenshot-live.txt) | — |
-| D15 | 浏览器隔离：两成员 Cookie/tab/profile/目录隔离，同名服务不串连接 | **PARTIAL** | — | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | 浏览器实例使用 --isolated，但两名成员 Cookie/tab/下载目录隔离未做双实例浏览器测试。 |
+| D15 | 浏览器隔离：两成员 Cookie/tab/profile/目录隔离，同名服务不串连接 | **PARTIAL** | 见 [专项复验命令](./eunoia-浏览器与开发网络隔离验收.md#复验) | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt)<br>[docker-live.txt](evidence/integration-acceptance/network/docker-live.txt) | 双成员同源 Cookie/localStorage/tab 与独立容器/tmpfs 隔离已真实验证；下载动作的专项矩阵尚未执行。 |
 | D16 | 浏览器动作：导航、点击、输入、选择、等待、tab、viewport 实际成功 | **PARTIAL** | — | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | 真实 headless Chrome 已验证导航与截图；点击/输入/选择/等待/tab 未逐项重跑。 |
 | D17 | 页面引用失效：旧元素引用不误操作，重取页面后可恢复 | **PARTIAL** | — | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | 旧元素引用失效未做真实浏览器回归。 |
-| D18 | 浏览器网络限制：导航、跳转、子资源、脚本/WebSocket 不能绕过授权网络边界 | **PARTIAL** | — | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | 浏览器在宿主运行，未经过受控网关；导航/重定向/WebSocket 的网络边界未满足。 |
+| D18 | 浏览器网络限制：导航、跳转、子资源、脚本/WebSocket 不能绕过授权网络边界 | **PASS** | 见 [专项复验命令](./eunoia-浏览器与开发网络隔离验收.md#复验) | [docker-live.txt](evidence/integration-acceptance/network/docker-live.txt)<br>[regression.txt](evidence/integration-acceptance/network/regression.txt)<br>[deployment.json](evidence/integration-acceptance/network/deployment.json) | 导航、重定向、WebSocket 经成员专属代理；CONNECT 内层 origin 复核；元数据/宿主/未允许域名及直连 TCP/DNS/UDP/IPv6 均拒绝。 |
 | D19 | 页面故障证据：捕获控制台 error、失败请求/HTTP 错误，敏感信息脱敏 | **PARTIAL** | — | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | 控制台/失败请求工具已发现，但未在本轮真实动作中采集并断言脱敏。 |
 | D20 | 截图真正入模：实际截图字节变体经 image 块编码进入下一请求，不只返回路径 | **PASS** | `npm test` | [r06-screenshot-live.txt](evidence/integration-acceptance/logs/r06-screenshot-live.txt)<br>[full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | — |
 | D21 | 截图范围：390px/桌面、整页/元素、DPR/变体元数据准确，过长图显式处理 | **PARTIAL** | — | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | 截图文件引用可导入；整页/元素/视口/DPR 变体未逐项验证。 |
@@ -240,8 +241,8 @@
 
 | 编号 | 原要求 | 状态 | 测试命令 | 证据 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| V01 | 从 UI 启动临时前端项目，查询日志、等待就绪、打开预览再停止：真实容器和服务、可达路由、WebSocket、定向停止，无孤儿进程 | **PARTIAL** | `npx vitest run tests/previews`<br>`SANDBOX_INTEGRATION=1 npx vitest run tests/sandbox/preview-tunnel.docker.test.ts` | [r04-preview-gateway.txt](evidence/integration-acceptance/logs/r04-preview-gateway.txt)<br>[r04-preview-docker.txt](evidence/integration-acceptance/logs/r04-preview-docker.txt) | 真实 Docker 沙箱内 dev server 经租约与宿主网关可达（network:none、无端口发布）；尚未用浏览器 MCP 在同一租约上完成打开+截图。 |
-| V02 | 经实际 Playwright MCP 完成页面操作，采集错误和桌面/390px 截图：实际截图、工具清单/调用、图像入模请求投影、受控页面结果 | **PARTIAL** | `PLAYWRIGHT_MCP_LIVE=1 npx vitest run tests/mcp/browser-output.live.test.ts` | [r06-screenshot-live.txt](evidence/integration-acceptance/logs/r06-screenshot-live.txt) | 真实 Playwright MCP 截图文件引用已导入媒体并生成 image block；尚未把该块送入真实模型请求。 |
+| V01 | 从 UI 启动临时前端项目，查询日志、等待就绪、打开预览再停止：真实容器和服务、可达路由、WebSocket、定向停止，无孤儿进程 | **PARTIAL** | 见 [专项复验命令](./eunoia-浏览器与开发网络隔离验收.md#复验) | [r04-preview-gateway.txt](evidence/integration-acceptance/logs/r04-preview-gateway.txt)<br>[r04-preview-docker.txt](evidence/integration-acceptance/logs/r04-preview-docker.txt)<br>[docker-live.txt](evidence/integration-acceptance/network/docker-live.txt) | 已完成真实项目容器→租约→托管浏览器→DOM/PNG 媒体链路；本次未从 UI 重跑完整的启动、操作和停止闭环。 |
+| V02 | 经实际 Playwright MCP 完成页面操作，采集错误和桌面/390px 截图：实际截图、工具清单/调用、图像入模请求投影、受控页面结果 | **PARTIAL** | 见 [专项复验命令](./eunoia-浏览器与开发网络隔离验收.md#复验) | [r06-screenshot-live.txt](evidence/integration-acceptance/logs/r06-screenshot-live.txt)<br>[docker-live.txt](evidence/integration-acceptance/network/docker-live.txt)<br>[vision-loop.txt](evidence/integration-acceptance/network/vision-loop.txt) | 托管浏览器截图与真实模型视觉闭环已通过；点击/输入/选择与 390px 等浏览器专项矩阵仍未逐项复验。 |
 | V03 | Agent 读取工作区设计图并读取原截图，做文本与图片预算检查：真实文件、媒体哈希、发送变体、图片能力不足时明确拒绝 | **PASS** | `RUN_SMOKE=1 npx vitest run tests/smoke/live-vision.test.ts` | [r07-vision-smoke.txt](evidence/integration-acceptance/logs/r07-vision-smoke.txt) | 真实 DeepSeek Flash 完成 S01–S03：单图/双图顺序/重启后回放，真实回答与 usage 保留。 |
 | V04 | 搜索公开技术资料，读取其中一页并输出来源链接：真实搜索 API 与公网 fetch；请求/来源/状态/费用配置脱敏证据 | **BLOCKED** | `npx vitest run tests/web` | [r08-search-contract.txt](evidence/integration-acceptance/logs/r08-search-contract.txt) | 缺少 TAVILY_API_KEY，真实搜索与来源网页读取无法执行；本地协议测试已通过。 |
 | V05 | Agent 发起方案选择，刷新后回答，再继续同一任务；另测取消和旧答案：问题 ID、恢复事件、只有一次入模，原回合互斥不被绕过 | **PASS** | `npx vitest run tests/questions` | [r09-questions.txt](evidence/integration-acceptance/logs/r09-questions.txt) | 真实模型提问→回答→同轮恢复已有证据；本轮补子成员汇总/旧代次/重复回答/重启读取答案测试。 |
@@ -332,14 +333,14 @@
 | R01 | 恢复原始编号、核对统一提交和部署版本、修正文档矛盾：全部 | **PASS** | `npm run acceptance:check` | [manifest.json](evidence/integration-acceptance/manifest.json) | 从 1a5c801 新建 fix/integration-acceptance；manifest 由原表生成并校验，R 卡入口在报告中。 |
 | R02 | MCP 成员权限与执行身份交集，无越权副作用：T40、T41、T42；D40、D41、D53、D56、D60 | **PASS** | `npx vitest run tests/mcp/member-scope.test.ts` | [r02-mcp-scope.txt](evidence/integration-acceptance/logs/r02-mcp-scope.txt) | ExecutionScope 注入、成员权限交集、MCP 发送前拒绝、旧代次/收紧权限拒绝与真实 fixture 零副作用测试。 |
 | R03 | 补丁版本保护、共享 journal 和用户修改保护：D48–D55；V07 | **PASS** | `npx vitest run tests/sandbox/write-coordination.test.ts tests/tools/change-protection.test.ts tests/service/workspace-undo.test.ts` | [r03-change-protection.txt](evidence/integration-acceptance/logs/r03-change-protection.txt) | write/edit/patch/undo 与 Team 发布使用规范路径锁与版本复验；跨任务同源文件屏障竞争测试通过。Team 发布 journal 保留自身动作格式。 |
-| R04 | 受控出口、工作区网络和预览 HTTP/WebSocket 网关：D10–D12、D18；V01 | **PARTIAL** | `npx vitest run tests/previews`<br>`SANDBOX_INTEGRATION=1 npx vitest run tests/sandbox/preview-tunnel.docker.test.ts` | [r04-preview-gateway.txt](evidence/integration-acceptance/logs/r04-preview-gateway.txt)<br>[r04-preview-docker.txt](evidence/integration-acceptance/logs/r04-preview-docker.txt) | 预览租约/宿主网关/HTTP+WS/TTL/恢复与真实 Docker 预览完成；独立 dev_preview 出口 profile 与完整网络负向矩阵未完成。 |
-| R05 | 浏览器运行环境、缓存及成员网络隔离：D13–D19、D22、D23；V02 | **PARTIAL** | `npx vitest run tests/browser/environment.test.ts` | [r05-browser-environment.txt](evidence/integration-acceptance/logs/r05-browser-environment.txt) | 专用缓存/profile/output 目录与 doctor/EPERM 诊断完成；浏览器仍为宿主进程，成员网络隔离未完成。 |
+| R04 | 受控出口、工作区网络和预览 HTTP/WebSocket 网关：D10–D12、D18；V01 | **PASS** | 见 [专项复验命令](./eunoia-浏览器与开发网络隔离验收.md#复验) | [docker-live.txt](evidence/integration-acceptance/network/docker-live.txt)<br>[regression.txt](evidence/integration-acceptance/network/regression.txt)<br>[deployment.json](evidence/integration-acceptance/network/deployment.json) | 本次生产网络范围通过：dev_preview 独立依赖白名单、network:none 控制管道代理、断链恢复、真实 npm、项目预览→浏览器截图、HTTP/WS 与 CONNECT 换 Host/嵌套负向矩阵。 |
+| R05 | 浏览器运行环境、缓存及成员网络隔离：D13–D19、D22、D23；V02 | **PASS** | 见 [专项复验命令](./eunoia-浏览器与开发网络隔离验收.md#复验) | [docker-live.txt](evidence/integration-acceptance/network/docker-live.txt)<br>[regression.txt](evidence/integration-acceptance/network/regression.txt)<br>[deployment.json](evidence/integration-acceptance/network/deployment.json) | 本次运行环境与成员隔离通过：固定镜像、独立容器/tmpfs、双成员同源 Cookie/localStorage/tab、无直连网络、权限变更替换、SIGKILL 回收。D16/D17/D19/D21/D22/D23 的专项验收仍独立保留原状态。 |
 | R06 | 截图/文件引用导入媒体、图像入模投影：D20、D21、D24–D28；V02、V03 | **PASS** | `PLAYWRIGHT_MCP_LIVE=1 npx vitest run tests/mcp/browser-output.live.test.ts` | [r06-screenshot-live.txt](evidence/integration-acceptance/logs/r06-screenshot-live.txt) | Playwright MCP 文件引用按受信输出目录校验→媒体资产→image block；含真实 headless Chrome 用例与负向路径测试。 |
 | R07 | 核对视觉路由并做真实视觉闭环：V03、V08 | **PASS** | `RUN_SMOKE=1 V08_SMOKE=1 npx vitest run tests/smoke/live-v08.test.ts` | [r07-vision-smoke.txt](evidence/integration-acceptance/logs/r07-vision-smoke.txt)<br>[v08-live.txt](evidence/integration-acceptance/logs/v08-live.txt) | 真实视觉 S01–S03 与 V08 产品闭环均通过：真实模型收到设计图与截图，修改 CSS，二次截图像素断言通过。 |
-| R08 | 配置真实搜索凭据并验收，不伪造数据：D32、D33、D36；V04 | **PARTIAL** | `npx vitest run tests/web` | [r08-search-contract.txt](evidence/integration-acceptance/logs/r08-search-contract.txt) | Tavily 适配器/认证/401/429/超时/取消/来源规范化有本地 HTTP 测试；真实调用因无密钥 BLOCKED。 |
+| R08 | 配置真实搜索凭据并验收，不伪造数据：D32、D33、D36；V04 | **BLOCKED** | 见 [专项复验命令](./eunoia-浏览器与开发网络隔离验收.md#复验) | [r08-search-contract.txt](evidence/integration-acceptance/logs/r08-search-contract.txt)<br>[doctor.json](evidence/integration-acceptance/network/doctor.json) | Tavily 本地协议契约通过；真实搜索缺 TAVILY_API_KEY，运行时网络修复不会生成第三方凭据。 |
 | R09 | 结构化提问的子成员汇总和恢复：D37–D41；V05 | **PASS** | `npx vitest run tests/questions tests/teams/questions-resume.test.ts` | [r09-questions.txt](evidence/integration-acceptance/logs/r09-questions.txt) | 子成员问题汇总、成员/代次、去重、旧代次拒绝、关闭取消、重启读取答案与显式安全续跑（新 activation）完成。 |
 | R10 | 完整 LSP 适配与更新/取消/重连：D42–D47；V06 | **PASS** | `npx vitest run tests/semantic tests/tools/semantic-tools.test.ts` | [r10-lsp.txt](evidence/integration-acceptance/logs/r10-lsp.txt) | 真实 typescript-language-server 适配、编码、诊断版本、取消、崩溃重连与文档重建；工具报告实际后端。 |
 | R11 | 作业、预览、来源、差异与撤销 UI 及浏览器自动化：D57–D60；T54–T57；V01、V05、V07 | **PASS** | `node --experimental-strip-types scripts/team-browser-check.ts` | [team-browser-check.json](evidence/integration-acceptance/team/team-browser-check.json) | 开发面板 62/62 与 Team 全流程 96/96 真实 Chrome 断言通过；截图与 JSON 断言日志已存档。 |
 | R12 | 真实进程级恢复和迟到结果矩阵：E05；T18、T19、T27、T28、T49、T50；D08、D48–D50 | **PASS** | `npx vitest run tests/fault-injection` | [r12-fault-injection.txt](evidence/integration-acceptance/logs/r12-fault-injection.txt) | 8 类真实进程故障矩阵完成：工具效果、发布首文件、用户后续编辑、两个邮箱故障点、旧租约、停止后迟到、配置丢失；均真实 kill/重启或实际迟到响应验证。 |
 | R13 | 双 Provider 契约与不兼容 fork 边界：T06、T08 | **PASS** | `npx vitest run tests/provider/protocol-contract.test.ts tests/teams/dual-provider.test.ts tests/teams/fork-protocol.test.ts` | [r13-providers.txt](evidence/integration-acceptance/logs/r13-providers.txt) | 两套本地协议 fixture 覆盖编码/流式/工具回填/usage/错误/超时/取消；不可转换 fork 拒绝并要求 fresh。 |
-| R14 | 资源收束、清理引用、迁移及最后部署验证：T59、T60；D09、D62–D64 | **PARTIAL** | `npm run acceptance:check`<br>`npm run build`<br>`npm run migrate` | [r14-deploy.json](evidence/integration-acceptance/r14-deploy.json) | 备份/构建/迁移/重启/真实预览/真实工具已完成；清理、完整旧库演练与干净环境复现已补证据，但双成员 TTL/资源收束仍未全部完成，不能无条件 PASS。 |
+| R14 | 资源收束、清理引用、迁移及最后部署验证：T59、T60；D09、D62–D64 | **PARTIAL** | 见 [专项复验命令](./eunoia-浏览器与开发网络隔离验收.md#复验) | [r14-deploy.json](evidence/integration-acceptance/r14-deploy.json)<br>[deployment.json](evidence/integration-acceptance/network/deployment.json)<br>[deployed-browser-call.json](evidence/integration-acceptance/network/deployed-browser-call.json)<br>[migration-applied.json](evidence/integration-acceptance/network/migration-applied.json)<br>[migration-idempotent.json](evidence/integration-acceptance/network/migration-idempotent.json) | 本次隔离配置迁移、备份、实际构建/进程重启、生产浏览器导航与 image block、会话删除回收已完成；整体无条件 PASS 仍受 R08 凭据阻塞及原清单其他 PARTIAL 项约束。 |
