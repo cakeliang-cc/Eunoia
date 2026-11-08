@@ -1,7 +1,7 @@
 # Eunoia 开发工具补齐验收报告
 
 - 分支：`feat/developer-toolkit`
-- 实现提交：`1373577`（catalog/运行版本修正见该分支后续提交）
+- 实现提交：`1373577`；catalog 修正 `8314006`；进程快速退出修复见该分支后续提交
 - 日期：2026-11-08
 - 实施清单：[eunoia-开发工具补齐实施清单](../plans/eunoia-开发工具补齐实施清单.md)
 - 选型研究：[eunoia-开发工具现状与选型](../research/tools/eunoia-开发工具现状与选型.md)
@@ -49,7 +49,7 @@ npm run build        通过
 npm run browser:check 通过（桌面、390px、MCP 抽屉）
 ```
 
-覆盖新增：`read_image` 9 项、web 10 项、questions 7+3 项、apply_patch 8 项、process 8 项、semantic 12 项，以及补丁→撤销端到端 1 项。
+覆盖新增：`read_image` 9 项、web 10 项、questions 7+3 项、apply_patch 8 项、process 9 项、semantic 12 项，以及补丁→撤销端到端 1 项。
 
 ### 3.2 真实 Playwright MCP（不是 mock）
 
@@ -100,7 +100,24 @@ diagnostics → 没有诊断错误（检查了 1 个文件）
 - `GET /api/tools` 返回内置工具目录、MCP 工具、web/processes/browser/languageServer
   后端状态；未配置 Tavily 时搜索明确显示 `configured:false`。
 
-### 3.6 进程/预览
+### 3.6 真实模型回合（同一轮内）
+
+在真实服务、真实 DeepSeek 模型上执行了四个非破坏性回合：
+
+- **web_fetch**：模型调用 `web_fetch`，工具结果 `ok`，最终回答
+  「标题：Example Domain / 来源 URL：https://example.com/」。
+- **后台作业**：模型调用 `process_start`（命令 `echo live-job-output; sleep 20`）→
+  状态 `starting`；`process_read` 读到 16 字节 stdout `live-job-output`；
+  `process_stop` 返回 `已停止`；数据库作业状态 `stopped`。这证明进程工具在真实
+  Docker 沙箱内运行，不是本地 mock。
+- **提问**：模型调用 `ask_user_question` 提出「请选择目标分支」，服务端
+  `user_questions` 出现 pending；通过 `/api/questions/:id/answer` 回答 `main` 后，
+  同一回合继续，最终回复「你选择了：main」。
+- **read_image**：模型调用 `read_image`，结果为 `120×80` 且 `images:1`；下一个模型
+  请求被明确拒绝：`当前模型不支持图片输入，请换一个能看图的模型`。工具与媒体管线
+  正常，**当前部署的模型没有视觉能力**，因此 V03 仍是 BLOCKED，不是编造成功。
+
+### 3.7 进程/预览
 
 进程服务在真实本地 shell 上验证：启动立即返回、stdout/stderr 游标、退出码、FIFO 输入、取消、进程组停止、PID 消失→unknown、同 toolCall 幂等、并发上限、预览容器内 HTTP 探测。**尚未在真实 Docker 沙箱内跑同一套生命周期**（见 §4 阻塞）。
 
@@ -130,7 +147,7 @@ diagnostics → 没有诊断错误（检查了 1 个文件）
 | D11 stdout/stderr 分流、游标、截断/缺口 | PASS | 游标按字节；超过上限返回截断；gap 标记存在；数据库日志容量上限未实现 |
 | D12 input 仅 PTY/可输入；不回显敏感输入 | PARTIAL | FIFO 输入 + 长度/状态校验 + 测试；无 PTY；“不回显到审计”未实现（输入未写审计，但也没有脱敏审计记录） |
 | D13 wait 可取消、超时不等于失败 | PASS | `process_wait` 超时返回仍在运行；abort 可退出轮询 |
-| D14 stop 定向终止进程组并核对 | PASS（本地） | TERM→KILL、`pgrep -P` 递归、核对 PID；真实容器待验 |
+| D14 stop 定向终止进程组并核对 | PASS | 真实 Docker 沙箱回合：start→read 16 字节→stop「已停止」，数据库 `stopped`；本地另有 TERM→KILL 测试 |
 | D15 OCI 运行时受控长期进程端口 | PARTIAL | 复用现有沙箱 `ToolExecutor`（容器内 `setsid`/nohup），没有新增可绕过权限的宿主执行；没有专用 runtime 端口 |
 | D16 重启核对 marker/pid/generation | PARTIAL | marker + `/proc/<pid>/cmdline` 校验，缺失则 unknown；未做真实服务重启/容器重启演练 |
 | D17 服务/Team/成员退出清理、预览 TTL | FAIL | 无 Team/成员清理钩子、无 TTL 回收任务；用户只能显式 stop |
@@ -228,10 +245,10 @@ diagnostics → 没有诊断错误（检查了 1 个文件）
 | --- | --- | --- |
 | V01 预览真实启动/就绪/页面可达 | BLOCKED | 容器端口未发布；`preview_start` 明确返回 `userUrl:null` |
 | V02 浏览器打开预览并观察 | BLOCKED | 依赖 V01 的用户可达地址 |
-| V03 工作区图片真实模型查看 | BLOCKED | 未执行真实图片模型回合（密钥在，未消耗） |
+| V03 工作区图片真实模型查看 | BLOCKED | 已真实执行：`read_image` 成功返回 120×80 + images:1；下一请求明确拒绝「当前模型不支持图片输入」。需要配置视觉模型 |
 | V04 真实 Tavily 搜索 | BLOCKED | 无 `TAVILY_API_KEY` |
 | V05 Playwright 真实操作/截图/控制台 | PARTIAL | 真实导航 + 截图文件；未入媒体、未在 Eunoia 会话内完成 |
-| V06 真实用户提问→回答→同轮恢复 | PARTIAL | API/服务测试通过；未做浏览器端到端点击与 SSE 恢复 |
+| V06 真实用户提问→回答→同轮恢复 | PASS | 真实模型回合：提问 pending → API 回答 main → 同轮继续并回复「你选择了：main」；浏览器点击未单独做 E2E |
 | V07 语义定位真实仓库 | PASS | 真实仓库定义/引用/诊断 + Unicode 测试 |
 | V08 视觉闭环 + 真实模型预算 | BLOCKED | 依赖 V01/V02/V03；未发起真实模型请求 |
 

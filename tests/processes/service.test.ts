@@ -110,6 +110,15 @@ describe('process lifecycle', () => {
     await expect(service.status(context, job.id)).resolves.toMatchObject({ status: 'stopped' });
   }, 30_000);
 
+  it('does not report a just-exited command as unknown before its exit file', async () => {
+    const { service, context } = await setup();
+    const job = await service.start(context, { command: 'exit 7' });
+    expect(['exited', 'starting', 'running']).toContain(job.status);
+    const waited = await service.wait(context, job.id, { timeoutMs: 5_000 });
+    expect(waited.status).toBe('exited');
+    expect(waited.exitCode).toBe(7);
+  }, 20_000);
+
   it('records an exit code and serves the final output', async () => {
     const { service, context } = await setup();
     const job = await service.start(context, { command: 'echo done; exit 3' });
@@ -143,7 +152,9 @@ describe('process lifecycle', () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
     const running = await service.status(context, job.id);
     if (running.pid) process.kill(running.pid, 'SIGKILL');
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // The three-second starting grace exists so a fast exit is not mislabeled
+    // unknown; after it, a missing process with no exit file is genuinely unknown.
+    await new Promise((resolve) => setTimeout(resolve, 3_300));
     const status = await service.status(context, job.id);
     expect(status.status).toBe('unknown');
     expect(status.error).toContain('不能确认');

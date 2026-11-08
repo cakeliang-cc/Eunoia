@@ -194,7 +194,12 @@ export class ProcessService {
       exitCode = Number(exitMatch[1]);
       endedAt = endedAt ?? this.#now().toISOString();
     } else if (record.status === 'running' || record.status === 'starting') {
-      status = 'unknown';
+      // A command can exit between the start acknowledgement and this probe,
+      // before the wrapper has written the exit file. Do not call that
+      // "unknown" for the first seconds: it is still starting/finishing, and the
+      // next status call will see the real exit code.
+      const age = Date.now() - Date.parse(record.startedAt);
+      status = age < 3_000 ? 'starting' : 'unknown';
     }
     const next: DevJobRecord = {
       ...record,
