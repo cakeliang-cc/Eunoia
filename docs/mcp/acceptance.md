@@ -1,6 +1,6 @@
 # MCP 接入验收报告
 
-日期：2026 年 11 月 8 日。实现提交：`feat/mcp-host`（见 `git log`）。协议实测：
+日期：2026 年 11 月 8 日。实现提交：`09c9bbf`（已合并到 `main` 并推送）。协议实测：
 `2025-06-18`（真实 stdio fixture），SDK `@modelcontextprotocol/client` 2.1.0。
 
 状态含义：
@@ -19,7 +19,7 @@
 ```sh
 npm run typecheck        # 0 error
 npm run lint             # 0 error（仅剩既有 any 警告）
-npm test                 # 1371 + MCP 新增，全部通过
+npm test                 # 1482 passed / 27 skipped（含既有 1371），全部通过
 npm run build            # tsc + assets 复制成功
 npm run browser:check    # 390px + 桌面，含 MCP 抽屉，无横向溢出
 ```
@@ -32,6 +32,9 @@ npx vitest run tests/mcp tests/service/mcp-turn.test.ts tests/api/mcp.test.ts
 
 证据文件：`docs/captures/mcp-390.png`、`docs/captures/mcp-desktop.png`、
 `docs/captures/browser-check.json`。
+
+服务重启证据：`GET /health` 返回 `status=ok, store=sqlite, mcp=true`；启动日志
+`server.mcp secret_storage=encrypted`；重启后原有 11 个会话仍在。
 
 ## 2 测试清单与对应关系
 
@@ -110,7 +113,7 @@ npx vitest run tests/mcp tests/service/mcp-turn.test.ts tests/api/mcp.test.ts
 | M57 | FAIL | 第二个离线模型适配器未实现 |
 | M58 | PARTIAL | 脱敏器与密钥存储有测试；数据库/日志/SSE 的诱饵秘密扫描未做 |
 | M59 | FAIL | 只有模型 usage 与动作记录，没有 MCP 延迟/字节/重连的独立计量 |
-| M60 | PASS | typecheck/lint/test/build/browser 全绿，既有 1371 项无回归 |
+| M60 | PASS | typecheck/lint/test/build/browser 全绿，1482 项通过（含既有 1371），无关键 TODO |
 
 ## 4 L01–L06
 
