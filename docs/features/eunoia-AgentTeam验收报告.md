@@ -198,7 +198,7 @@ curl -s http://127.0.0.1:8790/api/teams/runs/<runId>/report
 - **静态资源**：`/team.js` 200、`/team.css` 200、`/` 200；畸形 `//` 返回 400 且进程继续。
 - **功能入口**：创建会话后 `GET /api/teams?conversationId=…` 返回默认 Team（4 成员 / 3 并发 / 24 请求 / 400k 输入 / 32k 输出）；不存在 run 的 `POST /steering` 返回 404。
 - **并行进程**：`127.0.0.1:8787` 仍由 `.worktrees/mcp` 的进程占用；本报告未终止并行开发进程。主库已是 v13，本分支的 12 版服务不能直接复用，需要等该开发线合入后再统一迁移版本。
-- **修复的启动/健壮性问题**：Team 工作区根默认移到源目录外（`~/.eonia/team-workspaces`，可用 `TEAM_WORKSPACE_ROOT` 覆盖；本机 DSH 沙箱下 home 不可写，验证用 /tmp）；畸形请求目标 `//` 返回 400 而非崩溃；关闭成员与激活收尾的竞争用 `closedAt` 修复；预算预留移到模型并发槽之后，避免排队请求提前占满输出预算；Team 工具使用 `workspace_state` 副作用类别，不再因“禁止命令”而被误拒。
+- **修复的启动/健壮性问题**：Team 工作区根默认移到源目录外（`~/.eunoia/team-workspaces`，可用 `TEAM_WORKSPACE_ROOT` 覆盖；本机 DSH 沙箱下 home 不可写，验证用 /tmp）；畸形请求目标 `//` 返回 400 而非崩溃；关闭成员与激活收尾的竞争用 `closedAt` 修复；预算预留移到模型并发槽之后，避免排队请求提前占满输出预算；Team 工具使用 `workspace_state` 副作用类别，不再因“禁止命令”而被误拒。
 
 ## 11. 结论## 11. 结论
 
