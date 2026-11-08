@@ -376,6 +376,50 @@ function renderMembers() {
     view.append(card);
   }
 
+  const mcpInteractions = snapshot.mcpInteractions || [];
+  for (const interaction of mcpInteractions) {
+    const card = el('div', 'team-card');
+    card.append(
+      el('div', 'team-card-head',
+        el('span', 'team-card-title', `MCP ${interaction.kind}：${interaction.summary}`),
+        badge('pending')),
+      el('div', 'team-card-id', `${interaction.memberName}（${shortId(interaction.memberId)}）`),
+    );
+    const body = el('div', 'team-card-body');
+    body.append(el('pre', null, JSON.stringify(interaction.payload, null, 2)));
+    const actions = el('div', 'team-actions');
+    const response = document.createElement('textarea');
+    response.placeholder = '可选的 elicitation 响应（JSON 或文本）';
+    response.setAttribute('aria-label', 'MCP 交互响应');
+    const accept = el('button', null, '接受');
+    accept.type = 'button';
+    accept.addEventListener('click', () => {
+      let parsed = {};
+      if (response.value.trim()) {
+        try {
+          parsed = JSON.parse(response.value);
+        } catch {
+          parsed = { text: response.value };
+        }
+      }
+      void post(
+        `/api/teams/runs/${snapshot.run.id}/mcp-interactions/${interaction.id}`,
+        { action: 'accept', response: parsed },
+      );
+    });
+    const reject = el('button', 'danger', '拒绝');
+    reject.type = 'button';
+    reject.addEventListener('click', () =>
+      void post(
+        `/api/teams/runs/${snapshot.run.id}/mcp-interactions/${interaction.id}`,
+        { action: 'reject', response: {} },
+      ),
+    );
+    actions.append(accept, reject);
+    card.append(body, response, actions);
+    view.append(card);
+  }
+
   const approvals = snapshot.approvals || [];
   for (const approval of approvals) {
     const card = el('div', 'team-card');
@@ -675,6 +719,82 @@ async function renderArtifacts() {
     body.append(el('p', null, `冲突：${(integration.conflicts || []).length ? integration.conflicts.join('、') : '无'}`));
     body.append(el('pre', null, JSON.stringify(integration.journal || [], null, 2)));
     card.append(body);
+    if ((integration.conflicts || []).length > 0) {
+      const actions = el('div', 'team-actions');
+      const open = el('button', null, '解决冲突');
+      open.type = 'button';
+      open.addEventListener('click', () => {
+        void (async () => {
+          try {
+            const detail = await api(
+              `/api/teams/integrations/${integration.id}/conflicts`,
+            );
+            const panel = el('div', 'team-form');
+            for (const conflict of detail.conflicts) {
+              panel.append(el('div', 'team-card-id', conflict.path));
+              panel.append(el('pre', null, `源文件:\n${conflict.source.content ?? '（不可读）'}`));
+              panel.append(el('pre', null, `候选:\n${conflict.candidate.content ?? '（不可读）'}`));
+              if (conflict.other) panel.append(el('pre', null, `另一方:\n${conflict.other}`));
+              const row = el('div', 'team-actions');
+              const keepSource = el('button', null, '保留源文件');
+              keepSource.type = 'button';
+              keepSource.addEventListener('click', () =>
+                void post(
+                  `/api/teams/integrations/${integration.id}/conflicts`,
+                  { path: conflict.path, resolution: 'source' },
+                ).then(() => {
+                  state.integrations = null;
+                  void renderArtifacts();
+                }),
+              );
+              const keepCandidate = el('button', null, '采用候选');
+              keepCandidate.type = 'button';
+              keepCandidate.addEventListener('click', () =>
+                void post(
+                  `/api/teams/integrations/${integration.id}/conflicts`,
+                  { path: conflict.path, resolution: 'candidate' },
+                ).then(() => {
+                  state.integrations = null;
+                  void renderArtifacts();
+                }),
+              );
+              const manual = el('button', null, '手工合并…');
+              manual.type = 'button';
+              manual.addEventListener('click', () => {
+                const content = prompt(`编辑 ${conflict.path} 的合并结果`);
+                if (content === null) return;
+                void post(
+                  `/api/teams/integrations/${integration.id}/conflicts`,
+                  { path: conflict.path, resolution: 'manual', content },
+                ).then(() => {
+                  state.integrations = null;
+                  void renderArtifacts();
+                });
+              });
+              row.append(keepSource, keepCandidate, manual);
+              panel.append(row);
+            }
+            card.append(panel);
+          } catch (error) {
+            setNote(error.message, true);
+          }
+        })();
+      });
+      const verify = el('button', null, '重新验证');
+      verify.type = 'button';
+      verify.addEventListener('click', () =>
+        void post(`/api/teams/integrations/${integration.id}/verify`),
+      );
+      actions.append(open, verify);
+      card.append(actions);
+    } else if (['candidate', 'resolved'].includes(integration.status)) {
+      const verify = el('button', null, '重新验证');
+      verify.type = 'button';
+      verify.addEventListener('click', () =>
+        void post(`/api/teams/integrations/${integration.id}/verify`),
+      );
+      card.append(verify);
+    }
     view.append(card);
   }
   for (const integration of state.integrations) {

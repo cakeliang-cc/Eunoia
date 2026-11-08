@@ -61,6 +61,7 @@ import { newId } from '../agents/members.ts';
 import { transcriptMode } from '../session/model-transcript.ts';
 import type { TeamApprovalPort, TeamApprovalView } from './approvals.ts';
 import { integrateManifests, publishCandidate } from './integration.ts';
+import type { McpInteractionRecord } from '../mcp/types.ts';
 
 // ----------------------------------------------------------- workspace port ---
 
@@ -101,6 +102,24 @@ export interface TeamWorkspacePort {
   baselineForWorkspace?(workspaceTaskId: string): Promise<{
     readonly baselineId: string;
     readonly hashes: Readonly<Record<string, string>>;
+  } | null>;
+  /** Read a workspace file for conflict review. */
+  readWorkspaceFile?(workspaceTaskId: string, path: string): Promise<{
+    readonly path: string;
+    readonly content: string;
+    readonly hash: string;
+  } | null>;
+  /** Write a resolved file into the member copy (never the source). */
+  writeWorkspaceFile?(
+    workspaceTaskId: string,
+    path: string,
+    content: string,
+  ): Promise<{ readonly path: string; readonly hash: string }>;
+  /** Read a source file for conflict review. */
+  readSourceFile?(path: string): Promise<{
+    readonly path: string;
+    readonly content: string;
+    readonly hash: string;
   } | null>;
   /** Delete a member workspace only when the caller proved it is unreferenced. */
   cleanup?(input: {
@@ -451,11 +470,13 @@ export class TeamService implements ActivationHost, TeamToolHost {
       this.teamStore.listEvents(run.id, 0, 200),
     ]);
     const approvals = await this.listApprovals(ownerId, runId).catch(() => []);
+    const mcpInteractions = await this.listMcpInteractions(ownerId, runId).catch(() => []);
     return {
       team,
       run,
       members,
       approvals,
+      mcpInteractions,
       tasks: tasks.items,
       taskTotal: tasks.total,
       messages: messages.items,
@@ -1414,6 +1435,89 @@ export class TeamService implements ActivationHost, TeamToolHost {
     return { removed, reason: removed ? 'removed' : 'workspace cleanup refused' };
   }
 
+  // ------------------------------------------------------- mcp interactions ---
+
+  /** Pending MCP approvals/elicitations owned by this run's members. */
+  async listMcpInteractions(
+    ownerId: string,
+    runId: string,
+  ): Promise<Array<McpInteractionRecord & { memberId: string; memberName: string }>> {
+    if (!this.#deps.mcp) return [];
+    const run = await this.getRun(ownerId, runId);
+    const members = await this.teamStore.listMembers(run.teamId);
+    const result: Array<McpInteractionRecord & { memberId: string; memberName: string }> = [];
+    for (const member of members) {
+      if (['closed', 'failed'].includes(member.status)) continue;
+      const interactions = await this.#deps.mcp
+        .listInteractions(ownerId, member.internalConversationId)
+        .catch(() => []);
+      for (const interaction of interactions) {
+        if (interaction.status !== 'pending') continue;
+        result.push({ ...interaction, memberId: member.id, memberName: member.name });
+      }
+    }
+    return result;
+  }
+
+  /** Remote MCP tasks still open in this run's member conversations. */
+  async listMcpTasks(
+    ownerId: string,
+    runId: string,
+  ): Promise<Array<import('../mcp/types.ts').McpTaskRecord & { memberId: string; memberName: string }>> {
+    if (!this.#deps.mcp) return [];
+    const run = await this.getRun(ownerId, runId);
+    const members = await this.teamStore.listMembers(run.teamId);
+    const result: Array<import('../mcp/types.ts').McpTaskRecord & { memberId: string; memberName: string }> = [];
+    for (const member of members) {
+      if (['closed', 'failed'].includes(member.status)) continue;
+      const tasks = await this.#deps.mcp
+        .listTasks(ownerId, member.internalConversationId)
+        .catch(() => []);
+      for (const task of tasks) {
+        if (['completed', 'failed', 'cancelled', 'expired'].includes(task.status)) continue;
+        result.push({ ...task, memberId: member.id, memberName: member.name });
+      }
+    }
+    return result;
+  }
+
+  async cancelMcpTask(input: {
+    readonly ownerId: string;
+    readonly runId: string;
+    readonly taskId: string;
+  }): Promise<import('../mcp/types.ts').McpTaskRecord> {
+    if (!this.#deps.mcp) {
+      throw new TeamError('TEAM_FORBIDDEN', '这个部署没有 MCP 宿主。', 409);
+    }
+    const tasks = await this.listMcpTasks(input.ownerId, input.runId);
+    if (!tasks.some((task) => task.id === input.taskId)) {
+      throw new TeamError('TEAM_TASK_NOT_FOUND', '这个 MCP 任务不属于当前运行，或已结束。', 404);
+    }
+    return this.#deps.mcp.cancelTask(input.ownerId, input.taskId);
+  }
+
+  async decideMcpInteraction(input: {
+    readonly ownerId: string;
+    readonly runId: string;
+    readonly interactionId: string;
+    readonly action: 'accept' | 'reject' | 'cancel';
+    readonly response?: unknown;
+  }): Promise<McpInteractionRecord | null> {
+    if (!this.#deps.mcp) {
+      throw new TeamError('TEAM_FORBIDDEN', '这个部署没有 MCP 宿主。', 409);
+    }
+    const pending = await this.listMcpInteractions(input.ownerId, input.runId);
+    if (!pending.some((entry) => entry.id === input.interactionId)) {
+      throw new TeamError('TEAM_TASK_NOT_FOUND', '这个交互不属于当前运行，或已失效。', 404);
+    }
+    return this.#deps.mcp.resolveInteraction({
+      userId: input.ownerId,
+      interactionId: input.interactionId,
+      action: input.action,
+      ...(input.response !== undefined ? { response: input.response } : {}),
+    });
+  }
+
   // --------------------------------------------------------------- resources ---
 
   /**
@@ -2198,6 +2302,12 @@ export class TeamService implements ActivationHost, TeamToolHost {
       conflicts: merged.conflicts.map((conflict) => conflict.path),
       baseHashes,
       resultHashes,
+      verification: {
+        memberId: member.id,
+        ...(merged.conflictContent && Object.keys(merged.conflictContent).length > 0
+          ? { conflictContent: merged.conflictContent }
+          : {}),
+      },
       journal: [
         {
           at: this.#now().toISOString(),
@@ -2208,6 +2318,185 @@ export class TeamService implements ActivationHost, TeamToolHost {
       ],
     });
     return { integration, manifest };
+  }
+
+  /** Both sides of every unresolved conflict, for the review UI. */
+  async integrationConflictDetail(input: {
+    readonly ownerId: string;
+    readonly integrationId: string;
+  }): Promise<{
+    integration: Integration;
+    conflicts: Array<{
+      path: string;
+      baseHash: string | null;
+      source: { content: string | null; hash: string | null };
+      candidate: { content: string | null; hash: string | null };
+      other: string | null;
+    }>;
+  }> {
+    const integration = await this.teamStore.getIntegration(input.integrationId);
+    if (!integration) throw new TeamError('TEAM_INTEGRATION_CONFLICT', '没有这个集成候选。', 404);
+    await this.getRun(input.ownerId, integration.runId);
+    const task = integration.taskId ? await this.teamStore.getTask(integration.taskId) : null;
+    const recordedMemberId = integration.verification?.['memberId'];
+    const memberId = task?.ownerId ?? (typeof recordedMemberId === 'string' ? recordedMemberId : null);
+    const member = memberId ? await this.teamStore.getMember(memberId) : null;
+    const conflictContent =
+      (integration.verification?.['conflictContent'] as
+        | Record<string, { candidate: string | null; other: string | null }>
+        | undefined) ?? {};
+    const conflicts = [];
+    for (const path of integration.conflicts) {
+      const source = member?.workspaceId
+        ? await this.#deps.workspace.readSourceFile?.(path).catch(() => null)
+        : await this.#deps.workspace.readSourceFile?.(path).catch(() => null);
+      const candidate =
+        member?.workspaceId
+          ? await this.#deps.workspace.readWorkspaceFile?.(member.workspaceId, path).catch(() => null)
+          : null;
+      conflicts.push({
+        path,
+        baseHash: integration.baseHashes[path] ?? null,
+        source: { content: source?.content ?? null, hash: source?.hash ?? null },
+        candidate: {
+          content: candidate?.content ?? conflictContent[path]?.candidate ?? null,
+          hash: candidate?.hash ?? null,
+        },
+        other: conflictContent[path]?.other ?? null,
+      });
+    }
+    return { integration, conflicts };
+  }
+
+  /** Resolve one conflict by choosing source, candidate or explicit content. */
+  async resolveIntegrationConflict(input: {
+    readonly ownerId: string;
+    readonly integrationId: string;
+    readonly path: string;
+    readonly resolution: 'source' | 'candidate' | 'manual';
+    readonly content?: string;
+  }): Promise<Integration> {
+    const integration = await this.teamStore.getIntegration(input.integrationId);
+    if (!integration) throw new TeamError('TEAM_INTEGRATION_CONFLICT', '没有这个集成候选。', 404);
+    await this.getRun(input.ownerId, integration.runId);
+    if (!integration.conflicts.includes(input.path)) {
+      throw new TeamError('TEAM_INTEGRATION_CONFLICT', '这个路径不在冲突列表里。', 409);
+    }
+    const task = integration.taskId ? await this.teamStore.getTask(integration.taskId) : null;
+    const recordedMemberId = integration.verification?.['memberId'];
+    const memberId = task?.ownerId ?? (typeof recordedMemberId === 'string' ? recordedMemberId : null);
+    const member = memberId ? await this.teamStore.getMember(memberId) : null;
+    if (!member?.workspaceId) {
+      throw new TeamError('TEAM_WORKSPACE', '找不到冲突所属的成员工作区。', 409);
+    }
+    let content: string;
+    if (input.resolution === 'source') {
+      const source = await this.#deps.workspace.readSourceFile?.(input.path);
+      if (!source) throw new TeamError('TEAM_INTEGRATION_CONFLICT', '源文件不存在。', 409);
+      content = source.content;
+    } else if (input.resolution === 'candidate') {
+      const candidate = await this.#deps.workspace.readWorkspaceFile?.(
+        member.workspaceId,
+        input.path,
+      );
+      if (!candidate) throw new TeamError('TEAM_INTEGRATION_CONFLICT', '候选文件不存在。', 409);
+      content = candidate.content;
+    } else {
+      if (typeof input.content !== 'string') {
+        throw new TeamError('TEAM_INTEGRATION_CONFLICT', '手工解决必须提供 content。', 400);
+      }
+      content = input.content;
+    }
+    await this.#deps.workspace.writeWorkspaceFile?.(member.workspaceId, input.path, content);
+    const baseline = await this.#deps.workspace.baselineForWorkspace?.(member.workspaceId);
+    if (!baseline) throw new TeamError('TEAM_WORKSPACE', '缺少基线，无法重算候选。', 409);
+    const manifest = await this.#deps.workspace.diff({
+      workspaceTaskId: member.workspaceId,
+      baselineId: baseline.baselineId,
+    });
+    await this.recordArtifact({
+      ownerId: input.ownerId,
+      runId: integration.runId,
+      memberId: member.id,
+      taskId: integration.taskId,
+      attemptId: task?.currentAttemptId ?? null,
+      kind: 'patch',
+      manifest,
+    });
+    const conflicts = integration.conflicts.filter((path) => path !== input.path);
+    const verification: Record<string, unknown> = {
+      ...(integration.verification ?? {}),
+      resolved: {
+        path: input.path,
+        resolution: input.resolution,
+        at: this.#now().toISOString(),
+      },
+    };
+    const conflictContent = {
+      ...((verification['conflictContent'] as Record<string, unknown> | undefined) ?? {}),
+    };
+    delete conflictContent[input.path];
+    verification['conflictContent'] = conflictContent;
+    const nowIso = this.#now().toISOString();
+    const updated = await this.teamStore.updateIntegration({
+      integrationId: integration.id,
+      patch: {
+        status: conflicts.length > 0 ? 'conflict' : 'resolved',
+        conflicts,
+        verification,
+        journal: [
+          ...integration.journal,
+          { at: nowIso, action: 'resolved', files: [input.path], detail: input.resolution },
+        ],
+      },
+      now: nowIso,
+      event: {
+        kind: 'integration.created',
+        payload: { integrationId: integration.id, resolved: input.path, conflicts: conflicts.length },
+      },
+    });
+    if (!updated) throw new TeamError('TEAM_INTEGRATION_CONFLICT', '集成候选已被修改。', 409);
+    return updated;
+  }
+
+  /** Recompute the candidate comparison after a resolution; no publish. */
+  async verifyIntegration(input: {
+    readonly ownerId: string;
+    readonly integrationId: string;
+  }): Promise<Integration> {
+    const integration = await this.teamStore.getIntegration(input.integrationId);
+    if (!integration) throw new TeamError('TEAM_INTEGRATION_CONFLICT', '没有这个集成候选。', 404);
+    const run = await this.getRun(input.ownerId, integration.runId);
+    if (integration.conflicts.length > 0) {
+      throw new TeamError('TEAM_INTEGRATION_CONFLICT', '仍有冲突，不能验证。', 409);
+    }
+    const task = integration.taskId ? await this.teamStore.getTask(integration.taskId) : null;
+    const member = task?.ownerId ? await this.teamStore.getMember(task.ownerId) : null;
+    const root = (await this.teamStore.listMembers(run.teamId)).find((entry) => entry.role === 'root');
+    const sourceHashes = root?.workspaceId
+      ? await this.#deps.workspace.currentHashes(root.workspaceId)
+      : {};
+    const nowIso = this.#now().toISOString();
+    const updated = await this.teamStore.updateIntegration({
+      integrationId: integration.id,
+      patch: {
+        status: 'verified',
+        verification: {
+          ...(integration.verification ?? {}),
+          checkedAt: nowIso,
+          sourceHashes,
+          memberId: member?.id ?? null,
+        },
+        journal: [...integration.journal, { at: nowIso, action: 'verified' }],
+      },
+      now: nowIso,
+      event: {
+        kind: 'integration.created',
+        payload: { integrationId: integration.id, verified: true },
+      },
+    });
+    if (!updated) throw new TeamError('TEAM_INTEGRATION_CONFLICT', '集成候选已被修改。', 409);
+    return updated;
   }
 
   /**
@@ -2243,7 +2532,10 @@ export class TeamService implements ActivationHost, TeamToolHost {
         limit: 50,
       })
     ).filter((entry) => entry.memberId === member.id);
-    const artifact = artifacts.find((entry) => entry.kind === 'patch') ?? artifacts[0];
+    const artifact =
+      [...artifacts]
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+        .find((entry) => entry.kind === 'patch') ?? artifacts[0];
     if (!artifact) {
       throw new TeamError('TEAM_INTEGRATION_CONFLICT', '找不到候选产物，不能发布。', 409);
     }
@@ -2308,6 +2600,7 @@ export class TeamService implements ActivationHost, TeamToolHost {
     baseHashes: Record<string, string>;
     resultHashes: Record<string, string>;
     journal?: readonly IntegrationJournalEntry[];
+    verification?: Record<string, unknown> | null;
   }): Promise<Integration> {
     const run = await this.getRun(input.ownerId, input.runId);
     const nowIso = this.#now().toISOString();
@@ -2322,7 +2615,7 @@ export class TeamService implements ActivationHost, TeamToolHost {
       conflicts: input.conflicts,
       baseHashes: input.baseHashes,
       resultHashes: input.resultHashes,
-      verification: null,
+      verification: input.verification ?? null,
       journal: input.journal ?? [{ at: nowIso, action: 'created' }],
       createdAt: nowIso,
       updatedAt: nowIso,

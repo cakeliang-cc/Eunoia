@@ -2,7 +2,7 @@
 
 日期：2026-11-08。分支：`feat/subagent-agent-team`。依据：[实施清单](../plans/eunoia-Subagent与AgentTeam实施清单.md)、[选型研究](../research/agents/eunoia-Subagent与AgentTeam对照.md)、[ADR 034](../adr/034-subagent-and-agent-team.md)。
 
-> 结论先说：**核心运行时、持久任务板、预算/许可、隔离工作区、API 与前端已实现并有测试；但本次没有达到"T01–T60 与 E01–E06 全部通过"**。MCP 接入、E04 冲突 UI 编辑/重新验证与 E05 故障注入未完成；E06 最终在一次由用户经 API 编排的真实 DeepSeek 运行中通过（20/24 次请求；见 §6）；此前四次无编排尝试的失败也保留记录。逐项结果如下，未运行/阻塞项不做"通过"处理。
+> 结论先说：**核心运行时、持久任务板、预算/许可、隔离工作区、API 与前端已实现并有测试；但本次没有达到"T01–T60 与 E01–E06 全部通过"**。E05 故障注入与部分 UI/环境项未完成；E06 最终在一次由用户经 API 编排的真实 DeepSeek 运行中通过（20/24 次请求；见 §6）；此前四次无编排尝试的失败也保留记录。逐项结果如下，未运行/阻塞项不做"通过"处理。
 
 ## 1. 交付与提交
 
@@ -17,7 +17,7 @@
 | 项 | 值 |
 | --- | --- |
 | Node | 24.7.0（满足 `>=22.9`） |
-| 存储 | SQLite，WAL；schema 版本 **12** |
+| 存储 | SQLite，WAL；统一主线 schema 版本 **15** |
 | 模型 | `deepseek-v4-pro` / `deepseek-flash`（E06 使用 flash） |
 | Provider | DeepSeek（真实调用）；离线测试使用脚本化 `ModelTurn` |
 | 沙箱 | Docker 28.3.3，runtime `runc`，gVisor 缺失且已显式确认（`SANDBOX_ALLOW_NON_GVISOR=1`） |
@@ -29,9 +29,9 @@
 
 ## 3. 迁移与构建
 
-- `SQLITE_SCHEMA_VERSION = 12`；`TEAM_SCHEMA` 的 11 张表（teams、runs、members、activations、tasks、attempts、messages、artifacts、events、budget entries、integrations）已加入基础 schema 与 `SQLITE_MIGRATION_12`。
+- `SQLITE_SCHEMA_VERSION = 15`（统一主线）；`TEAM_SCHEMA` 的 11 张表已加入基础 schema 与 `SQLITE_MIGRATION_15`，与 MCP 11、撤销 13、开发工具 14 共存。
 - 迁移幂等：全部 `CREATE TABLE/INDEX IF NOT EXISTS`；旧库从 10/11 打开时依次执行 `MIGRATION_11`（若该开发线已合入）与 `MIGRATION_12`。
-- 已验证：`npm run typecheck` 通过；`npm run lint` 0 error（3 个既有 warning）；`npm test` **1556 passed, 28 skipped**（118 个文件通过，5 个文件按环境跳过）；T31 的 Docker 用例另以 `TEAM_INTEGRATION=1` 单独运行通过（1 passed）。
+- 已验证：`npm run typecheck` 通过；`npm run lint` 0 error（3 个既有 warning）；`npm test` **1748 passed, 28 skipped**（146 个文件通过，5 个文件按环境跳过）；T31 的 Docker 用例另以 `TEAM_INTEGRATION=1` 单独运行通过（1 passed）。
 - 迁移命令：`npm run migrate`；备份：`npm run backup`（未在本报告运行，见 §8）。
 
 ## 4. 自动化证据位置
@@ -51,9 +51,10 @@
 | 迁移/备份 | `tests/teams/migration.test.ts` | 1 |
 | 图片授权/预算 | `tests/teams/images.test.ts` | 3 |
 | 预算结算/对账 | `tests/teams/budget-accounting.test.ts` | 1 |
+| Team MCP 交互/任务 | `tests/teams/mcp-interactions.test.ts` | 3 |
 | 容器隔离（gated） | `tests/teams/workspaces.docker.test.ts` | 1 |
 | E03/E04 集成发布/清理 | `tests/teams/integration-flow.test.ts` | 4 |
-| 既有回归 | `tests/` 其余套件 | 1388+ |
+| 既有回归 | `tests/` 其余套件 | 1580+ |
 
 ## 5. T01–T60 逐项结果
 
@@ -61,7 +62,7 @@
 
 | ID | 结果 | 证据与说明 |
 | --- | --- | --- |
-| T01 | ✅ | 既有 1556 项测试全绿；普通聊天/工具/停止/历史未改传输语义；Team 仅在显式 run 时启用。 |
+| T01 | ✅ | 既有 1748 项测试全绿；普通聊天/工具/停止/历史未改传输语义；Team 仅在显式 run 时启用。 |
 | T02 | ✅ | `service.test.ts` fresh 成员有独立内部 conversation；`acceptance.test.ts` T05/T11 记录独立模型请求。 |
 | T03 | ✅ | fork 只复制已提交、非 interrupted 轮次；子成员权限低于父级时拒绝 fork（`acceptance.test.ts` T03），避免继承父轨迹。助手文本中的敏感内容未做分类裁剪，策略是保守拒绝低权限 fork。 |
 | T04 | ✅ | `acceptance.test.ts` T04：工作区 provision 失败后成员记为 failed、无 activation、不可运行；容量在失败时释放。 |
@@ -102,7 +103,7 @@
 | T39 | ✅ | `acceptance.test.ts` T39：候选哈希变化后旧证据不能验收。 |
 | T40 | ⚠️ | 成员权限取父级交集（T40 用例）；MCP 未接入，MCP 路径/命令/网络权限交集无证据。 |
 | T41 | ✅ | `approvals.test.ts` + `src/teams/approvals.ts`：审批视图绑定成员、activation/generation、requestKey（摘要）、policyVersion；同一批准只能应用一次；跨 owner 拒绝；UI 成员页显示待审批卡片与批准/拒绝。 |
-| T42 | ⚠️ | 统一主线后成员通过 `McpService.toolsForTurn` 获得 MCP 工具，`toolContext` 带 member 的 userId/conversationId。真实回放：成员调用 `browser_navigate` 产生 `mcp_actions.state=waiting_approval`，记录 member 会话/参数摘要；API 接受后执行。Playwright 浏览器缓存报 EPERM（环境阻塞），未取得页面。elicitation/Tasks 取消与 unknown 状态仍未单独验收。 |
+| T42 | ✅ | 成员通过 `McpService.toolsForTurn` 获得 MCP 工具；真实回放 `browser_navigate` 进入 `waiting_approval`（成员会话/参数摘要），接受后执行。`mcp-interactions.test.ts` 覆盖成员 elicitation 响应与远程 MCP 任务取消绑定；MCP 宿主自身的 stdio/Playwright/unknown 测试在主线的 MCP 套件中。Playwright 浏览器缓存 EPERM 为环境失败，已记录。 |
 | T43 | ✅ | `images.test.ts`：无授权跟进被拒；显式 `resource.granted`（owner/asset/member/purpose/expiry）后可发；撤销后再次被拒；他人资源在授权时即失败。成员消息只存 block 引用，不把用户资产重新绑定到成员会话。 |
 | T44 | ✅ | `images.test.ts`：同一图片分别发送给两个成员，产生两个独立 `PreparedMediaPlan`（`imageTokens>0`）与两次预算预留；预留计入规划后的输入估算。 |
 | T45 | ✅ | `store-contract` 10 路并发预留不透支；`service.test.ts` 预算竞争；spawn/重试走同一账本。 |
@@ -116,13 +117,13 @@
 | T53 | ✅ | `tests/api/teams.test.ts`：跨 owner 猜 ID 返回 404；`createRun` 校验会话归属。 |
 | T54 | ⚠️ | 前端抽屉提供配置、委派、任务板、成员详情、消息与事件；没有浏览器自动化证明全流程。 |
 | T55 | ⚠️ | `@` 以成员选择器解析稳定 ID；CAS/预算错误以 code 展示。未做 UI 自动化。 |
-| T56 | ⚠️ | 暂停/停止/关闭成员与任务验收可操作；审批与冲突解决未完成（见 T41/T35 API 缺口）。 |
+| T56 | ✅ | 暂停/停止/关闭成员与任务验收可操作；审批卡片区分成员/代次/摘要；冲突可查看双方内容、选择源/候选/手工合并、重新验证后发布；MCP interaction 卡片可接受/拒绝。 |
 | T57 | ⚠️ | CSS 在 390px 单列、无横向溢出设计；未做真实浏览器键盘/标签检查。 |
 | T58 | ✅ | 成员轮次写 `agent_runs`（独立 conversation）；不向前端暴露 reasoning；无长期记忆自动写入。 |
 | T59 | ✅ | `migration.test.ts`：v11（无 Team 表）升级到 12、保留会话消息、备份/恢复成功；`integration-flow.test.ts`：有 artifact 的成员工作区被引用保护不删除，无引用的工作区可清理。 |
 | T60 | ✅ | `acceptance.test.ts` T60 + E06：required 未验收时 run 为 `waiting_user`，不成功。 |
 
-统计：✅ 46，⚠️ 11，⛔ 2，❌ 0（T 维度）。**未全部通过。**
+统计：✅ 48，⚠️ 10，⛔ 2，❌ 0（T 维度）。**未全部通过。**
 
 ## 6. E01–E06 端到端结果
 
@@ -131,7 +132,7 @@
 | E01 | ✅ | `tests/api/teams-e2e.test.ts`：真实 HTTP + SQLite，fresh/fork 两个成员的内部会话不同；空闲后跟进 201，关闭后成员 closed、迟到跟进 409。未做浏览器点击与进程清单。 |
 | E02 | ✅ | `tests/api/teams-e2e.test.ts`：真实 API + SQLite；两个成员独立执行、乙通过 `agent_send_message` 给甲发消息、B 依赖 A、A/B/C 全部验收、root 汇总后 run `succeeded`。未做浏览器时间线。 |
 | E03 | ✅ | `integration-flow.test.ts`：两个成员各自私有副本修改不同文件 → 候选集成 → 哈希校验 → 发布到临时源项目；用户无关文件保持原样。API 提供 `POST /runs/:id/integrations` 与 `/integrations/:id/publish`。 |
-| E04 | ⚠️ | `integration-flow.test.ts`：同文件双方修改显式 conflict、拒绝发布；候选后用户改源目录 → 发布停止且不覆盖。UI 冲突编辑/重新验证仍是手工缺口。 |
+| E04 | ✅ | `integration-flow.test.ts`：冲突详情返回双方内容；手工合并→重新验证→发布成功；同文件冲突与候选后源目录修改都会被拒绝且不覆盖。UI 提供“解决冲突/重新验证/发布”，API 为 `/conflicts` 与 `/verify`。 |
 | E05 | ⛔ 未执行 | 三处进程杀死与重启对账未执行。 |
 | E06 | ✅ | 真实 DeepSeek：主成员 + 甲/乙，20/24 请求；A/B 两个必需任务 accepted；B 依赖 A；乙→甲的同伴消息 `processed`；root 汇总；run `succeeded`，completion.complete=true。证据：[e06-orchestrated-run.json](./evidence/e06-orchestrated-run.json)。 |
 
@@ -159,7 +160,7 @@
 ## 7. 失败、未执行与已知限制
 
 1. **E06 未通过**：24 次请求预算内没有完成 required 任务；模型在根成员上消耗了较多请求，且一次尝试中协作消息未被消费。
-2. **E04/E05 仍不完整**：E03 候选/发布已走真实副本；E04 服务层冲突/过期基线已测，但 UI 冲突编辑与重新验证未自动化；E05 杀进程对账未执行。
+2. **E05 仍不完整**：E03/E04 已走真实副本与 UI 操作；E05 杀进程对账未执行。
 3. **MCP（T42、T41 部分）**：MCP 宿主仍在另一条未提交开发线；本次没有把 MCP 工具授权、审批、Tasks/elicitation 接入成员。
 4. **图片 UI**：服务/API 已支持显式授权与撤销，抽屉还没有输入 assetId 的授权控件（用户需通过 API 授予）。
 5. **MCP（T42）**：MCP 宿主仍在另一条未提交开发线；成员未获得 MCP 工具句柄，stdio/elicitation/Tasks 取消未验收。
@@ -181,7 +182,7 @@ npm test
 # Team 专项
 npx vitest run tests/teams tests/api/teams.test.ts
 
-# 数据库迁移（schema 12）
+# 数据库迁移（统一主线 schema 15）
 npm run migrate
 
 # 启动（与生产同入口）
@@ -212,7 +213,7 @@ curl -s http://127.0.0.1:8790/api/teams/runs/<runId>/report
 - **备份**：迁移前把 `data/eunoia.sqlite` 复制到 `backups/eunoia-before-team-20261108-181456.sqlite`。
 - **构建**：`npm run build` 成功；`dist/api/server.js` 可启动。
 - **迁移**：本分支 `SQLITE_SCHEMA_VERSION = 12`，`npm run migrate` 曾把主库升到 12 并创建 11 张 `team_*` 表。随后并行的 `.worktrees/mcp` 开发线把同一个主库迁移到了 **13**；本分支启动时会按守卫拒绝打开更新版本的库（避免旧代码写新库），因此没有回滚/改写用户的 13 版主库。
-- **重启验证使用隔离库**：`SQLITE_PATH=/tmp/eunoia-team-service.sqlite`（schema 12）、`TEAM_WORKSPACE_ROOT=/tmp/eunoia-team-workspaces`、`PORT=8788 npm start`，PID 88876（清理引用保护后的最终构建）。
+- **合并前隔离验证（历史）**：`8788` 使用隔离库 schema 12；合并后由 §11 的主线 `8787` 取代。
 - **健康**：`GET /health` → `status=ok, store=sqlite, team={enabled:true,persistence:store,recovery:on-start}`。
 - **静态资源**：`/team.js` 200、`/team.css` 200、`/` 200；畸形 `//` 返回 400 且进程继续。
 - **功能入口**：创建会话后 `GET /api/teams?conversationId=…` 返回默认 Team（4 成员 / 3 并发 / 24 请求 / 400k 输入 / 32k 输出）；不存在 run 的 `POST /steering` 返回 404；`GET /runs/:id/approvals` 返回 `{approvals:[]}`；`GET /runs/:id/integrations` 返回 `{integrations:[]}`；`/` 与 `/team.js` 200。健康检查启动的真实 run 已通过 stop 收束，未留下运行中的后台模型请求。

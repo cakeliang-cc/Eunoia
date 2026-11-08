@@ -220,6 +220,35 @@ describe('E04 — same-file conflict and stale source', () => {
           memberId: h.second.member.id,
         }),
       ).rejects.toMatchObject({ code: 'TEAM_INTEGRATION_CONFLICT' });
+
+      const detail = await h.service.integrationConflictDetail({
+        ownerId: USER,
+        integrationId: candidateB.integration.id,
+      });
+      expect(detail.conflicts[0]?.path).toBe('keep.txt');
+      expect(detail.conflicts[0]?.source.content).toBe('user content\n');
+      expect(detail.conflicts[0]?.candidate.content).toBe('from b\n');
+
+      // Manual merge keeps both sides; re-verify then publish.
+      await h.service.resolveIntegrationConflict({
+        ownerId: USER,
+        integrationId: candidateB.integration.id,
+        path: 'keep.txt',
+        resolution: 'manual',
+        content: 'from a + from b\n',
+      });
+      const verified = await h.service.verifyIntegration({
+        ownerId: USER,
+        integrationId: candidateB.integration.id,
+      });
+      expect(verified.status).toBe('verified');
+      const published = await h.service.publishIntegration({
+        ownerId: USER,
+        integrationId: candidateB.integration.id,
+        memberId: h.second.member.id,
+      });
+      expect(published.result.conflicts).toEqual([]);
+      expect(await readFile(join(h.source, 'keep.txt'), 'utf8')).toBe('from a + from b\n');
     } finally {
       h.release();
       await rm(h.base, { recursive: true, force: true });

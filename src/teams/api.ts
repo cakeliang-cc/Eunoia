@@ -297,6 +297,44 @@ export function createTeamApi(deps: { service: TeamService; adapters: TeamApiAda
         });
         return true;
       }
+      if (suffix === 'mcp-interactions' && method === 'GET') {
+        adapters.sendJson(res, 200, {
+          interactions: await service.listMcpInteractions(ownerId, runId),
+        });
+        return true;
+      }
+      const mcpInteractionMatch = /^mcp-interactions\/([^/]+)$/.exec(suffix);
+      if (mcpInteractionMatch && method === 'POST') {
+        const body = asObject(await adapters.readJson(req));
+        if (body.action !== 'accept' && body.action !== 'reject' && body.action !== 'cancel') {
+          throw new TeamError('TEAM_TASK_INVALID', 'action 必须是 accept/reject/cancel。', 400);
+        }
+        const interaction = await service.decideMcpInteraction({
+          ownerId,
+          runId,
+          interactionId: decodeURIComponent(mcpInteractionMatch[1] ?? ''),
+          action: body.action,
+          ...(body.response !== undefined ? { response: body.response } : {}),
+        });
+        adapters.sendJson(res, 200, { interaction });
+        return true;
+      }
+      if (suffix === 'mcp-tasks' && method === 'GET') {
+        adapters.sendJson(res, 200, {
+          tasks: await service.listMcpTasks(ownerId, runId),
+        });
+        return true;
+      }
+      const mcpTaskMatch = /^mcp-tasks\/([^/]+)\/cancel$/.exec(suffix);
+      if (mcpTaskMatch && method === 'POST') {
+        const task = await service.cancelMcpTask({
+          ownerId,
+          runId,
+          taskId: decodeURIComponent(mcpTaskMatch[1] ?? ''),
+        });
+        adapters.sendJson(res, 200, { task });
+        return true;
+      }
       if (suffix === 'approvals' && method === 'GET') {
         adapters.sendJson(res, 200, {
           approvals: await service.listApprovals(ownerId, runId),
@@ -501,6 +539,43 @@ export function createTeamApi(deps: { service: TeamService; adapters: TeamApiAda
         return true;
       }
       return false;
+    }
+
+    const conflictMatch = /^\/api\/teams\/integrations\/([^/]+)\/conflicts$/.exec(pathname);
+    if (conflictMatch) {
+      const integrationId = decodeURIComponent(conflictMatch[1] ?? '');
+      if (method === 'GET') {
+        adapters.sendJson(
+          res,
+          200,
+          await service.integrationConflictDetail({ ownerId, integrationId }),
+        );
+        return true;
+      }
+      if (method === 'POST') {
+        const body = asObject(await adapters.readJson(req));
+        if (body.resolution !== 'source' && body.resolution !== 'candidate' && body.resolution !== 'manual') {
+          throw new TeamError('TEAM_TASK_INVALID', 'resolution 必须是 source/candidate/manual。', 400);
+        }
+        const integration = await service.resolveIntegrationConflict({
+          ownerId,
+          integrationId,
+          path: requiredString(body, 'path'),
+          resolution: body.resolution,
+          ...(typeof body.content === 'string' ? { content: body.content } : {}),
+        });
+        adapters.sendJson(res, 200, { integration });
+        return true;
+      }
+    }
+    const verifyMatch = /^\/api\/teams\/integrations\/([^/]+)\/verify$/.exec(pathname);
+    if (verifyMatch && method === 'POST') {
+      const integration = await service.verifyIntegration({
+        ownerId,
+        integrationId: decodeURIComponent(verifyMatch[1] ?? ''),
+      });
+      adapters.sendJson(res, 200, { integration });
+      return true;
     }
 
     const publishMatch = /^\/api\/teams\/integrations\/([^/]+)\/publish$/.exec(pathname);

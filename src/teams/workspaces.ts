@@ -352,6 +352,69 @@ export class TeamWorkspaceService {
     return await this.readBaselineFile(this.baselinePath(workspaceTaskId));
   }
 
+  /** Read one text file from a member workspace (bounded, path-checked). */
+  async readWorkspaceFile(
+    workspaceTaskId: string,
+    path: string,
+  ): Promise<{ path: string; content: string; hash: string } | null> {
+    const workspace = await this.store.getWorkspaceForTask(workspaceTaskId);
+    if (!workspace) return null;
+    return await this.readTextUnder(workspace.storageLocation, path);
+  }
+
+  /** Read one text file from the user's source root, for conflict review only. */
+  async readSourceFile(
+    path: string,
+  ): Promise<{ path: string; content: string; hash: string } | null> {
+    if (!this.sourceRoot) return null;
+    return await this.readTextUnder(this.sourceRoot, path);
+  }
+
+  /** Write a resolved text file into a member workspace (never the source). */
+  async writeWorkspaceFile(
+    workspaceTaskId: string,
+    path: string,
+    content: string,
+  ): Promise<{ path: string; hash: string }> {
+    const workspace = await this.store.getWorkspaceForTask(workspaceTaskId);
+    if (!workspace) throw new TeamError('TEAM_WORKSPACE', 'workspace does not exist');
+    const normalized = normalizeArtifactPath(path);
+    const root = await realpath(workspace.storageLocation).catch(() => null);
+    if (!root) throw new TeamError('TEAM_WORKSPACE', 'workspace directory is missing');
+    const absolute = resolve(root, normalized);
+    if (!isInside(root, absolute) || absolute === root) {
+      throw new TeamError('TEAM_INTEGRATION_CONFLICT', 'resolved path escapes the workspace');
+    }
+    if (Buffer.byteLength(content, 'utf8') > this.maxFileBytes) {
+      throw new TeamError('TEAM_INTEGRATION_CONFLICT', 'resolved content is too large');
+    }
+    await mkdir(dirname(absolute), { recursive: true });
+    await writeFile(absolute, content, { encoding: 'utf8' });
+    return {
+      path: normalized,
+      hash: `sha256:${createHash('sha256').update(content).digest('hex')}`,
+    };
+  }
+
+  private async readTextUnder(
+    root: string,
+    path: string,
+  ): Promise<{ path: string; content: string; hash: string } | null> {
+    const normalized = normalizeArtifactPath(path);
+    const realRoot = await realpath(root).catch(() => null);
+    if (!realRoot) return null;
+    const absolute = resolve(realRoot, normalized);
+    if (!isInside(realRoot, absolute) || absolute === realRoot) return null;
+    const buffer = await readFile(absolute).catch(() => null);
+    if (!buffer || buffer.byteLength > this.maxFileBytes) return null;
+    if (buffer.subarray(0, 8_000).includes(0)) return null;
+    return {
+      path: normalized,
+      content: buffer.toString('utf8'),
+      hash: `sha256:${createHash('sha256').update(buffer).digest('hex')}`,
+    };
+  }
+
   private async ensureBaseline(
     workspaceTaskId: string,
     workspacePath: string,
