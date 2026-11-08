@@ -38,6 +38,7 @@ import type { ToolCall, ToolContext, ToolDefinition, ToolResult } from '../tools
 import { renderToolResult, toolError } from '../tools/types.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import type { AgentEvent, ThinkingDoneEvent } from './events.ts';
+import type { ExecutionRecorder } from './execution-log.ts';
 import type {
   LoopInputItem,
   LoopOutputItem,
@@ -68,6 +69,13 @@ export interface AgentLoopOptions {
   readonly toolContext: Omit<ToolContext, 'signal'>;
   readonly maxSteps?: number;
   readonly signal?: AbortSignal;
+  /**
+   * Where the execution log goes, when a turn is being persisted.
+   *
+   * Optional because an evaluation run has nobody to recover it. The loop never
+   * requires it: recording is bookkeeping, and its failure must not end a turn.
+   */
+  readonly recorder?: ExecutionRecorder;
 }
 
 interface CallPlan {
@@ -87,6 +95,23 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
   const startedAt = Date.now();
   const maxSteps = Math.max(1, options.maxSteps ?? DEFAULT_MAX_STEPS);
   const input: LoopInputItem[] = [...options.input];
+  const recorder = options.recorder ?? null;
+
+  /**
+   * Write one execution record, without letting the write end the turn.
+   *
+   * A full disk or a deleted conversation must degrade what recovery can say,
+   * not stop the reply the person is watching.
+   */
+  const record = async (write: () => Promise<void>): Promise<void> => {
+    try {
+      await write();
+    } catch (error) {
+      log.warn('agent.execution_log_failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
 
   let reply = '';
   let thinkingStartedAt: number | null = null;
@@ -117,6 +142,8 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       const output: LoopOutputItem[] = [];
       let sawTextDelta = false;
       let done = false;
+      /** The text this step produced, which is the unit recovery can trust. */
+      let stepText = '';
 
       for await (const event of options.modelTurn({
         instructions: options.instructions,
@@ -128,6 +155,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
           const closed = closeThinking();
           if (closed) yield closed;
           sawTextDelta = true;
+          stepText += event.text;
           reply += event.text;
           yield event;
           continue;
@@ -166,9 +194,17 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
           .map((item) => item.content)
           .join('');
         if (message.length > 0) {
+          stepText += message;
           reply += message;
           yield { type: 'text_delta', text: message };
         }
+      }
+
+      // Written before the calls it announces, in the same order the model
+      // produced them. This is the row that answers "what did it want?" when no
+      // result row exists.
+      if (recorder && stepText.trim().length > 0) {
+        await record(() => recorder.assistantText(step, stepText));
       }
 
       // The model must see its own calls before their results, and reasoning is
@@ -252,6 +288,18 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       }
 
       for (const plan of plans) {
+        // Recorded before the event is emitted, so a client that saw a call can
+        // never be looking at a call the log does not know about.
+        if (recorder) {
+          await record(() =>
+            recorder.toolCallRequested({
+              callId: plan.call.callId,
+              name: plan.call.name,
+              arguments: plan.call.arguments,
+              summary: plan.summary,
+            }),
+          );
+        }
         yield {
           type: 'tool_call',
           callId: plan.call.callId,
@@ -271,6 +319,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
             name: plan.call.name,
             output: renderToolResult(invocation.result),
           });
+          await recordInvocation(plan, invocation);
           yield toolResultEvent(plan, invocation);
         }
         continue;
@@ -284,6 +333,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
         name: plan.call.name,
         output: renderToolResult(invocation.result),
       });
+      await recordInvocation(plan, invocation);
       yield toolResultEvent(plan, invocation);
     }
   }
@@ -380,6 +430,31 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       if (timer) clearTimeout(timer);
       options.signal?.removeEventListener('abort', onAbort);
     }
+  }
+
+  /**
+   * Persist one call's outcome, with the sandbox execution id when there is one.
+   *
+   * The id is the join key recovery uses: it lets the session row be reconciled
+   * against the sandbox's own execution record instead of guessing.
+   */
+  async function recordInvocation(plan: CallPlan, invocation: Invocation): Promise<void> {
+    if (!recorder) return;
+    const { result } = invocation;
+    const executionId =
+      typeof result.meta?.executionId === 'string' ? result.meta.executionId : undefined;
+    await record(() =>
+      recorder.toolResult({
+        callId: plan.call.callId,
+        name: plan.call.name,
+        ok: result.ok,
+        status: result.ok ? 'succeeded' : 'failed',
+        ...(executionId ? { executionId } : {}),
+        output: result.output,
+        outputChars: result.output.length,
+        ...(result.ok ? {} : { summary: summarizeToolResult(plan.call.name, result) }),
+      }),
+    );
   }
 
   function toolResultEvent(plan: CallPlan, invocation: Invocation): AgentEvent {

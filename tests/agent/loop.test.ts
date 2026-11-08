@@ -17,6 +17,7 @@ import type {
   ModelTurn,
 } from '../../src/agent/model-port.ts';
 import type { AgentEvent } from '../../src/agent/events.ts';
+import type { ExecutionRecorder } from '../../src/agent/execution-log.ts';
 import { ToolRegistry } from '../../src/tools/registry.ts';
 import { TurnReadLedger } from '../../src/tools/ledger.ts';
 import { DEFAULT_TOOL_POLICY, defineTool, toolOk } from '../../src/tools/types.ts';
@@ -368,5 +369,124 @@ describe('the loop', () => {
     expect(result).toMatchObject({ ok: true });
     const fedBack = model.requests[1]?.find((item) => item.type === 'function_call_result');
     expect(fedBack?.type === 'function_call_result' ? fedBack.output.length : 999).toBeLessThan(200);
+  });
+});
+
+/**
+ * The execution log (ADR 028).
+ *
+ * The loop is the only place that knows the order "asked → ran → told the
+ * model". These tests pin that order and the rule that recording is bookkeeping:
+ * a log that cannot be written degrades recovery, never the reply.
+ */
+describe('the execution log', () => {
+  it('records each call before its result, with the sandbox execution id', async () => {
+    const entries: string[] = [];
+    const recorder: ExecutionRecorder = {
+      async toolCallRequested(call) {
+        entries.push(`call:${call.callId}:${call.arguments}`);
+      },
+      async toolResult(result) {
+        entries.push(`result:${result.callId}:${result.status}:${result.executionId ?? '-'}`);
+      },
+      async assistantText(step, text) {
+        entries.push(`text:${step}:${text}`);
+      },
+    };
+
+    const runner = defineTool({
+      name: 'run_thing',
+      description: 'run a thing',
+      parameters: z.object({}),
+      sideEffect: 'none',
+      readOnly: true,
+      execute: async () => toolOk('done', { executionId: 'exec-9' }),
+    });
+
+    const model = scripted([
+      { text: '先跑一下。', calls: [{ id: 'c1', name: 'run_thing', args: {} }] },
+      { text: '跑完了。' },
+    ]);
+
+    await collect(
+      runAgentLoop({
+        modelTurn: model.turn,
+        instructions: 'stable',
+        input: [{ type: 'message', role: 'user', content: '跑一下' }],
+        tools: registry(runner),
+        toolContext: context(),
+        recorder,
+      }),
+    );
+
+    expect(entries).toEqual([
+      'text:1:先跑一下。',
+      'call:c1:{}',
+      'result:c1:succeeded:exec-9',
+      'text:2:跑完了。',
+    ]);
+  });
+
+  it('does not end the turn when the log cannot be written', async () => {
+    const recorder: ExecutionRecorder = {
+      async toolCallRequested() {
+        throw new Error('disk full');
+      },
+      async toolResult() {
+        throw new Error('disk full');
+      },
+      async assistantText() {
+        throw new Error('disk full');
+      },
+    };
+
+    const model = scripted([
+      { text: '开始。', calls: [{ id: 'c1', name: 'read_thing', args: { name: 'a.ts' } }] },
+      { text: '完成。' },
+    ]);
+
+    const events = await collect(
+      runAgentLoop({
+        modelTurn: model.turn,
+        instructions: 'stable',
+        input: [{ type: 'message', role: 'user', content: '读一下' }],
+        tools: registry(echoTool),
+        toolContext: context(),
+        recorder,
+      }),
+    );
+
+    // The reply and the tool result still arrive; only the audit is missing.
+    expect(events.find((event) => event.type === 'tool_result')).toMatchObject({ ok: true });
+    expect(events.at(-1)).toMatchObject({ type: 'completed', text: '开始。完成。' });
+  });
+
+  it('does not write an assistant-text row for a step that only called tools', async () => {
+    const texts: string[] = [];
+    const recorder: ExecutionRecorder = {
+      async toolCallRequested() {},
+      async toolResult() {},
+      async assistantText(_step, text) {
+        texts.push(text);
+      },
+    };
+
+    const model = scripted([
+      { calls: [{ id: 'c1', name: 'read_thing', args: { name: 'a.ts' } }] },
+      { text: '答。' },
+    ]);
+
+    await collect(
+      runAgentLoop({
+        modelTurn: model.turn,
+        instructions: 'stable',
+        input: [{ type: 'message', role: 'user', content: 'go' }],
+        tools: registry(echoTool),
+        toolContext: context(),
+        recorder,
+      }),
+    );
+
+    expect(texts).toEqual(['答。']);
   });
 });

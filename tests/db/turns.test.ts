@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openSqliteStore, type SqliteStore } from '../../src/db/sqlite-store.ts';
 import { TurnCoordinator, turnRequestHash } from '../../src/service/turns.ts';
+import { StoreTurnRecorder } from '../../src/service/turn-recorder.ts';
 import type { TurnRecord } from '../../src/session/turn-types.ts';
 
 let store: SqliteStore;
@@ -232,6 +233,77 @@ describe('turn events', () => {
 
     await store.deleteConversation(userId, conversationId);
     expect(await store.listTurnEvents(turn.id)).toHaveLength(0);
+  });
+});
+
+describe('the execution recorder adapter', () => {
+  it('writes calls, results and step text in the order the loop produced them', async () => {
+    const { userId, conversationId } = await seeded();
+    const turn = record({ userId, conversationId });
+    await store.createTurn(turn);
+    const recorder = new StoreTurnRecorder({
+      store,
+      turnId: turn.id,
+      conversationId,
+    });
+
+    await recorder.assistantText(1, '我先改一下。');
+    await recorder.toolCallRequested({
+      callId: 'call-1',
+      name: 'write_file',
+      arguments: '{"path":"a.ts"}',
+      summary: 'write a.ts',
+    });
+    await recorder.toolResult({
+      callId: 'call-1',
+      name: 'write_file',
+      ok: true,
+      status: 'succeeded',
+      executionId: 'exec-1',
+      output: 'wrote it',
+      outputChars: 8,
+    });
+    await recorder.assistantText(2, '改好了。');
+
+    const events = await store.listTurnEvents(turn.id);
+    expect(events.map((event) => event.kind)).toEqual([
+      'assistant_text',
+      'tool_call',
+      'tool_result',
+      'assistant_text',
+    ]);
+    expect(events[1]).toMatchObject({
+      callId: 'call-1',
+      toolName: 'write_file',
+      status: 'running',
+      payload: { arguments: '{"path":"a.ts"}', summary: 'write a.ts' },
+    });
+    expect(events[2]).toMatchObject({
+      status: 'succeeded',
+      executionId: 'exec-1',
+      payload: { ok: true, output: 'wrote it', outputChars: 8 },
+    });
+  });
+
+  it('bounds the recorded output while keeping its true size', async () => {
+    const { userId, conversationId } = await seeded();
+    const turn = record({ userId, conversationId });
+    await store.createTurn(turn);
+    const recorder = new StoreTurnRecorder({ store, turnId: turn.id, conversationId });
+
+    const output = 'x'.repeat(50_000);
+    await recorder.toolResult({
+      callId: 'call-1',
+      name: 'read_file',
+      ok: true,
+      status: 'succeeded',
+      output,
+      outputChars: output.length,
+    });
+
+    const [event] = await store.listTurnEvents(turn.id);
+    expect((event?.payload.output as string).length).toBe(2_000);
+    expect(event?.payload.outputChars).toBe(50_000);
   });
 });
 

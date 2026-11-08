@@ -26,6 +26,7 @@ import { DEFAULT_MAX_STEPS, runAgentLoop } from './loop.ts';
 import { createModelTurnResolver } from './model-turn.ts';
 import type { LoopInputItem, ModelTurn } from './model-port.ts';
 import type { AgentEvent } from './events.ts';
+import type { ExecutionRecorder } from './execution-log.ts';
 import { ToolRegistry } from '../tools/registry.ts';
 import { DEFAULT_TOOL_POLICY } from '../tools/types.ts';
 import type {
@@ -64,6 +65,8 @@ export interface CompanionOptions {
   /** Task working-directory port (ADR 021); null when no sandbox is configured. */
   readonly cwd?: ToolCwdPort | null;
   readonly ledger?: ReadLedger;
+  /** Where this run's tool calls and results are persisted, when anywhere. */
+  readonly recorder?: ExecutionRecorder;
   readonly now?: Date;
 }
 
@@ -86,6 +89,7 @@ export interface CompanionRun {
   readonly executor: ToolExecutor | null;
   readonly cwd: ToolCwdPort | null;
   readonly ledger: ReadLedger;
+  readonly recorder?: ExecutionRecorder;
   readonly model: string;
   readonly modelTurn?: ModelTurn;
   readonly modelProvider?: ModelProvider;
@@ -116,6 +120,7 @@ export function createCompanionAgent(options: CompanionOptions = {}): CompanionR
     executor: options.executor ?? null,
     cwd: options.cwd ?? null,
     ledger: options.ledger ?? new TurnReadLedger(),
+    ...(options.recorder ? { recorder: options.recorder } : {}),
     model: options.model ?? COMPANION_MODEL,
     ...(options.modelTurn ? { modelTurn: options.modelTurn } : {}),
     ...(options.modelProvider ? { modelProvider: options.modelProvider } : {}),
@@ -228,6 +233,7 @@ export async function* streamReply(
     },
     maxSteps: options.maxTurns ?? agent.maxSteps,
     ...(options.signal ? { signal: options.signal } : {}),
+    ...(agent.recorder ? { recorder: agent.recorder } : {}),
   });
 }
 

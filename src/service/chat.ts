@@ -58,6 +58,7 @@ import { renderArchivedSummary } from '../session/summary.ts';
 import type { Message } from '../session/types.ts';
 import type { TurnFinishPatch } from '../session/turn-types.ts';
 import type { Store } from '../store.ts';
+import { StoreTurnRecorder } from './turn-recorder.ts';
 import { TurnCoordinator } from './turns.ts';
 
 /**
@@ -387,6 +388,22 @@ async function* runTurnInner(
     );
   }
 
+  /**
+   * The execution log for this turn, when it is persisted.
+   *
+   * Only persisted turns get one: an evaluation run has no `turn_requests` row
+   * for the events to reference, and writing bookkeeping nobody will recover is
+   * cost without a question it can answer.
+   */
+  const recorder =
+    persist && request.requestId
+      ? new StoreTurnRecorder({
+          store: deps.store,
+          turnId: request.requestId,
+          conversationId,
+        })
+      : null;
+
   const agentOptions: AgentOptions = {
     tools: toolRegistry,
     policy,
@@ -398,6 +415,7 @@ async function* runTurnInner(
     model: conversation.modelId ?? COMPANION_MODEL,
     ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
     ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
+    ...(recorder ? { recorder } : {}),
     now,
   };
   const agent = createCompanionAgent(agentOptions);

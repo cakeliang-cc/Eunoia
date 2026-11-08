@@ -37,6 +37,7 @@ import { MODEL_CATALOG } from '../models/catalog.ts';
 import { defaultModelProfile, isKnownModelId, summaryModelProfile } from '../models/registry.ts';
 import { providerFor } from '../provider/index.ts';
 import { runTurn, type TurnAttachment, type TurnRunner } from '../service/chat.ts';
+import { recoverInterruptedTurns } from '../service/recovery.ts';
 import {
   ConversationBusyError,
   TurnCoordinator,
@@ -2138,6 +2139,25 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     workspaceUi,
     skills,
   });
+
+  // Turns still marked running belong to a process that no longer exists. The
+  // sweep runs before the listener exists: a stale lock would otherwise answer
+  // the first chat with 409 until recovery finished, and the person would read
+  // it as "the app is broken". It never replays anything (ADR 028).
+  const turnRecovery = await recoverInterruptedTurns({
+    store,
+    executions: {
+      executionStatus: async (executionId) =>
+        (await sandboxStore.getExecution(executionId))?.status ?? null,
+    },
+  });
+  if (turnRecovery.checked > 0) {
+    log.warn('server.turn_recovery', {
+      checked: turnRecovery.checked,
+      recovered: turnRecovery.recovered,
+      unknown_executions: turnRecovery.unknownExecutions,
+    });
+  }
 
   server.on('close', () => {
     sandboxPlatform?.stop();
