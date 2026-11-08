@@ -34,11 +34,16 @@ import { SANDBOX_SCHEMA } from '../sandbox/schema.ts';
  * the person stopped mid-generation, and `agent_runs.status` accepts
  * `'interrupted'` so a stopped turn is not counted as a failure. A CHECK
  * constraint cannot be altered in SQLite, so that half of version 7 rebuilds
- * the table (`migrateToVersion7`).
+ * the table (`migrateToVersion7`); version 8 adds turn admission and execution
+ * history: `turn_requests` (one running row per conversation, plus the request
+ * digest an idempotent retry is answered from), `turn_events` (tool calls
+ * written before they run, results written after), and `agent_runs.finish_reason`
+ * so a completed row can say *how* it completed. Version 8 only adds tables and
+ * one nullable column, so it needs no table rebuild.
  * The base schema is idempotent, so a version-1 file gets the tables by executing
  * the full schema; later files get the new columns by `ALTER TABLE`.
  */
-export const SQLITE_SCHEMA_VERSION = 7;
+export const SQLITE_SCHEMA_VERSION = 8;
 
 export const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -184,6 +189,10 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   input_fingerprint  TEXT,
   output_fingerprint TEXT,
   risk_level         TEXT CHECK (risk_level IN ('none', 'elevated', 'crisis')),
+  -- How the turn ended: completed / cancelled / incomplete_stream /
+  -- loop_exhausted / budget_exhausted / failed / crashed (ADR 029). The status
+  -- column says which class of outcome it was; this says why.
+  finish_reason      TEXT,
   error              TEXT
 );
 
@@ -192,6 +201,60 @@ CREATE INDEX IF NOT EXISTS agent_runs_time_idx ON agent_runs (started_at DESC);
 -- lookup when one exists, so deleting a person scanned this table.
 CREATE INDEX IF NOT EXISTS agent_runs_user_idx ON agent_runs (user_id);
 CREATE INDEX IF NOT EXISTS agent_runs_conversation_idx ON agent_runs (conversation_id);
+
+-- One execution of a turn, from admission to outcome. The partial unique index
+-- *is* the conversation lock: two requests can both read "no running turn" and
+-- still only one INSERT succeeds, which a SELECT-then-INSERT in application code
+-- cannot promise. The request digest is what makes a client retry idempotent.
+CREATE TABLE IF NOT EXISTS turn_requests (
+  id              TEXT PRIMARY KEY,
+  turn_id         TEXT NOT NULL,
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  request_hash    TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'running'
+                    CHECK (status IN ('running', 'completed', 'interrupted', 'failed')),
+  finish_reason   TEXT,
+  reply           TEXT NOT NULL DEFAULT '',
+  message_id      TEXT,
+  error           TEXT,
+  model           TEXT,
+  steps           INTEGER NOT NULL DEFAULT 0,
+  context_tokens  INTEGER,
+  accepted        INTEGER,
+  acceptance      TEXT NOT NULL DEFAULT '[]',
+  started_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ended_at        TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS turn_requests_active_idx
+  ON turn_requests (conversation_id) WHERE status = 'running';
+CREATE INDEX IF NOT EXISTS turn_requests_user_idx
+  ON turn_requests (user_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS turn_requests_conversation_idx
+  ON turn_requests (conversation_id, started_at DESC);
+
+-- What the model asked for and what came back, in order. A tool call is written
+-- before it runs and its result after, so a crash leaves a call with no result
+-- rather than nothing at all. UNKNOWN is a terminal status here: it records
+-- that nobody observed the outcome, which is the honest answer after a crash.
+CREATE TABLE IF NOT EXISTS turn_events (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  turn_id         TEXT NOT NULL REFERENCES turn_requests(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL,
+  seq             INTEGER NOT NULL,
+  kind            TEXT NOT NULL CHECK (kind IN ('tool_call', 'tool_result', 'assistant_text')),
+  call_id         TEXT,
+  tool_name       TEXT,
+  status          TEXT NOT NULL CHECK (status IN ('requested', 'running', 'succeeded',
+                                                  'failed', 'unknown')),
+  execution_id    TEXT,
+  payload         TEXT NOT NULL DEFAULT '{}',
+  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  UNIQUE (turn_id, seq)
+);
+
+CREATE INDEX IF NOT EXISTS turn_events_turn_idx ON turn_events (turn_id, seq);
 
 CREATE TABLE IF NOT EXISTS evaluation_cases (
   id                  TEXT PRIMARY KEY,
@@ -245,4 +308,59 @@ CREATE INDEX IF NOT EXISTS memories_user_updated_idx
 CREATE INDEX IF NOT EXISTS agent_runs_user_idx ON agent_runs (user_id);
 CREATE INDEX IF NOT EXISTS agent_runs_conversation_idx ON agent_runs (conversation_id);
 CREATE INDEX IF NOT EXISTS evaluation_results_case_idx ON evaluation_results (case_id);
+`;
+
+/**
+ * Version 7 → 8: turn admission and execution history.
+ *
+ * Additive only. `IF NOT EXISTS` makes the tables a no-op for a database created
+ * from the current base schema, and the one column is added by the caller after
+ * a `PRAGMA table_info` check, because SQLite has no `ADD COLUMN IF NOT EXISTS`.
+ */
+export const SQLITE_MIGRATION_8 = `
+CREATE TABLE IF NOT EXISTS turn_requests (
+  id              TEXT PRIMARY KEY,
+  turn_id         TEXT NOT NULL,
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  request_hash    TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'running'
+                    CHECK (status IN ('running', 'completed', 'interrupted', 'failed')),
+  finish_reason   TEXT,
+  reply           TEXT NOT NULL DEFAULT '',
+  message_id      TEXT,
+  error           TEXT,
+  model           TEXT,
+  steps           INTEGER NOT NULL DEFAULT 0,
+  context_tokens  INTEGER,
+  accepted        INTEGER,
+  acceptance      TEXT NOT NULL DEFAULT '[]',
+  started_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ended_at        TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS turn_requests_active_idx
+  ON turn_requests (conversation_id) WHERE status = 'running';
+CREATE INDEX IF NOT EXISTS turn_requests_user_idx
+  ON turn_requests (user_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS turn_requests_conversation_idx
+  ON turn_requests (conversation_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS turn_events (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  turn_id         TEXT NOT NULL REFERENCES turn_requests(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL,
+  seq             INTEGER NOT NULL,
+  kind            TEXT NOT NULL CHECK (kind IN ('tool_call', 'tool_result', 'assistant_text')),
+  call_id         TEXT,
+  tool_name       TEXT,
+  status          TEXT NOT NULL CHECK (status IN ('requested', 'running', 'succeeded',
+                                                  'failed', 'unknown')),
+  execution_id    TEXT,
+  payload         TEXT NOT NULL DEFAULT '{}',
+  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  UNIQUE (turn_id, seq)
+);
+
+CREATE INDEX IF NOT EXISTS turn_events_turn_idx ON turn_events (turn_id, seq);
 `;

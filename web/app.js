@@ -1684,12 +1684,17 @@ async function send(text, options = {}) {
 
   try {
     const endpoint = regenerate ? '/api/chat/regenerate' : '/api/chat';
+    // `requestId` is the idempotency key: a retry that reuses it is answered
+    // from the recorded outcome instead of running the model twice. It shares a
+    // value with `turnId` because both identify this send, and the stop request
+    // needs the latter.
     const payload = regenerate
-      ? { conversationId: state.conversationId, turnId: turn.id }
+      ? { conversationId: state.conversationId, turnId: turn.id, requestId: turn.id }
       : {
           message: text,
           conversationId: state.conversationId,
           turnId: turn.id,
+          requestId: turn.id,
           ...(options.continue ? { continue: true } : {}),
           ...(state.attachments.length > 0
             ? { attachments: state.attachments.map((file) => file.path) }

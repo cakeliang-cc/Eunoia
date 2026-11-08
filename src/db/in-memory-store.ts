@@ -35,6 +35,13 @@ import type {
   ConversationPatch,
   SessionStore,
 } from '../session/store.ts';
+import type { CreateTurnResult, TurnStore } from '../session/turn-store.ts';
+import type {
+  NewTurnEvent,
+  TurnEventRecord,
+  TurnFinishPatch,
+  TurnRecord,
+} from '../session/turn-types.ts';
 import type { Conversation, ConversationSummary, HistoryStats, Message } from '../session/types.ts';
 import type { Store } from '../store.ts';
 
@@ -54,7 +61,7 @@ interface StoredConversation {
   messages: Message[];
 }
 
-export class InMemoryStore implements Store {
+export class InMemoryStore implements Store, TurnStore {
   readonly #memories = new Map<string, Memory>();
   readonly #conversations = new Map<string, StoredConversation>();
   readonly #summaries = new Map<string, ConversationSummary>();
@@ -63,6 +70,8 @@ export class InMemoryStore implements Store {
   readonly #runs = new Map<string, AgentRunRecord>();
   readonly #evaluationResults: EvaluationResultRecord[] = [];
   readonly #feedback: FeedbackRecord[] = [];
+  readonly #turns = new Map<string, TurnRecord>();
+  readonly #turnEvents: TurnEventRecord[] = [];
   #evaluationCases: readonly EvaluationCaseRecord[] = [];
 
   /**
@@ -113,6 +122,14 @@ export class InMemoryStore implements Store {
 
     for (const [id, run] of this.#runs) {
       if (run.userId === userId) this.#runs.set(id, { ...run, userId: null, conversationId: null });
+    }
+    for (const [id, turn] of this.#turns) {
+      if (turn.userId === userId) this.#turns.delete(id);
+    }
+    for (let index = this.#turnEvents.length - 1; index >= 0; index -= 1) {
+      if (this.#turnEvents[index]?.conversationId && conversations.has(this.#turnEvents[index]!.conversationId)) {
+        this.#turnEvents.splice(index, 1);
+      }
     }
     for (let index = this.#feedback.length - 1; index >= 0; index -= 1) {
       if (this.#feedback[index]?.userId === userId) this.#feedback.splice(index, 1);
@@ -282,6 +299,14 @@ export class InMemoryStore implements Store {
     if (!conversation || conversation.userId !== userId) return false;
     this.#conversations.delete(conversationId);
     this.#summaries.delete(conversationId);
+    for (const [id, turn] of this.#turns) {
+      if (turn.conversationId === conversationId) this.#turns.delete(id);
+    }
+    for (let index = this.#turnEvents.length - 1; index >= 0; index -= 1) {
+      if (this.#turnEvents[index]?.conversationId === conversationId) {
+        this.#turnEvents.splice(index, 1);
+      }
+    }
     return true;
   }
 
@@ -433,6 +458,103 @@ export class InMemoryStore implements Store {
     return conversation.messages.slice(-limit);
   }
 
+
+  // --------------------------------------------------------------- turns -----
+
+  async createTurn(record: TurnRecord): Promise<CreateTurnResult> {
+    // Synchronous on purpose: the check and the insert must not be separated by
+    // an await, or two callers could both pass the check. This is the same
+    // guarantee the SQLite partial unique index gives.
+    if (this.#turns.has(record.id)) return 'exists';
+    for (const turn of this.#turns.values()) {
+      if (turn.conversationId === record.conversationId && turn.status === 'running') {
+        return 'busy';
+      }
+    }
+    this.#turns.set(record.id, record);
+    return 'created';
+  }
+
+  async getTurn(id: string): Promise<TurnRecord | null> {
+    return this.#turns.get(id) ?? null;
+  }
+
+  async activeTurn(conversationId: string): Promise<TurnRecord | null> {
+    for (const turn of this.#turns.values()) {
+      if (turn.conversationId === conversationId && turn.status === 'running') return turn;
+    }
+    return null;
+  }
+
+  async finishTurn(id: string, patch: TurnFinishPatch): Promise<TurnRecord | null> {
+    const existing = this.#turns.get(id);
+    if (!existing || existing.status !== 'running') return existing ?? null;
+    const updated: TurnRecord = {
+      ...existing,
+      status: patch.status,
+      finishReason: patch.finishReason,
+      reply: patch.reply ?? existing.reply,
+      messageId: patch.messageId !== undefined ? patch.messageId : existing.messageId,
+      error: patch.error !== undefined ? patch.error : existing.error,
+      steps: patch.steps ?? existing.steps,
+      contextTokens: patch.contextTokens !== undefined ? patch.contextTokens : existing.contextTokens,
+      accepted: patch.accepted ?? existing.accepted,
+      acceptance: patch.acceptance ?? existing.acceptance,
+      endedAt: new Date(),
+    };
+    this.#turns.set(id, updated);
+    return updated;
+  }
+
+  async listRunningTurns(): Promise<TurnRecord[]> {
+    return [...this.#turns.values()]
+      .filter((turn) => turn.status === 'running')
+      .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+  }
+
+  async appendTurnEvent(event: NewTurnEvent): Promise<TurnEventRecord> {
+    const existing = this.#turnEvents.filter((entry) => entry.turnId === event.turnId);
+    const seq = (existing.at(-1)?.seq ?? 0) + 1;
+    const stored: TurnEventRecord = {
+      turnId: event.turnId,
+      conversationId: event.conversationId,
+      seq,
+      kind: event.kind,
+      callId: event.callId ?? null,
+      toolName: event.toolName ?? null,
+      status: event.status,
+      executionId: event.executionId ?? null,
+      payload: { ...(event.payload ?? {}) },
+      createdAt: new Date(),
+    };
+    this.#turnEvents.push(stored);
+    return stored;
+  }
+
+  async listTurnEvents(turnId: string): Promise<TurnEventRecord[]> {
+    return this.#turnEvents
+      .filter((entry) => entry.turnId === turnId)
+      .sort((a, b) => a.seq - b.seq);
+  }
+
+  async settleTurnEvent(
+    turnId: string,
+    seq: number,
+    status: TurnEventRecord['status'],
+    detail?: Record<string, unknown>,
+  ): Promise<void> {
+    const index = this.#turnEvents.findIndex((entry) => entry.turnId === turnId && entry.seq === seq);
+    if (index < 0) return;
+    const current = this.#turnEvents[index]!;
+    this.#turnEvents[index] = {
+      ...current,
+      status,
+      executionId:
+        typeof detail?.executionId === 'string' ? detail.executionId : current.executionId,
+      payload: detail ? { ...current.payload, ...detail } : current.payload,
+    };
+  }
+
   // --------------------------------------------------------------- runs -----
 
   async recordRun(run: AgentRunRecord): Promise<void> {
@@ -530,6 +652,8 @@ export class InMemoryStore implements Store {
     this.#summaries.clear();
     this.#preferences.clear();
     this.#runs.clear();
+    this.#turns.clear();
+    this.#turnEvents.length = 0;
     this.#users.clear();
   }
 }

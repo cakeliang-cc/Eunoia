@@ -11,6 +11,7 @@
  */
 
 import type { SessionStore } from './session/store.ts';
+import type { TurnStore } from './session/turn-store.ts';
 import type {
   FeedbackStore,
   IdentityStore,
@@ -24,6 +25,7 @@ export interface Store
     MemoryStore,
     SessionStore,
     RunStore,
+    TurnStore,
     PreferenceStore,
     FeedbackStore {
   /** Cheap liveness probe used by `GET /health`. */

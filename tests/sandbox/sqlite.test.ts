@@ -107,7 +107,7 @@ describe('schema and migration', () => {
     open.push(sqlite);
     const version = sqlite.database.prepare('PRAGMA user_version').get() as { user_version: number };
     expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
-    expect(SQLITE_SCHEMA_VERSION).toBe(7);
+    expect(SQLITE_SCHEMA_VERSION).toBe(8);
     const tables = (
       sqlite.database
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -163,7 +163,7 @@ describe('schema and migration', () => {
     open.push(opened);
     const version = opened.database.prepare('PRAGMA user_version').get() as { user_version: number };
     expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
-    expect(SQLITE_SCHEMA_VERSION).toBe(7);
+    expect(SQLITE_SCHEMA_VERSION).toBe(8);
     const columns = opened.database
       .prepare('PRAGMA table_info(sandboxes)')
       .all() as { name: string }[];
@@ -235,7 +235,7 @@ describe('schema and migration', () => {
     open.push(opened);
     const version = opened.database.prepare('PRAGMA user_version').get() as { user_version: number };
     expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
-    expect(SQLITE_SCHEMA_VERSION).toBe(7);
+    expect(SQLITE_SCHEMA_VERSION).toBe(8);
     const user = opened.database.prepare("SELECT id FROM users WHERE id = 'user-1'").get() as
       | { id: string }
       | undefined;
@@ -244,6 +244,20 @@ describe('schema and migration', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sandboxes'")
       .get() as { name: string } | undefined;
     expect(table?.name).toBe('sandboxes');
+
+    // Version 8: a version-1 file gets the turn-admission tables and the run
+    // finish reason as part of the same open.
+    const tables = (
+      opened.database
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all() as { name: string }[]
+    ).map((row) => row.name);
+    expect(tables).toContain('turn_requests');
+    expect(tables).toContain('turn_events');
+    const runColumns = (
+      opened.database.prepare('PRAGMA table_info(agent_runs)').all() as { name: string }[]
+    ).map((column) => column.name);
+    expect(runColumns).toContain('finish_reason');
   });
 
   it('migrates a version-3 database to the current version and adds the permission and cwd columns', async () => {
@@ -270,7 +284,7 @@ describe('schema and migration', () => {
     open.push(opened);
     const version = opened.database.prepare('PRAGMA user_version').get() as { user_version: number };
     expect(Number(version.user_version)).toBe(SQLITE_SCHEMA_VERSION);
-    expect(SQLITE_SCHEMA_VERSION).toBe(7);
+    expect(SQLITE_SCHEMA_VERSION).toBe(8);
     const sandboxColumns = (
       opened.database.prepare('PRAGMA table_info(sandboxes)').all() as { name: string }[]
     ).map((column) => column.name);
@@ -285,6 +299,8 @@ describe('schema and migration', () => {
         .all() as { name: string }[]
     ).map((row) => row.name);
     expect(tables).toContain('permission_requests');
+    expect(tables).toContain('turn_requests');
+    expect(tables).toContain('turn_events');
   });
 });
 

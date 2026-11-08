@@ -56,7 +56,9 @@ import { conversationTitle } from '../session/types.ts';
 import { SessionService } from '../session/service.ts';
 import { renderArchivedSummary } from '../session/summary.ts';
 import type { Message } from '../session/types.ts';
+import type { TurnFinishPatch } from '../session/turn-types.ts';
 import type { Store } from '../store.ts';
+import { TurnCoordinator } from './turns.ts';
 
 /**
  * What the model is told when the person resumes an interrupted reply.
@@ -120,6 +122,14 @@ export interface TurnDependencies {
    * — retrieval, safety, persistence and all — without a model call.
    */
   readonly runner?: TurnRunner;
+  /**
+   * Admission control for this process.
+   *
+   * Optional so an evaluation run that never touches HTTP does not have to
+   * construct it. When absent, `runTurn` builds one over the same store — every
+   * caller that persists a turn gets admission, not just the HTTP one.
+   */
+  readonly turns?: TurnCoordinator;
   readonly now?: () => Date;
   /**
    * IANA zone for the situation block. Omitted, the process zone is used.
@@ -147,6 +157,16 @@ export interface TurnRequest {
   readonly conversationId?: string | null;
   readonly message: string;
   readonly signal?: AbortSignal;
+  /**
+   * The client's idempotency key, already admitted by `TurnCoordinator.begin`.
+   *
+   * `runTurn` only *settles* the record: admission happens at the transport edge
+   * so a busy conversation can be answered with 409 before a stream is opened,
+   * while settlement has to happen here because this is the only layer that
+   * knows the outcome on every exit path, including a consumer that stops
+   * reading halfway.
+   */
+  readonly requestId?: string;
   /**
    * Rerun the last user message instead of sending a new one.
    *
@@ -188,6 +208,63 @@ export interface TurnRequest {
  * notice, safety notice if any, tool activity, text, then `completed`.
  */
 export async function* runTurn(
+  deps: TurnDependencies,
+  request: TurnRequest,
+): AsyncIterable<AgentEvent> {
+  const persist = request.persist ?? true;
+  const coordinator = deps.turns ?? new TurnCoordinator(deps.store);
+  let outcome: TurnFinishPatch | null = null;
+
+  try {
+    for await (const event of runTurnInner(deps, request)) {
+      // The terminal event is the authority on the outcome, which is why the
+      // settlement below is derived from what was emitted rather than from a
+      // second set of bookkeeping flags that could disagree with it.
+      if (event.type === 'completed') {
+        outcome = {
+          status: 'completed',
+          finishReason: event.finishReason ?? 'completed',
+          reply: event.text,
+          messageId: event.messageId ?? null,
+          ...(event.accepted !== undefined ? { accepted: event.accepted } : {}),
+        };
+      } else if (event.type === 'interrupted') {
+        outcome = {
+          status: 'interrupted',
+          finishReason: 'cancelled',
+          reply: event.text,
+          messageId: event.messageId ?? null,
+        };
+      } else if (event.type === 'error') {
+        outcome = {
+          status: 'failed',
+          finishReason: 'failed',
+          error: event.message,
+        };
+      }
+      yield event;
+    }
+  } finally {
+    // Runs on the normal path, on a thrown error, and on a consumer that stops
+    // iterating (a dropped connection) — the last of which is exactly the case
+    // that would otherwise leave a conversation locked until restart.
+    if (request.requestId && persist) {
+      await coordinator
+        .finish(
+          request.requestId,
+          outcome ?? { status: 'interrupted', finishReason: 'cancelled', reply: '' },
+        )
+        .catch((error: unknown) => {
+          log.warn('turn.settle_failed', {
+            request_id: request.requestId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    }
+  }
+}
+
+async function* runTurnInner(
   deps: TurnDependencies,
   request: TurnRequest,
 ): AsyncIterable<AgentEvent> {

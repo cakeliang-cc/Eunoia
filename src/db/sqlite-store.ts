@@ -53,10 +53,18 @@ import type {
   HistoryStats,
   Message,
 } from '../session/types.ts';
+import type { CreateTurnResult, TurnStore } from '../session/turn-store.ts';
+import type {
+  NewTurnEvent,
+  TurnEventRecord,
+  TurnFinishPatch,
+  TurnRecord,
+} from '../session/turn-types.ts';
 import type { Store } from '../store.ts';
 import {
   SQLITE_MIGRATION_3,
   SQLITE_MIGRATION_6,
+  SQLITE_MIGRATION_8,
   SQLITE_SCHEMA,
   SQLITE_SCHEMA_VERSION,
 } from './sqlite-schema.ts';
@@ -115,6 +123,40 @@ interface SummaryRow {
   updated_at: string;
 }
 
+interface TurnRow {
+  id: string;
+  turn_id: string;
+  user_id: string;
+  conversation_id: string;
+  request_hash: string;
+  status: string;
+  finish_reason: string | null;
+  reply: string;
+  message_id: string | null;
+  error: string | null;
+  model: string | null;
+  steps: number;
+  context_tokens: number | null;
+  accepted: number | null;
+  acceptance: string;
+  started_at: string;
+  ended_at: string | null;
+}
+
+interface TurnEventRow {
+  id: number;
+  turn_id: string;
+  conversation_id: string;
+  seq: number;
+  kind: string;
+  call_id: string | null;
+  tool_name: string | null;
+  status: string;
+  execution_id: string | null;
+  payload: string;
+  created_at: string;
+}
+
 interface FeedbackRow {
   message_id: string;
   user_id: string;
@@ -130,6 +172,12 @@ const MEMORY_COLUMNS = `
 
 const MESSAGE_COLUMNS = `id, conversation_id, user_id, role, content, interrupted, created_at, seq`;
 
+const TURN_COLUMNS = `id, turn_id, user_id, conversation_id, request_hash, status, finish_reason,
+  reply, message_id, error, model, steps, context_tokens, accepted, acceptance, started_at, ended_at`;
+
+const TURN_EVENT_COLUMNS = `id, turn_id, conversation_id, seq, kind, call_id, tool_name,
+  status, execution_id, payload, created_at`;
+
 const CONVERSATION_COLUMNS =
   'id, user_id, title, started_at, last_turn_at, turn_count, archived_at, model_id';
 
@@ -141,7 +189,7 @@ const UPDATABLE_COLUMNS: Readonly<Record<keyof MemoryPatch, string>> = {
   tags: 'tags',
 };
 
-export class SqliteStore implements Store {
+export class SqliteStore implements Store, TurnStore {
   /**
    * The raw connection, for tests and diagnostics.
    *
@@ -673,8 +721,9 @@ export class SqliteStore implements Store {
     this.#run(
       `INSERT INTO agent_runs
          (id, user_id, conversation_id, model, prompt_version, status, used_tools,
-          tool_calls, input_fingerprint, output_fingerprint, risk_level, duration_ms, error, ended_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          tool_calls, input_fingerprint, output_fingerprint, risk_level, duration_ms,
+          finish_reason, error, ended_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       run.id,
       run.userId,
       run.conversationId,
@@ -687,6 +736,7 @@ export class SqliteStore implements Store {
       run.outputFingerprint,
       run.riskLevel,
       run.durationMs,
+      run.finishReason ?? null,
       run.error,
       run.status === 'running' ? null : nowIso(),
     );
@@ -706,6 +756,7 @@ export class SqliteStore implements Store {
       ['outputFingerprint', 'output_fingerprint'],
       ['riskLevel', 'risk_level'],
       ['durationMs', 'duration_ms'],
+      ['finishReason', 'finish_reason'],
       ['error', 'error'],
     ];
 
@@ -781,6 +832,181 @@ export class SqliteStore implements Store {
       this.#db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+
+  // --------------------------------------------------------------- turns -----
+
+  async createTurn(record: TurnRecord): Promise<CreateTurnResult> {
+    try {
+      const inserted = this.#run(
+        `INSERT INTO turn_requests
+           (id, turn_id, user_id, conversation_id, request_hash, status, finish_reason,
+            reply, message_id, error, model, steps, context_tokens, accepted, acceptance,
+            started_at, ended_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO NOTHING`,
+        record.id,
+        record.turnId,
+        record.userId,
+        record.conversationId,
+        record.requestHash,
+        record.status,
+        record.finishReason,
+        record.reply,
+        record.messageId,
+        record.error,
+        record.model,
+        record.steps,
+        record.contextTokens,
+        record.accepted === null ? null : record.accepted ? 1 : 0,
+        JSON.stringify(record.acceptance),
+        record.startedAt.toISOString(),
+        record.endedAt ? record.endedAt.toISOString() : null,
+      );
+      return inserted.changes > 0 ? 'created' : 'exists';
+    } catch (error) {
+      // The partial unique index on (conversation_id) WHERE status = 'running'
+      // is the lock. Its violation is the 409, not an internal error.
+      if (isUniqueViolation(error)) return 'busy';
+      throw error;
+    }
+  }
+
+  async getTurn(id: string): Promise<TurnRecord | null> {
+    // A brand-new database may be opened by a process running an older build of
+    // this migration; without the table, "no turn" is the truthful answer rather
+    // than a crash on the chat path.
+    if (!hasTable(this.#db, 'turn_requests')) return null;
+    const row = this.#get<TurnRow>(`SELECT ${TURN_COLUMNS} FROM turn_requests WHERE id = ?`, id);
+    return row ? toTurn(row) : null;
+  }
+
+  async activeTurn(conversationId: string): Promise<TurnRecord | null> {
+    if (!hasTable(this.#db, 'turn_requests')) return null;
+    const row = this.#get<TurnRow>(
+      `SELECT ${TURN_COLUMNS} FROM turn_requests
+        WHERE conversation_id = ? AND status = 'running'
+        ORDER BY started_at DESC LIMIT 1`,
+      conversationId,
+    );
+    return row ? toTurn(row) : null;
+  }
+
+  async finishTurn(id: string, patch: TurnFinishPatch): Promise<TurnRecord | null> {
+    if (!hasTable(this.#db, 'turn_requests')) return null;
+    const assignments: string[] = ['status = ?', 'finish_reason = ?', 'ended_at = ?'];
+    const values: SqlValue[] = [patch.status, patch.finishReason, nowIso()];
+
+    const fields: [keyof TurnFinishPatch, string][] = [
+      ['reply', 'reply'],
+      ['messageId', 'message_id'],
+      ['error', 'error'],
+      ['steps', 'steps'],
+      ['contextTokens', 'context_tokens'],
+    ];
+    for (const [field, column] of fields) {
+      const value = patch[field];
+      if (value === undefined) continue;
+      values.push(value as SqlValue);
+      assignments.push(`${column} = ?`);
+    }
+    if (patch.accepted !== undefined) {
+      values.push(patch.accepted ? 1 : 0);
+      assignments.push('accepted = ?');
+    }
+    if (patch.acceptance !== undefined) {
+      values.push(JSON.stringify(patch.acceptance));
+      assignments.push('acceptance = ?');
+    }
+
+    values.push(id);
+    // `status = 'running'` is the guard: a finished turn is never rewritten, so
+    // a late finish after recovery is a no-op rather than a second outcome.
+    this.#run(
+      `UPDATE turn_requests SET ${assignments.join(', ')} WHERE id = ? AND status = 'running'`,
+      ...values,
+    );
+    return this.getTurn(id);
+  }
+
+  async listRunningTurns(): Promise<TurnRecord[]> {
+    if (!hasTable(this.#db, 'turn_requests')) return [];
+    return this.#all<TurnRow>(
+      `SELECT ${TURN_COLUMNS} FROM turn_requests WHERE status = 'running' ORDER BY started_at ASC`,
+    ).map(toTurn);
+  }
+
+  async appendTurnEvent(event: NewTurnEvent): Promise<TurnEventRecord> {
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      const next = this.#get<{ next_seq: number }>(
+        'SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM turn_events WHERE turn_id = ?',
+        event.turnId,
+      );
+      const seq = Number(next?.next_seq ?? 1);
+      this.#run(
+        `INSERT INTO turn_events
+           (turn_id, conversation_id, seq, kind, call_id, tool_name, status, execution_id, payload)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        event.turnId,
+        event.conversationId,
+        seq,
+        event.kind,
+        event.callId ?? null,
+        event.toolName ?? null,
+        event.status,
+        event.executionId ?? null,
+        JSON.stringify(event.payload ?? {}),
+      );
+      const row = this.#get<TurnEventRow>(
+        `SELECT ${TURN_EVENT_COLUMNS} FROM turn_events WHERE turn_id = ? AND seq = ?`,
+        event.turnId,
+        seq,
+      );
+      if (!row) throw new Error('turn event insert produced no row');
+      this.#db.exec('COMMIT');
+      return toTurnEvent(row);
+    } catch (error) {
+      this.#db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  async listTurnEvents(turnId: string): Promise<TurnEventRecord[]> {
+    if (!hasTable(this.#db, 'turn_events')) return [];
+    return this.#all<TurnEventRow>(
+      `SELECT ${TURN_EVENT_COLUMNS} FROM turn_events WHERE turn_id = ? ORDER BY seq ASC`,
+      turnId,
+    ).map(toTurnEvent);
+  }
+
+  async settleTurnEvent(
+    turnId: string,
+    seq: number,
+    status: TurnEventRecord['status'],
+    detail?: Record<string, unknown>,
+  ): Promise<void> {
+    if (!hasTable(this.#db, 'turn_events')) return;
+    const row = this.#get<{ payload: string; execution_id: string | null }>(
+      'SELECT payload, execution_id FROM turn_events WHERE turn_id = ? AND seq = ?',
+      turnId,
+      seq,
+    );
+    if (!row) return;
+    const payload = detail
+      ? { ...parseJson<Record<string, unknown>>(row.payload, {}), ...detail }
+      : parseJson<Record<string, unknown>>(row.payload, {});
+    const executionId =
+      typeof detail?.executionId === 'string' ? detail.executionId : row.execution_id;
+    this.#run(
+      'UPDATE turn_events SET status = ?, payload = ?, execution_id = ? WHERE turn_id = ? AND seq = ?',
+      status,
+      JSON.stringify(payload),
+      executionId,
+      turnId,
+      seq,
+    );
   }
 
   // --------------------------------------------------------- preferences -----
@@ -916,6 +1142,9 @@ export function openSqliteStore(path: string): SqliteStore {
     if (version < 7) {
       migrateToVersion7(db);
     }
+    if (version < 8) {
+      migrateToVersion8(db);
+    }
   }
   if (version < SQLITE_SCHEMA_VERSION) {
     db.exec(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
@@ -956,6 +1185,49 @@ function toMessage(row: MessageRow): Message {
     createdAt: new Date(row.created_at),
     seq: Number(row.seq),
   };
+}
+
+function toTurn(row: TurnRow): TurnRecord {
+  return {
+    id: row.id,
+    turnId: row.turn_id,
+    userId: row.user_id,
+    conversationId: row.conversation_id,
+    requestHash: row.request_hash,
+    status: row.status as TurnRecord['status'],
+    finishReason: (row.finish_reason as TurnRecord['finishReason']) ?? null,
+    reply: row.reply,
+    messageId: row.message_id,
+    error: row.error,
+    model: row.model,
+    steps: Number(row.steps),
+    contextTokens: row.context_tokens === null ? null : Number(row.context_tokens),
+    accepted: row.accepted === null ? null : Number(row.accepted) === 1,
+    acceptance: parseJson<TurnRecord['acceptance']>(row.acceptance, []),
+    startedAt: new Date(row.started_at),
+    endedAt: row.ended_at ? new Date(row.ended_at) : null,
+  };
+}
+
+function toTurnEvent(row: TurnEventRow): TurnEventRecord {
+  return {
+    turnId: row.turn_id,
+    conversationId: row.conversation_id,
+    seq: Number(row.seq),
+    kind: row.kind as TurnEventRecord['kind'],
+    callId: row.call_id,
+    toolName: row.tool_name,
+    status: row.status as TurnEventRecord['status'],
+    executionId: row.execution_id,
+    payload: parseJson<Record<string, unknown>>(row.payload, {}),
+    createdAt: new Date(row.created_at),
+  };
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === 'string' && message.includes('UNIQUE constraint failed');
 }
 
 function toConversation(row: ConversationRow): Conversation {
@@ -1162,6 +1434,21 @@ function createAgentRunIndexes(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS agent_runs_user_idx ON agent_runs (user_id);
     CREATE INDEX IF NOT EXISTS agent_runs_conversation_idx ON agent_runs (conversation_id);
   `);
+}
+
+/**
+ * Version 7 → 8.
+ *
+ * Tables are additive, so the whole shape can be executed behind
+ * `IF NOT EXISTS`. The one column is checked first: `ALTER TABLE … ADD COLUMN`
+ * is not idempotent in SQLite, and a migration that crashed after adding it
+ * must converge on the next open rather than fail with "duplicate column name".
+ */
+function migrateToVersion8(db: DatabaseSync): void {
+  if (!hasColumn(db, 'agent_runs', 'finish_reason')) {
+    db.exec('ALTER TABLE agent_runs ADD COLUMN finish_reason TEXT');
+  }
+  db.exec(SQLITE_MIGRATION_8);
 }
 
 function hasTable(db: DatabaseSync, table: string): boolean {

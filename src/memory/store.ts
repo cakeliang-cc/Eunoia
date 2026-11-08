@@ -12,6 +12,7 @@
  * anything above this line changing.
  */
 
+import type { FinishReason } from '../finish-reason.ts';
 import type {
   Memory,
   MemoryDraft,
@@ -38,6 +39,12 @@ export interface AgentRunRecord {
   readonly outputFingerprint: string | null;
   readonly riskLevel: 'none' | 'elevated' | 'crisis' | null;
   readonly durationMs: number | null;
+  /**
+   * How the turn ended (ADR 029). `status` says which class of outcome it was;
+   * this says why. Optional so a caller that only has a status — an old test, an
+   * evaluation replay — still records a row.
+   */
+  readonly finishReason?: FinishReason | null;
   readonly error: string | null;
 }
 

@@ -37,6 +37,14 @@ import { MODEL_CATALOG } from '../models/catalog.ts';
 import { defaultModelProfile, isKnownModelId, summaryModelProfile } from '../models/registry.ts';
 import { providerFor } from '../provider/index.ts';
 import { runTurn, type TurnAttachment, type TurnRunner } from '../service/chat.ts';
+import {
+  ConversationBusyError,
+  TurnCoordinator,
+  TurnRequestConflictError,
+  finishReasonOf,
+  turnRequestHash,
+} from '../service/turns.ts';
+import type { TurnRecord } from '../session/turn-types.ts';
 import { selectStore } from '../db/select.ts';
 import { agentMaxSteps, skillsEnabled, workspaceConfig } from '../config.ts';
 import { DEFAULT_TOOL_POLICY } from '../tools/types.ts';
@@ -59,7 +67,7 @@ import {
   parsePermissionModeChange,
   permissionModeOptions,
 } from './permissions.ts';
-import { pipeEventsAsSse } from './sse.ts';
+import { SSE_HEADERS, pipeEventsAsSse, sseFrame } from './sse.ts';
 import {
   WorkspaceUiService,
   handleWorkspaceRoute,
@@ -333,6 +341,15 @@ export interface ChatPayload {
    * never stop (scripts, the evaluator).
    */
   readonly turnId?: string;
+  /**
+   * The client's idempotency key for this request.
+   *
+   * A retried send reuses it, and the server answers from the recorded outcome
+   * instead of running the model again. Optional: a caller that does not retry
+   * (a script, the evaluator) needs no key, and `turnId` is used as a fallback
+   * so a client that already generates one per send is idempotent by default.
+   */
+  readonly requestId?: string;
   /** The person pressed "continue" on an interrupted reply. */
   readonly continue?: boolean;
   /**
@@ -368,6 +385,13 @@ export function parseChatRequest(raw: unknown): ChatPayload | string {
     }
   }
 
+  const requestId = body.requestId;
+  if (requestId !== undefined && requestId !== null) {
+    if (typeof requestId !== 'string' || !isUuid(requestId)) {
+      return 'field "requestId" must be a uuid';
+    }
+  }
+
   const resume = body.continue;
   if (resume !== undefined && typeof resume !== 'boolean') {
     return 'field "continue" must be a boolean';
@@ -387,6 +411,7 @@ export function parseChatRequest(raw: unknown): ChatPayload | string {
     message: trimmed,
     conversationId: (conversationId as string | null) ?? null,
     ...(typeof turnId === 'string' ? { turnId } : {}),
+    ...(typeof requestId === 'string' ? { requestId } : {}),
     ...(resume === true ? { continue: true } : {}),
     ...(attachments !== undefined ? { attachments: attachments as string[] } : {}),
   };
@@ -395,6 +420,8 @@ export function parseChatRequest(raw: unknown): ChatPayload | string {
 export interface RegeneratePayload {
   readonly conversationId: string;
   readonly turnId?: string;
+  /** Same idempotency key as a chat send; see `ChatPayload.requestId`. */
+  readonly requestId?: string;
 }
 
 export function parseRegenerateRequest(raw: unknown): RegeneratePayload | string {
@@ -411,9 +438,16 @@ export function parseRegenerateRequest(raw: unknown): RegeneratePayload | string
       return 'field "turnId" must be a uuid';
     }
   }
+  const requestId = body.requestId;
+  if (requestId !== undefined && requestId !== null) {
+    if (typeof requestId !== 'string' || !isUuid(requestId)) {
+      return 'field "requestId" must be a uuid';
+    }
+  }
   return {
     conversationId,
     ...(typeof turnId === 'string' ? { turnId } : {}),
+    ...(typeof requestId === 'string' ? { requestId } : {}),
   };
 }
 
@@ -567,12 +601,23 @@ export interface AppDependencies {
    * value instead of scraping the page.
    */
   readonly localToken?: string;
+  /**
+   * Turn admission, injectable so a test can share one coordinator with the
+   * assertions it makes about busy/retry behaviour.
+   */
+  readonly turns?: TurnCoordinator;
 }
 
 export function createApp(deps: AppDependencies) {
   const store = deps.store;
   const sessions = deps.sessions ?? new SessionService(store);
   const localToken = deps.localToken ?? randomUUID();
+  /**
+   * One coordinator per process. `createApp` is called once in production; a
+   * test that calls it twice gets two independent admission maps, which is the
+   * same visibility a second process would have.
+   */
+  const turns = deps.turns ?? new TurnCoordinator(store);
 
   /**
    * The turns currently streaming, so a second request can stop one.
@@ -806,6 +851,7 @@ export function createApp(deps: AppDependencies) {
     return {
       store,
       session: sessions,
+      turns,
       modelProvider: deps.modelProvider,
       runner: deps.runner,
       ...(deps.sandbox ? { sandbox: deps.sandbox.provider } : {}),
@@ -847,6 +893,129 @@ export function createApp(deps: AppDependencies) {
       log.info('chat.aborted_before_stream', { turn_id: turnId });
     } finally {
       activeTurns.delete(turnId);
+      // Safety net. `runTurn` settles the record on every exit path; this covers
+      // the one it cannot — a failure between admission and the first read of
+      // the stream — and is a no-op when the turn already finished.
+      if (request.requestId) {
+        await turns
+          .finish(request.requestId, {
+            status: 'interrupted',
+            finishReason: 'cancelled',
+            reply: '',
+          })
+          .catch(() => undefined);
+      }
+    }
+  }
+
+  /**
+   * Answer a retried request from its recorded outcome.
+   *
+   * Same SSE shape as a live turn, marked `replayed: true`, so a client needs no
+   * second code path. The model is not called: that is the whole point of the
+   * request id. A failure replays as an `error` frame rather than a 409, because
+   * the caller's question was already answered — badly — and a fresh execution
+   * would be a different request.
+   */
+  async function replayTurn(res: ServerResponse, record: TurnRecord): Promise<void> {
+    res.writeHead(200, SSE_HEADERS);
+    if (record.status === 'completed') {
+      if (record.reply.length > 0) {
+        res.write(sseFrame({ type: 'text_delta', text: record.reply }));
+      }
+      res.write(
+        sseFrame({
+          type: 'completed',
+          text: record.reply,
+          conversationId: record.conversationId,
+          messageId: record.messageId,
+          finishReason: finishReasonOf(record),
+          replayed: true,
+          ...(record.accepted !== null
+            ? { accepted: record.accepted, acceptance: record.acceptance }
+            : {}),
+        }),
+      );
+    } else if (record.status === 'interrupted') {
+      if (record.reply.length > 0) {
+        res.write(sseFrame({ type: 'text_delta', text: record.reply }));
+      }
+      res.write(
+        sseFrame({
+          type: 'interrupted',
+          text: record.reply,
+          conversationId: record.conversationId,
+          messageId: record.messageId,
+          finishReason: 'cancelled',
+          replayed: true,
+        }),
+      );
+    } else {
+      res.write(
+        sseFrame({
+          type: 'error',
+          message: record.error ?? 'this request failed',
+          retryable: false,
+          finishReason: 'failed',
+          replayed: true,
+        }),
+      );
+    }
+    res.end();
+  }
+
+  /**
+   * Admit one request, or answer the reason it cannot run.
+   *
+   * Returns null when the response has been written (busy, duplicate, conflict)
+   * and a record when the caller owns the conversation. Kept as one function so
+   * chat and regenerate cannot drift on what a 409 means.
+   */
+  async function admitTurn(
+    res: ServerResponse,
+    input: {
+      requestId: string;
+      turnId: string;
+      userId: string;
+      conversationId: string;
+      requestHash: string;
+    },
+  ): Promise<{ readonly proceed: true } | { readonly proceed: false }> {
+    try {
+      const admission = await turns.begin(input);
+      if (admission.kind === 'started') return { proceed: true };
+      if (admission.kind === 'replay') {
+        await replayTurn(res, admission.record);
+        return { proceed: false };
+      }
+      // The same request is still running. Not a conflict and not a new turn:
+      // a retry that arrives before the first attempt finished.
+      sendJson(res, 409, {
+        error: '这个请求还在执行中',
+        code: 'request_in_flight',
+        requestId: input.requestId,
+        turnId: admission.record.turnId,
+      });
+      return { proceed: false };
+    } catch (error) {
+      if (error instanceof ConversationBusyError) {
+        sendJson(res, 409, {
+          error: '这个会话还有一轮没有结束',
+          code: 'conversation_busy',
+          conversationId: input.conversationId,
+          activeTurnId: error.activeTurnId,
+        });
+        return { proceed: false };
+      }
+      if (error instanceof TurnRequestConflictError) {
+        sendJson(res, 409, {
+          error: '这个请求 id 已经用于另一个请求',
+          code: 'request_conflict',
+          requestId: input.requestId,
+        });
+        return { proceed: false };
+      }
+      throw error;
     }
   }
 
@@ -924,10 +1093,15 @@ export function createApp(deps: AppDependencies) {
 
     const userId = await identify(req, res);
     const turnId = parsed.turnId ?? randomUUID();
+    // The request id is the idempotency key; the turn id addresses the live
+    // stream for a stop. They default to the same value because a client that
+    // already generates one per send should not have to generate two.
+    const requestId = parsed.requestId ?? turnId;
 
     log.info('chat.request', {
       message_fingerprint: `len=${parsed.message.length}`,
       conversation_id: parsed.conversationId,
+      request_id: requestId,
       continued: parsed.continue === true,
       attachments: parsed.attachments?.length ?? 0,
     });
@@ -939,11 +1113,18 @@ export function createApp(deps: AppDependencies) {
     // written before the first tool call — afterwards is too late to matter for
     // the turn that needed it. `runTurn` still names the conversation from the
     // message; `nameConversation` only fills a null title.
+    //
+    // A conversation id the caller *did* supply must exist and belong to them.
+    // Silently opening a different thread would make the admission record point
+    // at a conversation the request never mentioned.
     let conversationId = parsed.conversationId;
     if (conversationId === null) {
       const conversation = await sessions.create(userId);
       conversationId = conversation.id;
       await applyDefaultPermissionMode(userId, conversationId);
+    } else if (!(await sessions.get(userId, conversationId))) {
+      sendJson(res, 404, { error: 'conversation not found' });
+      return;
     }
 
     let attachments: TurnAttachment[];
@@ -954,10 +1135,30 @@ export function createApp(deps: AppDependencies) {
       return;
     }
 
+    // Admission happens before a single byte of the turn is written: a busy
+    // conversation must produce a 409, not a user message with no reply behind
+    // it, and not an SSE stream that dies after the first frame.
+    const admitted = await admitTurn(res, {
+      requestId,
+      turnId,
+      userId,
+      conversationId,
+      requestHash: turnRequestHash({
+        kind: 'chat',
+        userId,
+        conversationId,
+        message: parsed.message,
+        continue: parsed.continue === true,
+        attachments: parsed.attachments ?? [],
+      }),
+    });
+    if (!admitted.proceed) return;
+
     await streamTurn(res, turnId, {
       userId,
       conversationId,
       message: parsed.message,
+      requestId,
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(parsed.continue ? { continue: true } : {}),
       // Retrieval happens inside `runTurn`; turning it off here means the
@@ -987,25 +1188,60 @@ export function createApp(deps: AppDependencies) {
       return;
     }
 
+    const turnId = parsed.turnId ?? randomUUID();
+    const requestId = parsed.requestId ?? turnId;
+
+    // Read before admission, because the digest covers the text being rerun and
+    // because rewinding a conversation that is busy would delete the reply the
+    // running turn is about to replace.
+    const lastUser = await sessions.lastUserMessage(userId, parsed.conversationId);
+    if (!lastUser) {
+      sendJson(res, 409, { error: '这一轮还没有可以重新生成的回复' });
+      return;
+    }
+
+    const admitted = await admitTurn(res, {
+      requestId,
+      turnId,
+      userId,
+      conversationId: parsed.conversationId,
+      requestHash: turnRequestHash({
+        kind: 'regenerate',
+        userId,
+        conversationId: parsed.conversationId,
+        message: lastUser.content,
+      }),
+    });
+    if (!admitted.proceed) return;
+
     // The reply being replaced is removed before the model runs: the new one
     // must take its place, not follow it. If the user message is already behind
     // the summary boundary there is nothing the model would replay.
     const rewound = await sessions.rewind(userId, parsed.conversationId);
     if (!rewound || rewound.removed === 0) {
+      // The reservation is already written; releasing it is what keeps the
+      // conversation usable for the next attempt.
+      await turns.finish(requestId, {
+        status: 'failed',
+        finishReason: 'failed',
+        error: 'nothing to regenerate',
+      });
       sendJson(res, 409, { error: '这一轮还没有可以重新生成的回复' });
       return;
     }
 
     log.info('chat.regenerate', {
       conversation_id: parsed.conversationId,
+      request_id: requestId,
       removed: rewound.removed,
     });
 
-    await streamTurn(res, parsed.turnId ?? randomUUID(), {
+    await streamTurn(res, turnId, {
       userId,
       conversationId: parsed.conversationId,
       message: '',
       regenerate: true,
+      requestId,
       ...((await retrievalEnabled(userId)) ? {} : { retrieve: false }),
     });
   }

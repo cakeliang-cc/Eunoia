@@ -13,6 +13,17 @@
  * separate server path.
  */
 
+import type { FinishReason } from '../finish-reason.ts';
+import type { AcceptanceCheck } from '../session/turn-types.ts';
+
+/**
+ * Why a turn ended, re-exported here because this module is the event contract
+ * and every client reads it from the terminal event. The type lives in the
+ * session layer, which owns turn lifecycle; keeping one definition is what stops
+ * a wire value from drifting away from the value written to the database.
+ */
+export type { FinishReason };
+
 /** A chunk of assistant-visible text. */
 export interface TextDeltaEvent {
   readonly type: 'text_delta';
@@ -146,6 +157,33 @@ export interface CompletedEvent {
    * the turn was not persisted.
    */
   readonly messageId?: string | null;
+  /**
+   * Why the turn ended (ADR 029).
+   *
+   * `completed` means the model delivered a final answer. `incomplete_stream`
+   * means the provider's stream ended without its completion event and the text
+   * shown is all there is; `loop_exhausted` and `budget_exhausted` mean the
+   * harness stopped, not the model. A client that ignores this field still has
+   * the text, which is the point: keeping what was shown and calling it finished
+   * are separate decisions.
+   */
+  readonly finishReason?: FinishReason;
+  /**
+   * Whether the turn met its acceptance conditions (ADR 029).
+   *
+   * Deliberately separate from `finishReason`: a reply can arrive complete and
+   * still fail an acceptance check, and a stream can end abnormally while the
+   * part that arrived is accepted. A client that ignores this field loses
+   * nothing it already had.
+   */
+  readonly accepted?: boolean;
+  readonly acceptance?: readonly AcceptanceCheck[];
+  /**
+   * True when this frame is a replay of an already-finished request rather than
+   * a live generation. A retried request sees the same text without the model
+   * being called again.
+   */
+  readonly replayed?: boolean;
 }
 
 /**
@@ -171,6 +209,14 @@ export interface InterruptedEvent {
   readonly conversationId?: string | null;
   /** The stored interrupted message, when there was text to store. */
   readonly messageId?: string | null;
+  /**
+   * Always `cancelled` today: a person pressing stop and a dropped connection
+   * are the same user-visible outcome. It is on the event anyway so a client
+   * never has to infer a reason from an absent field.
+   */
+  readonly finishReason?: FinishReason;
+  /** True when this is a stored outcome being replayed, not a live stop. */
+  readonly replayed?: boolean;
 }
 
 /** The run failed. `retryable` distinguishes a transient fault from a real error. */
@@ -178,6 +224,10 @@ export interface ErrorEvent {
   readonly type: 'error';
   readonly message: string;
   readonly retryable: boolean;
+  /** Always `failed` today; kept explicit for the same reason as above. */
+  readonly finishReason?: FinishReason;
+  /** True when a stored failure is being replayed for a retried request. */
+  readonly replayed?: boolean;
 }
 
 export type AgentEvent =
