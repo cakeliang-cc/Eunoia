@@ -38,6 +38,7 @@ import type {
 } from '../session/changeset.ts';
 import type { WorkspaceManifestEntry } from './workspace-files.ts';
 import { log } from '../observability/logging.ts';
+import { acquireWorkspaceWriteLocks, withWorkspaceWriteLocks } from './write-lock.ts';
 
 /** One file can keep its before text up to this size; larger files need a checkpoint. */
 const MAX_JOURNAL_BYTES = 512 * 1024;
@@ -83,8 +84,6 @@ export class WorkspaceChangeService implements WorkspaceChangeRecorder {
   readonly #now: () => Date;
   readonly #journalRoot: string | null;
   readonly #active = new Map<string, ActiveTurn>();
-  /** One mutation at a time per task: no path-order deadlock is possible. */
-  readonly #locks = new Map<string, Promise<void>>();
   readonly #batches = new Map<string, ChangeBatchRecord>();
 
   constructor(deps: WorkspaceChangeServiceDeps) {
@@ -585,6 +584,10 @@ export class WorkspaceChangeService implements WorkspaceChangeRecorder {
       }
     }
 
+    const releaseUndo = await acquireWorkspaceWriteLocks(
+      selected.map((file) => join(workspace.storageLocation, file.path)),
+    );
+    try {
     for (const file of selected) {
       if (file.restored) continue;
       const current = await currentDigest(files, file.path).catch(() => undefined);
@@ -635,6 +638,9 @@ export class WorkspaceChangeService implements WorkspaceChangeRecorder {
       }
     }
 
+    } finally {
+      await releaseUndo();
+    }
     const applied = new Set(restored);
     const remaining = changeset.files.some(
       (file) => !file.restored && !applied.has(file.path),
@@ -669,21 +675,15 @@ export class WorkspaceChangeService implements WorkspaceChangeRecorder {
     return active;
   }
 
-  async #withLock<T>(taskId: string, _paths: readonly string[], run: () => Promise<T>): Promise<T> {
-    const previous = this.#locks.get(taskId) ?? Promise.resolve();
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const next = previous.then(() => gate);
-    this.#locks.set(taskId, next);
-    await previous;
-    try {
-      return await run();
-    } finally {
-      release();
-      if (this.#locks.get(taskId) === next) this.#locks.delete(taskId);
-    }
+  async #withLock<T>(taskId: string, paths: readonly string[], run: () => Promise<T>): Promise<T> {
+    // The lock identity is the canonical real workspace path, not the task id:
+    // two tasks may be bound to the same source directory, and Team publish
+    // writes that same source. A task-scoped Map would serialize the wrong
+    // writers and let one task overwrite the other after both passed a
+    // version check.
+    const active = this.#requireActive(taskId);
+    const absolute = paths.map((path) => join(active.workspace.storageLocation, path));
+    return withWorkspaceWriteLocks(absolute, run);
   }
 
   async #persistBatch(record: ChangeBatchRecord): Promise<void> {

@@ -248,6 +248,10 @@ export class QuestionService {
     return cancelled;
   }
 
+  async get(userId: string, questionId: string): Promise<UserQuestionRecord | null> {
+    return this.#store.getUserQuestion(userId, questionId);
+  }
+
   async pending(userId: string, conversationId: string): Promise<UserQuestionRecord[]> {
     await this.#store.expireUserQuestions(this.#now());
     return this.#store.listPendingQuestions(userId, conversationId);

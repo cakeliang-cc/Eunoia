@@ -391,10 +391,14 @@ export class SubagentRuntime {
     return { member, activation };
   }
 
-  async followup(memberId: string, input: ActivationInput): Promise<Activation> {
+  async followup(
+    memberId: string,
+    input: ActivationInput,
+    requestId?: string,
+  ): Promise<Activation> {
     const member = await this.#requireMember(memberId);
     this.#assertOpen(member);
-    const activation = await this.#enqueue(member, input);
+    const activation = await this.#enqueue(member, input, requestId);
     void this.pump(member.id);
     return activation;
   }
@@ -470,7 +474,12 @@ export class SubagentRuntime {
   /** Recover activations a dead process left running. Never replays a tool. */
   async recover(): Promise<{ interrupted: number; unknown: number }> {
     const now = this.#now().toISOString();
-    const expired = await this.#deps.teamStore.expiredActivations(now);
+    // A restarted process owns no live activation. The lease clock can still be
+    // in the future after a crash, so querying only expired leases would leave
+    // the run "running" forever and could let a later pump re-dispatch a write.
+    // This is a single-control-plane recovery assumption; a multi-process
+    // deployment needs an incarnation/lease owner in the row.
+    const expired = await this.#deps.teamStore.runningActivations();
     let interrupted = 0;
     let unknown = 0;
     for (const activation of expired) {
@@ -546,6 +555,10 @@ export class SubagentRuntime {
       const team = await this.#deps.teamStore.getTeam(member.teamId);
       if (!team) throw new TeamError('TEAM_NOT_FOUND', '没有这个 Team。', 404);
       const existing = await this.#deps.teamStore.listActivations(run.id, member.id);
+      if (requestId) {
+        const duplicate = existing.find((entry) => entry.requestId === requestId);
+        if (duplicate) return duplicate;
+      }
       const generation = existing.reduce((max, entry) => Math.max(max, entry.generation), 0) + 1;
       const now = this.#now().toISOString();
       const activation: Activation = {

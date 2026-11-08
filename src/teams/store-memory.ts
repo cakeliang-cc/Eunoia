@@ -531,6 +531,13 @@ export class MemoryTeamStore implements TeamStore {
       .map(clone);
   }
 
+  async runningActivations(): Promise<Activation[]> {
+    return [...this.#activations.values()]
+      .filter((activation) => activation.status === 'running' || activation.status === 'waiting')
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map(clone);
+  }
+
   // ----------------------------------------------------------------- tasks ---
 
   async createTask(input: CreateTaskInput): Promise<Task> {

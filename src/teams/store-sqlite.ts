@@ -1178,6 +1178,14 @@ export class SqliteTeamStore implements TeamStore {
     ).map(toActivation);
   }
 
+  async runningActivations(): Promise<Activation[]> {
+    return this.#all<ActivationRow>(
+      `SELECT ${ACTIVATION_COLUMNS} FROM team_activations
+        WHERE status IN ('running', 'waiting')
+        ORDER BY created_at ASC, rowid ASC`,
+    ).map(toActivation);
+  }
+
   // ----------------------------------------------------------------- tasks ---
 
   async createTask(input: CreateTaskInput): Promise<Task> {

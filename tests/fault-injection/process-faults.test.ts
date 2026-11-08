@@ -32,6 +32,7 @@ function runChild(
 ): {
   child: ChildProcess;
   fault: Promise<{ point?: string; state?: Record<string, unknown> }>;
+  closed: Promise<void>;
   output: () => string;
 } {
   const child = spawn(process.execPath, ['--experimental-strip-types', CHILD, ...args], {
@@ -42,6 +43,7 @@ function runChild(
   let stderr = '';
   child.stdout?.on('data', (chunk) => (stdout += String(chunk)));
   child.stderr?.on('data', (chunk) => (stderr += String(chunk)));
+  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
   const fault = new Promise<{ point?: string; state?: Record<string, unknown> }>((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error(`child did not reach a fault point: ${stderr}`)),
@@ -58,13 +60,27 @@ function runChild(
       }
     });
   });
-  return { child, fault, output: () => stdout };
+  return { child, fault, closed, output: () => stdout };
 }
 
 async function kill(child: ChildProcess): Promise<number | null> {
   if (child.exitCode !== null) return child.exitCode;
   child.kill('SIGKILL');
   return new Promise<number | null>((resolve) => child.once('exit', (value) => resolve(value)));
+}
+
+async function runAndWait(args: readonly string[]): Promise<{ code: number | null; output: string }> {
+  const child = spawn(process.execPath, ['--experimental-strip-types', CHILD, ...args], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env },
+  });
+  let output = '';
+  let error = '';
+  child.stdout?.on('data', (chunk) => (output += String(chunk)));
+  child.stderr?.on('data', (chunk) => (error += String(chunk)));
+  const code = await new Promise<number | null>((resolve) => child.once('exit', (value) => resolve(value)));
+  if (code !== 0) throw new Error(`child exited ${String(code)}: ${error}`);
+  return { code, output };
 }
 
 describe('R12 — process-level fault injection', () => {
@@ -158,12 +174,9 @@ describe('R12 — process-level fault injection', () => {
     expect(await readFile(join(target, 'a.txt'), 'utf8')).toBe('a1\n');
     expect(await readFile(join(target, 'b.txt'), 'utf8')).toBe('b0\n');
 
-    const resume = runChild(['publish', '--spec', spec, '--done', done]);
-    const code = await new Promise<number | null>((resolve) =>
-      resume.child.once('exit', (value) => resolve(value)),
-    );
-    expect(code).toBe(0);
-    const result = JSON.parse(resume.output().trim().split('\n').at(-1) as string) as {
+    const resume = await runAndWait(['publish', '--spec', spec, '--done', done]);
+    expect(resume.code).toBe(0);
+    const result = JSON.parse(resume.output.trim().split('\n').at(-1) as string) as {
       ok: boolean;
       applied: string[];
       journal: Array<{ action: string }>;
@@ -207,16 +220,114 @@ describe('R12 — process-level fault injection', () => {
     // The user edits the file the interrupted publish already wrote.
     await writeFile(join(target, 'a.txt'), 'user-edit\n');
 
-    const resume = runChild(['publish', '--spec', spec, '--done', done]);
-    const code = await new Promise<number | null>((resolve) =>
-      resume.child.once('exit', (value) => resolve(value)),
-    );
-    expect(code).toBe(0);
-    const result = JSON.parse(resume.output().trim().split('\n').at(-1) as string) as {
+    const resume = await runAndWait(['publish', '--spec', spec, '--done', done]);
+    expect(resume.code).toBe(0);
+    const result = JSON.parse(resume.output.trim().split('\n').at(-1) as string) as {
       conflicts: Array<{ path: string; reason: string }>;
     };
     expect(result.conflicts.some((entry) => entry.path === 'a.txt')).toBe(true);
     expect(await readFile(join(target, 'a.txt'), 'utf8')).toBe('user-edit\n');
     expect(await readFile(join(target, 'b.txt'), 'utf8')).toBe('b1\n');
+  }, 60_000);
+
+  it('mailbox: a message accepted but not injected survives restart and is consumed exactly once', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'eunoia-fault-mailbox-'));
+    cleanups.push(async () => rm(directory, { recursive: true, force: true }));
+    const db = join(directory, 'teams.sqlite');
+    const ids = join(directory, 'ids.json');
+    const first = runChild(['mailbox-accepted', '--db', db, '--ids', ids], 'mailbox.accepted');
+    expect((await first.fault).point).toBe('mailbox.accepted');
+    await kill(first.child);
+    const drain = await runAndWait(['mailbox-drain', '--db', db, '--ids', ids]);
+    const result = JSON.parse(drain.output.trim().split('\n').at(-1) as string) as {
+      injected: string[];
+      secondPending: number;
+    };
+    expect(result.injected).toHaveLength(1);
+    expect(result.secondPending).toBe(0);
+    const again = await runAndWait(['mailbox-drain', '--db', db, '--ids', ids]);
+    const second = JSON.parse(again.output.trim().split('\n').at(-1) as string) as {
+      injected: string[];
+      secondPending: number;
+    };
+    expect(second.injected).toHaveLength(0);
+    expect(second.secondPending).toBe(0);
+  }, 60_000);
+
+  it('mailbox: an injected-but-unacknowledged message is not injected again after restart', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'eunoia-fault-mailbox-'));
+    cleanups.push(async () => rm(directory, { recursive: true, force: true }));
+    const db = join(directory, 'teams.sqlite');
+    const ids = join(directory, 'ids.json');
+    const first = runChild(['mailbox-injected', '--db', db, '--ids', ids], 'mailbox.injected');
+    expect((await first.fault).point).toBe('mailbox.injected');
+    await kill(first.child);
+    const recovered = await runAndWait(['mailbox-injected-recover', '--db', db, '--ids', ids]);
+    const result = JSON.parse(recovered.output.trim().split('\n').at(-1) as string) as {
+      pending: number;
+      before: string | null;
+      after: string | null;
+    };
+    expect(result.pending).toBe(0);
+    expect(result.before).toBe('injected');
+    expect(result.after).toBe('processed');
+  }, 60_000);
+
+  it('team: an expired lease is reconciled after kill/restart and the write task is not re-dispatched', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'eunoia-fault-team-'));
+    cleanups.push(async () => rm(directory, { recursive: true, force: true }));
+    const db = join(directory, 'product.sqlite');
+    const teamDb = join(directory, 'teams.sqlite');
+    const ids = join(directory, 'ids.json');
+    const first = runChild(['team-start', '--db', db, '--team-db', teamDb, '--ids', ids], 'team.model,team.started');
+    const info = await first.fault;
+    expect(['team.model', 'team.started']).toContain(info.point);
+    await kill(first.child);
+    const recovered = await runAndWait(['team-recover', '--db', db, '--team-db', teamDb, '--ids', ids]);
+    const result = JSON.parse(recovered.output.trim().split('\n').at(-1) as string) as {
+      recovered: { interrupted: number; unknown: number };
+      runStatus: string | null;
+      activationStatus: string | null;
+      memberStatus: string | null;
+      tasks: string[];
+      activationCount: number;
+    };
+    expect(result.recovered.interrupted + result.recovered.unknown).toBeGreaterThanOrEqual(1);
+    expect(['interrupted', 'unknown']).toContain(result.activationStatus);
+    expect(result.memberStatus).toBe('idle');
+    expect(result.tasks).toContain('pending');
+    expect(result.activationCount).toBe(1);
+  }, 60_000);
+
+  it('team: a missing model after restart is an explicit failed activation, not a silent replay', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'eunoia-fault-team-'));
+    cleanups.push(async () => rm(directory, { recursive: true, force: true }));
+    const db = join(directory, 'product.sqlite');
+    const teamDb = join(directory, 'teams.sqlite');
+    const ids = join(directory, 'ids.json');
+    const first = runChild(['team-start', '--db', db, '--team-db', teamDb, '--ids', ids], 'team.model,team.started');
+    await first.fault;
+    await kill(first.child);
+    const recovered = await runAndWait([
+      'team-recover', '--db', db, '--team-db', teamDb, '--ids', ids, '--followup', '1',
+    ]);
+    const lines = recovered.output.trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
+    const follow = lines.find((entry) => entry['followStatus'] !== undefined);
+    expect(follow?.['followStatus']).toBe('failed');
+    expect(String(follow?.['followError'] ?? '')).toContain('missing');
+  }, 60_000);
+
+  it('team: a response arriving after stop stays interrupted and does not make the run succeed', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'eunoia-fault-late-'));
+    cleanups.push(async () => rm(directory, { recursive: true, force: true }));
+    const db = join(directory, 'product.sqlite');
+    const teamDb = join(directory, 'teams.sqlite');
+    const result = await runAndWait(['team-late', '--db', db, '--team-db', teamDb]);
+    const parsed = JSON.parse(result.output.trim().split('\n').at(-1) as string) as {
+      status: string;
+      runStatus: string | null;
+    };
+    expect(parsed.status).toBe('interrupted');
+    expect(parsed.runStatus).not.toBe('succeeded');
   }, 60_000);
 });

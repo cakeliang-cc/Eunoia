@@ -356,6 +356,8 @@ export interface TeamStore {
   nextQueuedActivation(memberId: string): Promise<Activation | null>;
   /** Running activations whose lease has passed, for recovery. */
   expiredActivations(now: string): Promise<Activation[]>;
+  /** All activations a restart must reconcile, regardless of lease clock. */
+  runningActivations(): Promise<Activation[]>;
 
   // ----------------------------------------------------------------- tasks ---
   createTask(input: CreateTaskInput): Promise<Task>;

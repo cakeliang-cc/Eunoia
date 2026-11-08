@@ -39,6 +39,7 @@ import type { ArtifactFile, ArtifactManifest } from './types.ts';
 import { TeamError } from './types.ts';
 import { artifactCandidateHash, normalizeArtifactPath } from './workspaces.ts';
 import { faultPoint } from '../observability/faults.ts';
+import { acquireWorkspaceWriteLocks } from '../sandbox/write-lock.ts';
 
 export interface ConflictReport {
   readonly path: string;
@@ -304,6 +305,12 @@ export async function publishCandidate(input: PublishInput): Promise<PublishResu
     );
   }
 
+  // The same canonical-path gate used by write/edit/patch and undo. Team
+  // publish targets the source root, which can be the bind workspace of a
+  // different task; a task-scoped lock would not see that competitor.
+  const lockTargets = operations.map((operation) => join(input.targetRoot, operation.path));
+  const releasePublish = await acquireWorkspaceWriteLocks(lockTargets);
+  try {
   let applied: string[] = [];
   if (input.journalPath) {
     try {
@@ -398,6 +405,9 @@ export async function publishCandidate(input: PublishInput): Promise<PublishResu
     conflicts: [...conflicts],
     journal: [...journal],
   };
+  } finally {
+    await releasePublish();
+  }
 }
 
 // ------------------------------------------------------------- merge helpers ---

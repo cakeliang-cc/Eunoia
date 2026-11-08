@@ -761,6 +761,52 @@ export class TeamService implements ActivationHost, TeamToolHost {
     });
   }
 
+  /**
+   * Explicit recovery for an answered question whose original wait died.
+   *
+   * It creates a new activation on the same member; it never replays the old
+   * tool calls or side effects. The answer is included as context and the
+   * request id makes a double click idempotent. The user can inspect the
+   * question/answer and the member's activity before invoking this.
+   */
+  async resumeFromQuestion(input: {
+    readonly ownerId: string;
+    readonly runId: string;
+    readonly questionId: string;
+  }): Promise<Activation> {
+    if (!this.#deps.questions) {
+      throw new TeamError('TEAM_UNAVAILABLE', '这个部署没有提问服务，不能续跑。', 503);
+    }
+    const question = await this.#deps.questions.get(input.ownerId, input.questionId);
+    if (!question) throw new TeamError('TEAM_QUESTION_NOT_FOUND', '没有这个问题。', 404);
+    if (question.status !== 'answered') {
+      throw new TeamError('TEAM_QUESTION_CONFLICT', '只有已回答的问题才能安全续跑。', 409);
+    }
+    if (!question.memberId) {
+      throw new TeamError('TEAM_QUESTION_CONFLICT', '这个问题不是子成员提出的，没有可续跑的成员。', 409);
+    }
+    const run = await this.getRun(input.ownerId, input.runId);
+    if (question.conversationId !== run.rootConversationId) {
+      throw new TeamError('TEAM_QUESTION_CONFLICT', '问题不属于这个运行。', 409);
+    }
+    const member = await this.getMember(input.ownerId, question.memberId);
+    if (member.teamId !== run.teamId) throw new TeamError('TEAM_FORBIDDEN', '成员不属于这个 Team。', 403);
+    if (member.status === 'closed' || member.status === 'closing') {
+      throw new TeamError('TEAM_MEMBER_CLOSED', '成员已关闭，不能续跑。', 409);
+    }
+    const answer = question.answer
+      ? Object.entries(question.answer)
+          .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : String(value)}`)
+          .join('\n')
+      : '(没有答案内容)';
+    return this.runtime.followup(member.id, {
+      kind: 'resume',
+      text:
+        `用户在问题「${question.prompt}」中回答：\n${answer}\n\n` +
+        '请从当前已确认的状态继续。不要重放中断前已经产生的外部副作用；如果需要重新执行，请先核对当前状态。',
+    }, `question-resume:${question.id}`);
+  }
+
   async followupFromTool(
     caller: TeamToolCaller,
     memberId: string,
@@ -771,11 +817,11 @@ export class TeamService implements ActivationHost, TeamToolHost {
     if (!member || member.teamId !== caller.team.id) {
       throw new TeamError('TEAM_MEMBER_NOT_FOUND', '没有这个成员。', 404);
     }
-    return this.runtime.followup(memberId, {
-      kind: 'followup',
-      text: message,
-      ...(requestId ? { requestId } : {}),
-    });
+    return this.runtime.followup(
+      memberId,
+      { kind: 'followup', text: message },
+      requestId,
+    );
   }
 
   async interruptMember(ownerId: string, memberId: string): Promise<Member> {

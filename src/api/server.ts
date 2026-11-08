@@ -2036,6 +2036,38 @@ export function createApp(deps: AppDependencies) {
         sendJson(response, 200, { questions: await questions.pending(userId, conversationId) });
         return true;
       }
+      const resumeMatch = /^\/api\/questions\/([0-9a-f-]{36})\/resume$/.exec(pathname);
+      if (resumeMatch && request.method === 'POST') {
+        if (!guardPermissionWrite(request, response)) return true;
+        if (!deps.teamService) {
+          sendJson(response, 503, { error: 'Team service is not enabled' });
+          return true;
+        }
+        const parsed = await readBodyOrReject(request, response);
+        if (!parsed.ok) return true;
+        const body = asObject(parsed.value) ?? {};
+        const runId = typeof body.runId === 'string' ? body.runId : '';
+        if (runId.length === 0) {
+          sendJson(response, 400, { error: 'runId is required' });
+          return true;
+        }
+        const userId = await identify(request, response);
+        try {
+          const activation = await deps.teamService.resumeFromQuestion({
+            ownerId: userId,
+            runId,
+            questionId: resumeMatch[1] as string,
+          });
+          sendJson(response, 201, { activation });
+        } catch (error) {
+          const described =
+            error instanceof Error
+              ? { error: error.message, code: (error as { code?: string }).code ?? 'QUESTION_FAILED' }
+              : { error: 'resume failed' };
+          sendJson(response, (error as { status?: number }).status ?? 400, described);
+        }
+        return true;
+      }
       const match = /^\/api\/questions\/([0-9a-f-]{36})\/(answer|cancel)$/.exec(pathname);
       if (match && request.method === 'POST') {
         if (!guardPermissionWrite(request, response)) return true;
