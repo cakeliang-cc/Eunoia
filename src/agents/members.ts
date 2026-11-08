@@ -867,6 +867,11 @@ export class SubagentRuntime {
           ledger: new TurnReadLedger(),
           now,
           sandboxed: Boolean(workspace),
+          // External tools (MCP) and the web tools authorize against a real
+          // user and conversation; a member has both, just not the person's
+          // root conversation.
+          userId: team.ownerId,
+          conversationId: member.internalConversationId,
         },
         maxSteps: this.#deps.host.maxStepsFor(member),
         signal: abort.signal,

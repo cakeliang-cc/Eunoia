@@ -102,7 +102,7 @@
 | T39 | ✅ | `acceptance.test.ts` T39：候选哈希变化后旧证据不能验收。 |
 | T40 | ⚠️ | 成员权限取父级交集（T40 用例）；MCP 未接入，MCP 路径/命令/网络权限交集无证据。 |
 | T41 | ✅ | `approvals.test.ts` + `src/teams/approvals.ts`：审批视图绑定成员、activation/generation、requestKey（摘要）、policyVersion；同一批准只能应用一次；跨 owner 拒绝；UI 成员页显示待审批卡片与批准/拒绝。 |
-| T42 | ⚠️ | 统一主线后成员通过 `McpService.toolsForTurn` 获得 MCP 工具并使用 `permissionPort`；本机 Playwright MCP ready、工具总数 51。尚未单独构造成员级 MCP elicitation/Tasks 取消与 stdio cwd 的真实用例，因此仍不能算完全通过。 |
+| T42 | ⚠️ | 统一主线后成员通过 `McpService.toolsForTurn` 获得 MCP 工具，`toolContext` 带 member 的 userId/conversationId。真实回放：成员调用 `browser_navigate` 产生 `mcp_actions.state=waiting_approval`，记录 member 会话/参数摘要；API 接受后执行。Playwright 浏览器缓存报 EPERM（环境阻塞），未取得页面。elicitation/Tasks 取消与 unknown 状态仍未单独验收。 |
 | T43 | ✅ | `images.test.ts`：无授权跟进被拒；显式 `resource.granted`（owner/asset/member/purpose/expiry）后可发；撤销后再次被拒；他人资源在授权时即失败。成员消息只存 block 引用，不把用户资产重新绑定到成员会话。 |
 | T44 | ✅ | `images.test.ts`：同一图片分别发送给两个成员，产生两个独立 `PreparedMediaPlan`（`imageTokens>0`）与两次预算预留；预留计入规划后的输入估算。 |
 | T45 | ✅ | `store-contract` 10 路并发预留不透支；`service.test.ts` 预算竞争；spawn/重试走同一账本。 |
@@ -226,7 +226,7 @@ curl -s http://127.0.0.1:8790/api/teams/runs/<runId>/report
 - 迁移前备份：`backups/eunoia-before-team-mcp-merge-20261108-192415.sqlite`；迁移后 13 个会话保留。
 - 服务：`http://127.0.0.1:8787`，PID 96583，从 `.worktrees/mcp` 的 main 构建启动；`/health` 为 `status:ok, mcp:true, web:true, team.enabled:true`。
 - 功能：`/`、`/team.js`、`/team.css`、`/app.js` 200；`/api/tools` 51 个工具（含 `read_image`、`web_fetch`、`process_start`、`ask_user_question`、`find_definition`）；Playwright MCP 服务 ready；`GET /api/teams` 返回 Team 配置。
-- 成员执行已接入 MCP 工具与统一权限端口；成员级 MCP elicitation/Tasks 仍未单独验收，T42 保持部分。
+- 成员执行已接入 MCP 工具与统一权限端口；真实回放中成员 `browser_navigate` 进入 `waiting_approval`，接受后执行；Playwright 浏览器缓存 EPERM 属环境阻塞，T42 的 elicitation/Tasks 仍未单独验收，保持部分。
 
 ## 12. 结论
 
