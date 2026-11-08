@@ -44,7 +44,7 @@
 ```text
 npm run typecheck    通过
 npm run lint         0 errors / 4 warnings（均在既有 browser-check 脚本）
-npm test             125 files passed / 4 skipped；1559 tests passed / 27 skipped
+npm test             125 files passed / 4 skipped；1560 tests passed / 27 skipped
 npm run build        通过
 npm run browser:check 通过（桌面、390px、MCP 抽屉）
 ```
