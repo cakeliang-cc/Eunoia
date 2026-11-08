@@ -24,6 +24,7 @@
  */
 
 import { sandboxSettings, describeSandboxSettings } from './config.ts';
+import { minutesToMs } from './cli-args.ts';
 import { createSandboxPlatform } from './index.ts';
 import { selectStore } from '../db/select.ts';
 import { EgressPolicy } from './network/egress-policy.ts';
@@ -63,12 +64,6 @@ function requireFlag(flags: Readonly<Record<string, string>>, name: string): str
   const value = flags[name]?.trim();
   if (!value) throw new SandboxError('invalid_input', `missing --${name}`);
   return value;
-}
-
-function minutes(value: string | undefined, fallback: number): number {
-  if (!value) return fallback;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed * 60_000 : fallback;
 }
 
 function parseMode(value: string): PermissionMode {
@@ -172,7 +167,7 @@ async function main(): Promise<void> {
           {
             action,
             resourceScope: scope,
-            ttlMs: minutes(flags.minutes, 10),
+            ttlMs: minutesToMs(flags.minutes, 10),
             ...(flags.by ? { approvedBy: flags.by } : {}),
           },
         );
@@ -247,7 +242,7 @@ async function main(): Promise<void> {
           scopeType: scope.scopeType,
           scopeId: scope.scopeId,
           mode,
-          ...(flags.minutes ? { ttlMs: minutes(flags.minutes, 0) } : {}),
+          ...(flags.minutes ? { ttlMs: minutesToMs(flags.minutes, 0) } : {}),
           actor: flags.by?.trim() || settings.permission.operatorId,
         });
         output(policy);
@@ -304,7 +299,7 @@ async function main(): Promise<void> {
             approvalRequestId: approvalId,
             decidedBy: requireFlag(flags, 'by'),
             ...(flags.scope ? { scope: parseApprovalScope(flags.scope) } : {}),
-            ...(flags.minutes ? { ttlSeconds: Math.floor(minutes(flags.minutes, 0) / 1_000) } : {}),
+            ...(flags.minutes ? { ttlSeconds: Math.floor(minutesToMs(flags.minutes, 0) / 1_000) } : {}),
             ...(flags.reason ? { reason: flags.reason } : {}),
           },
         );
@@ -346,7 +341,7 @@ async function main(): Promise<void> {
       case 'gc': {
         const checkpointDays = Number(flags['checkpoint-days'] ?? '7');
         const result = await platform.gateway.gc({
-          idleMs: minutes(flags['idle-minutes'], 60),
+          idleMs: minutesToMs(flags['idle-minutes'], 60),
           checkpointRetentionMs:
             (Number.isFinite(checkpointDays) && checkpointDays > 0 ? checkpointDays : 7) *
             24 *
