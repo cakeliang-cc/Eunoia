@@ -31,7 +31,7 @@
 
 - `SQLITE_SCHEMA_VERSION = 12`；`TEAM_SCHEMA` 的 11 张表（teams、runs、members、activations、tasks、attempts、messages、artifacts、events、budget entries、integrations）已加入基础 schema 与 `SQLITE_MIGRATION_12`。
 - 迁移幂等：全部 `CREATE TABLE/INDEX IF NOT EXISTS`；旧库从 10/11 打开时依次执行 `MIGRATION_11`（若该开发线已合入）与 `MIGRATION_12`。
-- 已验证：`npm run typecheck` 通过；`npm run lint` 0 error（3 个既有 warning）；`npm test` **1539 passed, 27 skipped**（112 个文件通过，4 个文件按环境跳过）。
+- 已验证：`npm run typecheck` 通过；`npm run lint` 0 error（3 个既有 warning）；`npm test` **1543 passed, 28 skipped**（115 个文件通过，5 个文件按环境跳过）；T31 的 Docker 用例另以 `TEAM_INTEGRATION=1` 单独运行通过（1 passed）。
 - 迁移命令：`npm run migrate`；备份：`npm run backup`（未在本报告运行，见 §8）。
 
 ## 4. 自动化证据位置
@@ -47,7 +47,10 @@
 | steering / 忙时派发 | `tests/teams/steering.test.ts` | 3 |
 | E01/E02 API+SQLite | `tests/api/teams-e2e.test.ts` | 2 |
 | HTTP API + SSE | `tests/api/teams.test.ts` | 8 |
-| 既有回归 | `tests/` 其余套件 | 1371+ |
+| 邮箱重投 | `tests/teams/mailbox.test.ts` | 1 |
+| 迁移/备份 | `tests/teams/migration.test.ts` | 1 |
+| 容器隔离（gated） | `tests/teams/workspaces.docker.test.ts` | 1 |
+| 既有回归 | `tests/` 其余套件 | 1375+ |
 
 ## 5. T01–T60 逐项结果
 
@@ -55,7 +58,7 @@
 
 | ID | 结果 | 证据与说明 |
 | --- | --- | --- |
-| T01 | ✅ | 既有 1539 项测试全绿；普通聊天/工具/停止/历史未改传输语义；Team 仅在显式 run 时启用。 |
+| T01 | ✅ | 既有 1543 项测试全绿；普通聊天/工具/停止/历史未改传输语义；Team 仅在显式 run 时启用。 |
 | T02 | ✅ | `service.test.ts` fresh 成员有独立内部 conversation；`acceptance.test.ts` T05/T11 记录独立模型请求。 |
 | T03 | ⚠️ | fork 只复制已提交、非 interrupted 轮次（`acceptance.test.ts`、`service.test.ts`）；低权限 fork 拒绝已实现，但"敏感工具输出裁剪"未单独构造用例。 |
 | T04 | ⚠️ | 初始化失败写 `failed` 成员并释放，不产生可激活幽灵成员；工作区失败后的清理未单独断言。 |
@@ -72,7 +75,7 @@
 | T15 | ✅ | `service.test.ts`/`store-contract`：同键同文只存一条，同键异文 409。 |
 | T16 | ✅ | `acceptance.test.ts` T16：伪造 sender、给已关闭成员发信均拒绝。 |
 | T17 | ✅ | `acceptance.test.ts` T17：忙时消息在下一模型步骤以带来源 user item 注入，写入轨迹，不进入工具组。 |
-| T18 | ⛔ | 注入前后崩溃重启的故障注入未执行；store 层 durability 有测试，但邮箱恢复路径无证据。 |
+| T18 | ⚠️ | `mailbox.test.ts`：注入后未完成步骤时 requeue 回 accepted，重投只注入一次并 processed。未做真实进程 kill -9 重启；store durability 另有测试。 |
 | T19 | ⚠️ | 单条大小与每成员队列上限已测；自动激活次数、广播扇出与"互相确认"自激预算未单独测。 |
 | T20 | ⚠️ | 认领要求 ready/owner 匹配、关闭成员拒绝已实现；历史成员/外树成员不能认领未单测。 |
 | T21 | ✅ | `service.test.ts`：自依赖、环、跨运行/不存在依赖拒绝；合法图与修改成功。 |
@@ -85,7 +88,7 @@
 | T28 | ⚠️ | interrupt/停止后的迟到结果不能改成功（代码 + T09）；完整停止后发布/工具续调矩阵未测。 |
 | T29 | ✅ | `acceptance.test.ts` T29：并发上限外排队，释放后按序获得。 |
 | T30 | ✅ | `acceptance.test.ts` T30：pausing→paused 与 resume 重检预算；resume 后 `stop` 收束。 |
-| T31 | ⛔ | 真实容器内的 Team 成员互读隔离未执行；`workspaces.test.ts` 只在宿主文件系统证明副本隔离。未在容器层验收，不能算通过。 |
+| T31 | ✅ | `workspaces.docker.test.ts`（TEAM_INTEGRATION=1 + Docker runc）：两个成员各自挂载 `/workspace`，甲写入的文件在乙容器不可见，容器内无法读取兄弟工作区或源目录，成员写入不落入源目录。 |
 | T32 | ✅ | `workspaces.test.ts`：排除 `.env`/`.git`/忽略目录/越界链接，保留源目录未提交修改。 |
 | T33 | ⛔ | 共享缓存、端口与可写依赖隔离未在真实容器验证。 |
 | T34 | ✅ | `workspaces.test.ts`：增删改、重命名、二进制、执行位、路径穿越。 |
@@ -113,10 +116,10 @@
 | T56 | ⚠️ | 暂停/停止/关闭成员与任务验收可操作；审批与冲突解决未完成（见 T41/T35 API 缺口）。 |
 | T57 | ⚠️ | CSS 在 390px 单列、无横向溢出设计；未做真实浏览器键盘/标签检查。 |
 | T58 | ✅ | 成员轮次写 `agent_runs`（独立 conversation）；不向前端暴露 reasoning；无长期记忆自动写入。 |
-| T59 | ⚠️ | 新库 schema 12 与 Team 表已测；旧库升级到 12 的完整备份/恢复演练未执行。 |
+| T59 | ⚠️ | `migration.test.ts`：把 v11（无 Team 表）库升级到 12、保留会话消息、备份/恢复成功；清理仍只覆盖「referenced 工作区不删除」，未覆盖 artifact 引用计数。 |
 | T60 | ✅ | `acceptance.test.ts` T60 + E06：required 未验收时 run 为 `waiting_user`，不成功。 |
 
-统计：✅ 35，⚠️ 17，⛔ 8，❌ 0（T 维度）。**未全部通过。**
+统计：✅ 36，⚠️ 18，⛔ 6，❌ 0（T 维度）。**未全部通过。**
 
 ## 6. E01–E06 端到端结果
 
@@ -159,7 +162,7 @@
 5. **MCP（T42）**：MCP 宿主仍在另一条未提交开发线；成员未获得 MCP 工具句柄，stdio/elicitation/Tasks 取消未验收。
 5. **UI 自动化（T54–T57）**：抽屉与响应式样式已实现，但没有浏览器自动化点击/键盘/390px 断言。
 6. **候选发布编排**：`workspaces.ts`/`integration.ts` 有完整模块测试，但 Team API/服务没有把"物化候选 → 验证 → 发布 journal → UI 冲突编辑"串成一条可用链路。
-7. **容器层**：Docker/runc 可用，但没有执行 Team 成员隔离的容器级用例（T31/T33），按计划不能以宿主测试替代。
+7. **容器层**：T31 已在 Docker/runc 下通过；T33 的共享缓存/端口/可写依赖隔离仍未验证。
 
 ## 8. 复现命令
 
