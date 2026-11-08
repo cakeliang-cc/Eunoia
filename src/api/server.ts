@@ -102,6 +102,10 @@ import type {
 } from '../sandbox/permissions/types.ts';
 import { discoverSkillRegistry } from '../skills/registry.ts';
 import { codingTools } from '../tools/coding/index.ts';
+import { createWebTools } from '../tools/web-tools.ts';
+import { createQuestionTools } from '../tools/question-tools.ts';
+import { createProcessTools } from '../tools/process-tools.ts';
+import { createPreviewTools } from '../tools/preview-tools.ts';
 import type { SkillRegistry } from '../skills/registry.ts';
 import { clearIdentity, readIdentity, resolveIdentity, singleUserId } from './identity.ts';
 import { handleMcpRoutes } from './mcp-routes.ts';
@@ -1705,7 +1709,14 @@ export function createApp(deps: AppDependencies) {
         sendJson(response, 400, { error: 'conversationId must be a uuid' });
         return true;
       }
-      const tools = codingTools.map((tool) => ({
+      const builtins = [
+        ...codingTools,
+        ...(web ? createWebTools(web) : []),
+        ...(questions ? createQuestionTools(questions) : []),
+        ...(processes ? createProcessTools(processes) : []),
+        ...(processes ? createPreviewTools(processes) : []),
+      ];
+      const tools = builtins.map((tool) => ({
         name: tool.name,
         description: tool.description,
         source: 'builtin' as const,

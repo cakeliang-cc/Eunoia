@@ -1,6 +1,7 @@
 # Eunoia 开发工具补齐验收报告
 
 - 分支：`feat/developer-toolkit`
+- 实现提交：`1373577`（catalog/运行版本修正见该分支后续提交）
 - 日期：2026-11-08
 - 实施清单：[eunoia-开发工具补齐实施清单](../plans/eunoia-开发工具补齐实施清单.md)
 - 选型研究：[eunoia-开发工具现状与选型](../research/tools/eunoia-开发工具现状与选型.md)
@@ -87,7 +88,19 @@ diagnostics → 没有诊断错误（检查了 1 个文件）
 
 中文/emoji/CRLF 行列转换有独立测试（`tests/tools/semantic-tools.test.ts`）。
 
-### 3.5 进程/预览
+### 3.5 真实部署与 Playwright MCP（本机）
+
+- 服务从 `.worktrees/mcp` 的 `dist` 启动，PID `66297`；`/health` 返回
+  `status:ok`、`web:true`、sandbox enabled、`network:none`。
+- 生产库迁移到 schema **14**，`web_documents`、`dev_jobs`、`dev_previews`、
+  `user_questions` 四张表存在；旧会话/媒体保留。
+- 在真实服务里创建并连接 Playwright MCP（host 模式，隔离 profile，deny
+  `browser_run_code_unsafe`/`browser_file_upload`）：状态 `ready`，发现 24 个工具，
+  协议 `2025-11-25`，serverInfo Playwright `1.63.0-alpha`。
+- `GET /api/tools` 返回内置工具目录、MCP 工具、web/processes/browser/languageServer
+  后端状态；未配置 Tavily 时搜索明确显示 `configured:false`。
+
+### 3.6 进程/预览
 
 进程服务在真实本地 shell 上验证：启动立即返回、stdout/stderr 游标、退出码、FIFO 输入、取消、进程组停止、PID 消失→unknown、同 toolCall 幂等、并发上限、预览容器内 HTTP 探测。**尚未在真实 Docker 沙箱内跑同一套生命周期**（见 §4 阻塞）。
 
@@ -137,8 +150,8 @@ diagnostics → 没有诊断错误（检查了 1 个文件）
 
 | 项 | 状态 | 证据/缺口 |
 | --- | --- | --- |
-| D24 安装/检测/启用流程 | PARTIAL | `@playwright/mcp@0.0.80` + Chrome + `toolkit:doctor`；`toolkit:setup` 打印配置；没有 UI 一键启用 |
-| D25 真实浏览器/截图/控制台/网络 | PASS（后端） | 真实导航 example.com，24 个工具；控制台/网络工具存在；未在 Eunoia 会话内走完整审批链 |
+| D24 安装/检测/启用流程 | PARTIAL | `@playwright/mcp@0.0.80` + Chrome + `toolkit:doctor`；`toolkit:setup` 打印配置；真实服务里已创建并连接（24 工具）；没有 UI 一键启用 |
+| D25 真实浏览器/截图/控制台/网络 | PASS（后端） | 真实服务 MCP ready + 直接进程内导航 example.com；控制台/网络工具已发现；未在 Eunoia 会话内走完整审批链 |
 | D26 页面行为验证、截图入媒体 | PARTIAL | 截图文件存在；未导入媒体、未形成 vision 内容块 |
 | D27 权限/审批/代理/隔离 | PARTIAL | 走 MCP 审批与工具策略；宿主进程 + `--isolated` profile，不是容器/网络隔离 |
 | D28 不重复注册同义浏览器工具 | PASS | 浏览器只经 MCP 发现；无原生 browser_* 工具 |
@@ -231,7 +244,7 @@ diagnostics → 没有诊断错误（检查了 1 个文件）
 5. **LSP**：需要决定是否把语义工具从编译器 LanguageService 切到 `typescript-language-server`（已安装），并实现启动、初始化、变更同步、崩溃重连和取消。
 6. **真实图片模型回合**：需要确认可用视觉模型与预算；本轮未消耗真实模型额度。
 7. **Team 提问汇总**：需要 Team 成员/activation 身份接入 `QuestionService`，并在主 Agent 汇总答案。
-8. **真实容器进程/重启演练**：需要启动真实沙箱，执行长进程、重启容器、验证 unknown/清理；本地 shell 测试不能替代。
+8. **真实容器进程/重启演练**：需要启动真实沙箱，执行长进程、重启容器、验证 unknown/清理；本地 shell 测试不能替代。当前服务的 schema 14 与沙箱均正常，但未通过真实会话发起 `process_start`。
 
 ## 6 复现命令
 
