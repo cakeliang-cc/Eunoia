@@ -1,7 +1,7 @@
 # Eunoia 模型轨迹与前缀缓存验收报告
 
 日期：2026 年 11 月 8 日。实现 ADR：`docs/adr/032-model-transcript-and-prefix-cache.md`。
-基线提交：`824d369`。数据库 schema：v9 → **v10**。
+基线提交：`824d369`。实现提交：`79d2027`；文档与隐私收尾：`32c85c7`。数据库 schema：v9 → **v10**。
 
 本报告只记录实际运行过的结果。离线契约全部通过；真实 smoke S01–S03 使用本地
 `.env` 中的 DeepSeek 凭据，限制为总计 24 次请求、200,000 输入 Token、单次输出
