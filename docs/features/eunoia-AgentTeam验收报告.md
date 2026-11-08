@@ -102,7 +102,7 @@
 | T39 | ✅ | `acceptance.test.ts` T39：候选哈希变化后旧证据不能验收。 |
 | T40 | ⚠️ | 成员权限取父级交集（T40 用例）；MCP 未接入，MCP 路径/命令/网络权限交集无证据。 |
 | T41 | ✅ | `approvals.test.ts` + `src/teams/approvals.ts`：审批视图绑定成员、activation/generation、requestKey（摘要）、policyVersion；同一批准只能应用一次；跨 owner 拒绝；UI 成员页显示待审批卡片与批准/拒绝。 |
-| T42 | ⛔ | `src/mcp/` 是另一条未提交开发线；成员未获得 MCP 工具句柄，stdio/elicitation/Tasks 取消未验收。 |
+| T42 | ⚠️ | 统一主线后成员通过 `McpService.toolsForTurn` 获得 MCP 工具并使用 `permissionPort`；本机 Playwright MCP ready、工具总数 51。尚未单独构造成员级 MCP elicitation/Tasks 取消与 stdio cwd 的真实用例，因此仍不能算完全通过。 |
 | T43 | ✅ | `images.test.ts`：无授权跟进被拒；显式 `resource.granted`（owner/asset/member/purpose/expiry）后可发；撤销后再次被拒；他人资源在授权时即失败。成员消息只存 block 引用，不把用户资产重新绑定到成员会话。 |
 | T44 | ✅ | `images.test.ts`：同一图片分别发送给两个成员，产生两个独立 `PreparedMediaPlan`（`imageTokens>0`）与两次预算预留；预留计入规划后的输入估算。 |
 | T45 | ✅ | `store-contract` 10 路并发预留不透支；`service.test.ts` 预算竞争；spawn/重试走同一账本。 |
@@ -122,7 +122,7 @@
 | T59 | ✅ | `migration.test.ts`：v11（无 Team 表）升级到 12、保留会话消息、备份/恢复成功；`integration-flow.test.ts`：有 artifact 的成员工作区被引用保护不删除，无引用的工作区可清理。 |
 | T60 | ✅ | `acceptance.test.ts` T60 + E06：required 未验收时 run 为 `waiting_user`，不成功。 |
 
-统计：✅ 46，⚠️ 10，⛔ 3，❌ 0（T 维度）。**未全部通过。**
+统计：✅ 46，⚠️ 11，⛔ 2，❌ 0（T 维度）。**未全部通过。**
 
 ## 6. E01–E06 端到端结果
 
@@ -219,6 +219,15 @@ curl -s http://127.0.0.1:8790/api/teams/runs/<runId>/report
 - **并行进程**：`127.0.0.1:8787` 仍由 `.worktrees/mcp` 的进程占用；本报告未终止并行开发进程。主库已是 v13，本分支的 12 版服务不能直接复用，需要等该开发线合入后再统一迁移版本。
 - **修复的启动/健壮性问题**：Team 工作区根默认移到源目录外（`~/.eunoia/team-workspaces`，可用 `TEAM_WORKSPACE_ROOT` 覆盖；本机 DSH 沙箱下 home 不可写，验证用 /tmp）；畸形请求目标 `//` 返回 400 而非崩溃；关闭成员与激活收尾的竞争用 `closedAt` 修复；预算预留移到模型并发槽之后，避免排队请求提前占满输出预算；Team 工具使用 `workspace_state` 副作用类别，不再因“禁止命令”而被误拒。
 
-## 11. 结论## 11. 结论
+## 11. 统一主线合并（2026-11-08）
+
+- 合并提交：`c241d71`（`feat/team-mcp-integration`，已推送），main 快进到该提交。
+- schema 统一为 **15**：MCP 11、撤销 13、开发工具 14、Agent Team 15；Team 11 张表全部创建。
+- 迁移前备份：`backups/eunoia-before-team-mcp-merge-20261108-192415.sqlite`；迁移后 13 个会话保留。
+- 服务：`http://127.0.0.1:8787`，PID 96583，从 `.worktrees/mcp` 的 main 构建启动；`/health` 为 `status:ok, mcp:true, web:true, team.enabled:true`。
+- 功能：`/`、`/team.js`、`/team.css`、`/app.js` 200；`/api/tools` 51 个工具（含 `read_image`、`web_fetch`、`process_start`、`ask_user_question`、`find_definition`）；Playwright MCP 服务 ready；`GET /api/teams` 返回 Team 配置。
+- 成员执行已接入 MCP 工具与统一权限端口；成员级 MCP elicitation/Tasks 仍未单独验收，T42 保持部分。
+
+## 12. 结论
 
 本次交付了可运行的 Subagent 运行时、持久 Team 任务板、CAS/租约/outbox、全队预算与模型许可、steering、图片授权/预算、隔离工作区与冲突集成发布、API、前端抽屉，以及 E01/E02/E03/E06 的真实端到端；但 **T01–T60 与 E01–E06 没有全部通过（E04 UI 未完成、E05 未执行）**，因此不能声称"具备完整 Team 能力"。按计划第 2 节和第 12 节，容器/MCP/真实模型相关项必须标记阻塞或失败，不应以替身测试冒充通过。后续补齐顺序建议：MCP 工具授权与审批 → 图片授权/预算 → E04 UI 冲突编辑/重新验证 → E05 故障注入。
