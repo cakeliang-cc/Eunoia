@@ -3989,7 +3989,13 @@ if (greeting) {
 }
 
 input.addEventListener('input', resize);
+let composing = false;
+input.addEventListener('compositionstart', () => { composing = true; });
+input.addEventListener('compositionend', () => { composing = false; });
 input.addEventListener('keydown', (event) => {
+  // Enter confirms an IME candidate first. Some browsers clear isComposing
+  // before that keydown but still identify it with the legacy IME code 229.
+  if (composing || event.isComposing || event.keyCode === 229) return;
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();
     $('composer').requestSubmit();
