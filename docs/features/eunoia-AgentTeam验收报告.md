@@ -31,7 +31,7 @@
 
 - `SQLITE_SCHEMA_VERSION = 12`；`TEAM_SCHEMA` 的 11 张表（teams、runs、members、activations、tasks、attempts、messages、artifacts、events、budget entries、integrations）已加入基础 schema 与 `SQLITE_MIGRATION_12`。
 - 迁移幂等：全部 `CREATE TABLE/INDEX IF NOT EXISTS`；旧库从 10/11 打开时依次执行 `MIGRATION_11`（若该开发线已合入）与 `MIGRATION_12`。
-- 已验证：`npm run typecheck` 通过；`npm run lint` 0 error（3 个既有 warning）；`npm test` **1554 passed, 28 skipped**（117 个文件通过，5 个文件按环境跳过）；T31 的 Docker 用例另以 `TEAM_INTEGRATION=1` 单独运行通过（1 passed）。
+- 已验证：`npm run typecheck` 通过；`npm run lint` 0 error（3 个既有 warning）；`npm test` **1555 passed, 28 skipped**（118 个文件通过，5 个文件按环境跳过）；T31 的 Docker 用例另以 `TEAM_INTEGRATION=1` 单独运行通过（1 passed）。
 - 迁移命令：`npm run migrate`；备份：`npm run backup`（未在本报告运行，见 §8）。
 
 ## 4. 自动化证据位置
@@ -50,9 +50,10 @@
 | 邮箱重投 | `tests/teams/mailbox.test.ts` | 1 |
 | 迁移/备份 | `tests/teams/migration.test.ts` | 1 |
 | 图片授权/预算 | `tests/teams/images.test.ts` | 3 |
+| 预算结算/对账 | `tests/teams/budget-accounting.test.ts` | 1 |
 | 容器隔离（gated） | `tests/teams/workspaces.docker.test.ts` | 1 |
 | E03/E04 集成发布 | `tests/teams/integration-flow.test.ts` | 3 |
-| 既有回归 | `tests/` 其余套件 | 1386+ |
+| 既有回归 | `tests/` 其余套件 | 1387+ |
 
 ## 5. T01–T60 逐项结果
 
@@ -60,7 +61,7 @@
 
 | ID | 结果 | 证据与说明 |
 | --- | --- | --- |
-| T01 | ✅ | 既有 1554 项测试全绿；普通聊天/工具/停止/历史未改传输语义；Team 仅在显式 run 时启用。 |
+| T01 | ✅ | 既有 1555 项测试全绿；普通聊天/工具/停止/历史未改传输语义；Team 仅在显式 run 时启用。 |
 | T02 | ✅ | `service.test.ts` fresh 成员有独立内部 conversation；`acceptance.test.ts` T05/T11 记录独立模型请求。 |
 | T03 | ✅ | fork 只复制已提交、非 interrupted 轮次；子成员权限低于父级时拒绝 fork（`acceptance.test.ts` T03），避免继承父轨迹。助手文本中的敏感内容未做分类裁剪，策略是保守拒绝低权限 fork。 |
 | T04 | ✅ | `acceptance.test.ts` T04：工作区 provision 失败后成员记为 failed、无 activation、不可运行；容量在失败时释放。 |
@@ -105,7 +106,7 @@
 | T43 | ✅ | `images.test.ts`：无授权跟进被拒；显式 `resource.granted`（owner/asset/member/purpose/expiry）后可发；撤销后再次被拒；他人资源在授权时即失败。成员消息只存 block 引用，不把用户资产重新绑定到成员会话。 |
 | T44 | ✅ | `images.test.ts`：同一图片分别发送给两个成员，产生两个独立 `PreparedMediaPlan`（`imageTokens>0`）与两次预算预留；预留计入规划后的输入估算。 |
 | T45 | ✅ | `store-contract` 10 路并发预留不透支；`service.test.ts` 预算竞争；spawn/重试走同一账本。 |
-| T46 | ⚠️ | 缓存输入不计入输出、usage 缺失记 incomplete、价格 unknown（不按免费）已实现；成本对账入口未提供。 |
+| T46 | ✅ | `budget-accounting.test.ts`：缓存输入只计一次（100 输入含 40 缓存）；usage 缺失的预留保持 incomplete 且继续占用请求上限；价格未配置时 `priceVersion/estimatedCostUsd` 为 null，不伪造免费；`GET /runs/:id/budget` 返回全部 entries 作为对账入口。 |
 | T47 | ✅ | 请求/Toke/激活上限停止新派发；E06 真实运行在 24 次请求处停止并报告未完成。 |
 | T48 | ✅ | `acceptance.test.ts` T48：过期 running activation 恢复为 interrupted/unknown；不重放工具。 |
 | T49 | ⚠️ | 恢复把无法确认的副作用标 unknown；"工具已生效但响应丢失"的具体构造未执行。 |
@@ -121,7 +122,7 @@
 | T59 | ⚠️ | `migration.test.ts`：把 v11（无 Team 表）库升级到 12、保留会话消息、备份/恢复成功；清理仍只覆盖「referenced 工作区不删除」，未覆盖 artifact 引用计数。 |
 | T60 | ✅ | `acceptance.test.ts` T60 + E06：required 未验收时 run 为 `waiting_user`，不成功。 |
 
-统计：✅ 44，⚠️ 12，⛔ 3，❌ 0（T 维度）。**未全部通过。**
+统计：✅ 45，⚠️ 11，⛔ 3，❌ 0（T 维度）。**未全部通过。**
 
 ## 6. E01–E06 端到端结果
 

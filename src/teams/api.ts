@@ -281,6 +281,9 @@ export function createTeamApi(deps: { service: TeamService; adapters: TeamApiAda
         adapters.sendJson(res, 200, {
           budget: await service.teamStore.budgetSnapshot(runId),
           usage: await service.teamStore.runUsage(runId),
+          // Reconciliation entry point: every reservation, its settlement status
+          // and whether usage/price was missing.
+          entries: await service.teamStore.listBudgetEntries(runId),
         });
         return true;
       }
