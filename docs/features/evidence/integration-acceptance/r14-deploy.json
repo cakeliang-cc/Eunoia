@@ -1,0 +1,30 @@
+{
+  "verifiedAt": "2026-11-08T13:37:51Z",
+  "branch": "fix/integration-acceptance",
+  "codeCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+  "servicePid": 62155,
+  "port": 8788,
+  "host": "127.0.0.1",
+  "build": {
+  "commit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+  "dirty": true,
+  "builtAt": "2026-11-08T13:37:12.181Z",
+  "packageVersion": "0.1.0"
+},
+  "schemaVersion": 15,
+  "database": "/Users/Zhuanz/Projects/designFree/data/eunoia.sqlite",
+  "backup": "backups/eunoia-2026-11-08T13-29-50-178Z",
+  "backupManifest": "backups/eunoia-2026-11-08T13-29-50-178Z/manifest.json",
+  "health": {"status":"ok","prompt_version":"ec490dad544f","build":{"commit":"7b6dc65718ba9e653fd078e67d04aeddf5d96197","dirty":true,"builtAt":"2026-11-08T13:37:12.181Z","packageVersion":"0.1.0"},"store":"sqlite","persistent":true,"single_user":true,"workspace":"/Users/Zhuanz/Projects/designFree","workspace_mode":"bind","workspace_writes":true,"workspace_commands":true,"sandbox":{"enabled":true,"runtime":"docker","runtime_class":"runc","gvisor_required":false,"non_gvisor_acknowledged":true,"runtime_ok":true,"runtime_detail":"available runtimes: io.containerd.runc.v2, runc; gvisor=absent","image":"sha256:d46d4112cae653cc0ea1421a9f572764d61cfd7a4d43083d01f2529b6a9988a8","workspace_mode":"bind","network_mode":"none","writes":true,"commands":true,"permission_mode":"auto","permission_allowed_modes":["read-only","auto","on-request","restricted"],"auto_review":true,"metrics":{"uptime_ms":38131,"sandbox_created":1,"sandbox_create_failed":0,"sandbox_creation_success_rate":1,"sandbox_start_total_ms":210,"sandbox_start_latency_ms":210,"sandbox_destroyed":1,"sandbox_recovered":2,"sandbox_recovery_success_rate":1,"execution_total":8,"execution_success_rate":1,"execution_unknown":0,"execution_duplicate":0,"duplicate_execution_rate":0,"unauthorized_access_block_rate":null,"resource_limit_triggered":0,"permission_allowed":8,"permission_denied":0,"permission_escalated":0,"permission_auto_approved":0,"permission_auto_denied":0,"permission_human_approved":0,"permission_human_denied":0,"permission_fail_closed":0}},"max_steps":12,"skills":3,"skills_version":"352f0d2afe7c","media":true,"mcp":true,"web":true,"team":{"enabled":true,"persistence":"store","recovery":"on-start"}},
+  "preview": {
+    "startResponse": {"preview":{"id":"prv_ee275e71-fbc3-4d5e-917b-533e7f363dfd","routeId":"d00d51ca3512411aaea5793f771c464e","jobId":"job_4978d0da-74a5-47cf-8ea9-63bfd48a50a2","userId":"39ae0773-f68c-4426-8203-1b0fbb791f0f","conversationId":"63e0a147-c508-40fb-97e8-8df91203d58f","memberId":null,"runId":null,"taskId":"63e0a147-c508-40fb-97e8-8df91203d58f","sandboxId":null,"workspaceId":null,"containerPort":4401,"status":"ready","generation":1794145066348,"userUrl":"http://d00d51ca3512411aaea5793f771c464e.preview.localhost:8790/","browserUrl":"http://d00d51ca3512411aaea5793f771c464e.preview.localhost:8790/","createdAt":"2026-11-08T13:37:46.348Z","readyAt":"2026-11-08T13:37:46.348Z","expiresAt":"2026-11-08T14:07:46.348Z","lastOpenedAt":null,"error":null},"job":{"id":"job_4978d0da-74a5-47cf-8ea9-63bfd48a50a2","userId":"39ae0773-f68c-4426-8203-1b0fbb791f0f","conversationId":"63e0a147-c508-40fb-97e8-8df91203d58f","turnId":null,"memberId":null,"taskId":"63e0a147-c508-40fb-97e8-8df91203d58f","toolCallId":"api-preview-624ad4a7-7b60-4170-a138-744be4439d50","command":"node -e \"require('http').createServer((q,s)=>s.end('final-preview-ok')).listen(4401,'127.0.0.1')\"","cwd":".","marker":"c0b589c9-6aa6-436d-b813-2bcb30d4178f","pid":22,"status":"running","exitCode":null,"stdoutPath":"/tmp/eunoia-jobs/job_4978d0da-74a5-47cf-8ea9-63bfd48a50a2/out","stderrPath":"/tmp/eunoia-jobs/job_4978d0da-74a5-47cf-8ea9-63bfd48a50a2/err","stdinFifo":null,"startedAt":"2026-11-08T13:37:46.140Z","endedAt":null,"expiresAt":"2026-11-08T14:37:46.140Z","error":null},"ready":true,"detail":"容器内 HTTP 200","internalUrl":"http://127.0.0.1:4401/"},
+    "userUrlBody": "final-preview-ok",
+    "afterStopStatus": 404
+  },
+  "realChat": {
+    "conversationId": "63e0a147-c508-40fb-97e8-8df91203d58f",
+    "tool": "web_fetch",
+    "reply": "标题：Example Domain\n来源 URL：https://example.com/",
+    "turnUsage": {"inputTokens": 23227, "outputTokens": 93, "totalTokens": 23320, "cachedTokens": 14848, "measuredSteps": 2, "totalSteps": 2, "incomplete": false}
+  }
+}

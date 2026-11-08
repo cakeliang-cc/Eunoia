@@ -1,5 +1,7 @@
 # Eunoia：Subagent 与 Agent Team 验收报告
 
+> 最新整改验收（R01–R14）：[eunoia-联调整改验收报告](./eunoia-联调整改验收报告.md)。本文件保留原始测试时间、失败记录与历史结论，不覆盖旧状态。
+
 日期：2026-11-08。分支：`feat/subagent-agent-team`。依据：[实施清单](../plans/eunoia-Subagent与AgentTeam实施清单.md)、[选型研究](../research/agents/eunoia-Subagent与AgentTeam对照.md)、[ADR 034](../adr/034-subagent-and-agent-team.md)。
 
 > 结论先说：**核心运行时、持久任务板、预算/许可、隔离工作区、API 与前端已实现并有测试；但本次没有达到"T01–T60 与 E01–E06 全部通过"**。E05 故障注入与部分 UI/环境项未完成；E06 最终在一次由用户经 API 编排的真实 DeepSeek 运行中通过（20/24 次请求；见 §6）；此前四次无编排尝试的失败也保留记录。逐项结果如下，未运行/阻塞项不做"通过"处理。

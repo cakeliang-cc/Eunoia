@@ -1,5 +1,5 @@
 {
-  "baselineCommit": "1a5c801",
+  "baselineCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
   "notes": "Status entries cite executed evidence. PASS only where the cited command actually ran in this session or an unchanged prior run is explicitly referenced.",
   "items": {
     "D01": {
@@ -1482,9 +1482,15 @@
     },
     "R14": {
       "status": "PASS",
-      "reason": "备份/迁移/构建/重启/健康与真实预览将在部署后补齐证据；代码与脚本入口已就绪。",
-      "testCommands": [],
-      "evidence": []
+      "reason": "",
+      "testCommands": [
+        "npm run acceptance:check",
+        "npm run build",
+        "npm run migrate"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/r14-deploy.json"
+      ]
     }
   }
 }

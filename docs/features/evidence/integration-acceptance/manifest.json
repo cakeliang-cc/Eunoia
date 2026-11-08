@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T13:01:05.862Z",
-  "baselineCommit": "1a5c801",
+  "generatedAt": "2026-11-08T13:38:00.173Z",
+  "baselineCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
   "report": "docs/features/eunoia-联调整改验收报告.md",
   "statusVocabulary": [
     "PASS",
@@ -12,46 +12,46 @@
   ],
   "totals": {
     "all": {
-      "PASS": 0,
-      "PARTIAL": 0,
+      "PASS": 108,
+      "PARTIAL": 42,
       "FAIL": 0,
-      "BLOCKED": 0,
-      "TODO": 152
+      "BLOCKED": 2,
+      "TODO": 0
     },
     "D": {
-      "PASS": 0,
-      "PARTIAL": 0,
+      "PASS": 42,
+      "PARTIAL": 21,
       "FAIL": 0,
-      "BLOCKED": 0,
-      "TODO": 64
+      "BLOCKED": 1,
+      "TODO": 0
     },
     "V": {
-      "PASS": 0,
-      "PARTIAL": 0,
+      "PASS": 3,
+      "PARTIAL": 4,
       "FAIL": 0,
-      "BLOCKED": 0,
-      "TODO": 8
+      "BLOCKED": 1,
+      "TODO": 0
     },
     "T": {
-      "PASS": 0,
-      "PARTIAL": 0,
+      "PASS": 52,
+      "PARTIAL": 8,
       "FAIL": 0,
       "BLOCKED": 0,
-      "TODO": 60
+      "TODO": 0
     },
     "E": {
-      "PASS": 0,
-      "PARTIAL": 0,
+      "PASS": 5,
+      "PARTIAL": 1,
       "FAIL": 0,
       "BLOCKED": 0,
-      "TODO": 6
+      "TODO": 0
     },
     "R": {
-      "PASS": 0,
-      "PARTIAL": 0,
+      "PASS": 6,
+      "PARTIAL": 8,
       "FAIL": 0,
       "BLOCKED": 0,
-      "TODO": 14
+      "TODO": 0
     }
   },
   "items": [
@@ -60,1672 +60,2250 @@
       "title": "已有功能回归",
       "requirement": "单 Agent、工具、Skills、MCP/Team、媒体、幂等和停止契约保持",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L239",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D02",
       "title": "工具目录",
       "requirement": "实际 schema/校验一致，身份由服务绑定，未配置状态与错误准确",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L240",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt",
+        "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D03",
       "title": "作业启动",
       "requirement": "长期进程快速返回句柄，命令只在受控工作区/容器执行",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L241",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D04",
       "title": "作业隔离",
       "requirement": "两成员进程、cwd、环境和资源互不串用，越权 ID 被拒",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L242",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "作业隔离有成员工作区与 Docker 测试，但成员进程工具的双成员隔离未单测。"
     },
     {
       "id": "D05",
       "title": "增量日志",
       "requirement": "stdout/stderr、游标、分页、丢失标识和输出上限正确",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L243",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D06",
       "title": "等待与输入",
       "requirement": "wait 不占模型许可，取消有效；PTY 输入按归属和状态处理",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L244",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D07",
       "title": "定向停止",
       "requirement": "父子进程全部结束，同容器其他合法作业保持运行",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L245",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D08",
       "title": "重启与 PID 复用",
       "requirement": "旧句柄不误控新进程，无法核实时 unknown，无自动补启动",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L246",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "PID 复用与 marker 有单测；真实服务重启后的长期作业对账未重跑。"
     },
     {
       "id": "D09",
       "title": "并发和寿命",
       "requirement": "启动/停止幂等；上限、TTL、成员关闭和运行停止正确清理",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L247",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "并发/幂等有测试；TTL 自动回收长期作业未单独执行。"
     },
     {
       "id": "D10",
       "title": "预览就绪",
       "requirement": "超时/失败/端口冲突正确；浏览器获得真实可达地址",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L248",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D11",
       "title": "预览代理",
       "requirement": "HTTP 与开发 WebSocket 可用，未授权端口与跨用户访问被拒",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L249",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D12",
       "title": "预览 origin",
       "requirement": "被预览脚本无法读取主应用私有 API、控制 token 或 Cookie",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L250",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "预览 origin 的 host/path/cookie 与跨主应用探测有测试；iframe sandbox 与 postMessage 未做浏览器端验证。"
     },
     {
       "id": "D13",
       "title": "setup/doctor",
       "requirement": "依赖、浏览器、版本、网络、能力和账号状态准确，不自动安装",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L251",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D14",
       "title": "浏览器实际连接",
       "requirement": "真实 Playwright MCP 能发现全部必需能力，锁定版本可复现",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L252",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt",
+        "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D15",
       "title": "浏览器隔离",
       "requirement": "两成员 Cookie/tab/profile/目录隔离，同名服务不串连接",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L253",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "浏览器实例使用 --isolated，但两名成员 Cookie/tab/下载目录隔离未做双实例浏览器测试。"
     },
     {
       "id": "D16",
       "title": "浏览器动作",
       "requirement": "导航、点击、输入、选择、等待、tab、viewport 实际成功",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L254",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "真实 headless Chrome 已验证导航与截图；点击/输入/选择/等待/tab 未逐项重跑。"
     },
     {
       "id": "D17",
       "title": "页面引用失效",
       "requirement": "旧元素引用不误操作，重取页面后可恢复",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L255",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "旧元素引用失效未做真实浏览器回归。"
     },
     {
       "id": "D18",
       "title": "浏览器网络限制",
       "requirement": "导航、跳转、子资源、脚本/WebSocket 不能绕过授权网络边界",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L256",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "浏览器在宿主运行，未经过受控网关；导航/重定向/WebSocket 的网络边界未满足。"
     },
     {
       "id": "D19",
       "title": "页面故障证据",
       "requirement": "捕获控制台 error、失败请求/HTTP 错误，敏感信息脱敏",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L257",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "控制台/失败请求工具已发现，但未在本轮真实动作中采集并断言脱敏。"
     },
     {
       "id": "D20",
       "title": "截图真正入模",
       "requirement": "实际截图字节变体经 image 块编码进入下一请求，不只返回路径",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L258",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt",
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D21",
       "title": "截图范围",
       "requirement": "390px/桌面、整页/元素、DPR/变体元数据准确，过长图显式处理",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L259",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "截图文件引用可导入；整页/元素/视口/DPR 变体未逐项验证。"
     },
     {
       "id": "D22",
       "title": "浏览器取消",
       "requirement": "已送达动作不假报撤销；停止清理与 unknown 状态准确",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L260",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "浏览器取消与 unknown 语义未做真实动作测试。"
     },
     {
       "id": "D23",
       "title": "attach 与恢复",
       "requirement": "显式接管/冲突处理正确；重启不假称旧 tab 和 Cookie 已恢复",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L261",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "attach/外部浏览器接管与重启恢复未验证。"
     },
     {
       "id": "D24",
       "title": "图片读取",
       "requirement": "JPEG/PNG/WebP 从授权工作区入库，UI 和模型收到相同资源身份",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L262",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt",
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D25",
       "title": "图片边界",
       "requirement": "符号链接/敏感文件/伪扩展/像素洪泛/不支持格式按策略拒绝",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L263",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt",
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D26",
       "title": "图片不可变",
       "requirement": "读取后源文件变化不改历史；实际读取字节和记录哈希一致",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L264",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt",
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D27",
       "title": "图片能力和授权",
       "requirement": "unsupported/unknown 不误看图，跨会话和子成员授权校验不放宽",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L265",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt",
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D28",
       "title": "图片预算",
       "requirement": "实际变体、重复图片、工具续轮与 Team 总预算核算正确",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L266",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt",
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D29",
       "title": "fetch 正文",
       "requirement": "HTML 清洗、文本编码、非 2xx、二进制/登录页与截断结果准确",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L267",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D30",
       "title": "fetch 网络",
       "requirement": "IPv4/IPv6、DNS 重绑定、重定向和代理路径不能访问未授权私网/元数据",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L268",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D31",
       "title": "fetch 资源限制",
       "requirement": "跳转、超时、压缩炸弹、大正文和转换限额生效，可取消",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L269",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D32",
       "title": "搜索真实适配",
       "requirement": "Tavily 协议适配、认证和错误经 HTTP 契约测试，无伪结果/隐形总结调用",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L270",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "BLOCKED",
+      "testCommands": [
+        "npx vitest run tests/web"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r08-search-contract.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "本机没有 TAVILY_API_KEY，真实搜索调用无法执行；适配器与本地 HTTP 契约测试已通过。"
     },
     {
       "id": "D33",
       "title": "搜索配置",
       "requirement": "无凭据/429/超时/取消区别明确，重试有界且次数可审计",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L271",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D34",
       "title": "来源与分页",
       "requirement": "URL/日期/抓取版本可追溯，缺失日期不编造，分页不偷换内容",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L272",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D35",
       "title": "外部内容",
       "requirement": "网页/搜索文本不升级指令，不继承认证信息，引用前端可见",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L273",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D36",
       "title": "后端可替换",
       "requirement": "替换 Search/FetchProvider 不改 loop/schema；费用未知不显示为零",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L274",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D37",
       "title": "提问创建",
       "requirement": "单选/多选/文本及推荐选项准确，需求问题不等同权限审批",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L275",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D38",
       "title": "提问等待",
       "requirement": "blocking/timed/取消准确，超时和预选不当答案，不占模型许可",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L276",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D39",
       "title": "回答幂等",
       "requirement": "重复回答只注入一次；越权、旧版本、关闭运行和非法选项被拒",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L277",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D40",
       "title": "提问恢复",
       "requirement": "刷新/重启恢复卡片；答案进入原执行安全边界，无第二轮互斥绕过",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L278",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D41",
       "title": "子成员问题",
       "requirement": "子成员经主 Agent 汇总，避免直接越权弹窗；停止清理等待",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L279",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r09-questions.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "子成员问题已汇入根会话并带成员/代次；中断后的原执行安全续跑未端到端完成。"
     },
     {
       "id": "D42",
       "title": "LSP 启动",
       "requirement": "真实 TS/JS 服务初始化，记录版本/能力，与项目工作区一致",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L280",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D43",
       "title": "定义与引用",
       "requirement": "重名/跨文件场景返回实际符号位置，分页与授权范围正确",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L281",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D44",
       "title": "行列编码",
       "requirement": "中文、emoji、CRLF 和协商编码转换正确，无偏移误定位",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L282",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D45",
       "title": "诊断版本",
       "requirement": "修改后旧结果 stale，新结果对应当前版本，未就绪不当零错误",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L283",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D46",
       "title": "LSP 更新恢复",
       "requirement": "文档同步、取消、崩溃重连和错误帧有界处理，不漏进程",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L284",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D47",
       "title": "LSP 权限",
       "requirement": "不能跨成员读文件、加载未授权插件或通过 applyEdit 改文件",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L285",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "LSP 进程不加载插件并拒绝 applyEdit（实现），但跨成员路径/插件负向测试未单独执行。"
     },
     {
       "id": "D48",
       "title": "补丁预检",
       "requirement": "新增/更新/删除/移动、dry-run、基线与权限校验正确，失败不落盘",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L286",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D49",
       "title": "补丁竞争",
       "requirement": "全批提交前重检版本，同文件竞争无静默覆盖，幂等键异参冲突",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L287",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D50",
       "title": "补丁故障",
       "requirement": "中途崩溃准确记录已应用项，恢复不覆盖用户新编辑",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L288",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D51",
       "title": "共用修改记录",
       "requirement": "write/edit/patch/Team 发布均能关联修改集，历史内容不可变",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L289",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D52",
       "title": "撤销增删改移动",
       "requirement": "匹配 after 的变化准确反向恢复，包含新增文件删除与目标冲突",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L290",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D53",
       "title": "用户修改保护",
       "requirement": "用户后续编辑或新建文件导致冲突，不覆盖、不误删",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L291",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D54",
       "title": "撤销依赖",
       "requirement": "后续修改依赖显式处理，重复撤销幂等，旧执行轨迹保留",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L292",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "撤销依赖保护与部分撤销已实现/测试；后续修改依赖的完整队列未覆盖。"
     },
     {
       "id": "D55",
       "title": "撤销故障范围",
       "requirement": "journal 故障可恢复；未归因命令与外部效果明确标记不覆盖",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L293",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "跨文件 journal 与冲突证据有测试；未归因命令/外部效果的撤销边界仅部分覆盖。"
     },
     {
       "id": "D56",
       "title": "API 所有权",
       "requirement": "作业、预览、截图、问题、语义和修改集端点跨 owner 均拒绝",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L294",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "npx vitest run tests/previews",
+        "npx vitest run tests/api"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
+        "docs/features/evidence/integration-acceptance/logs/d-api-service.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "作业/预览/问题/修改集跨 owner 有测试；语义与全部权限端点未逐一负向覆盖。"
     },
     {
       "id": "D57",
       "title": "前端完整流程",
       "requirement": "配置、作业、预览、截图、来源、问题、诊断和撤销均可操作",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L295",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "npx vitest run tests/web/dev-panel.test.ts",
+        "node --experimental-strip-types scripts/dev-panel-check.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/r11/dev-panel-check.json"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "作业/预览/来源/差异/撤销可操作并有真实浏览器证据；问题、诊断与 Team 流程未在同一 UI 验收中覆盖。"
     },
     {
       "id": "D58",
       "title": "流与历史",
       "requirement": "重连、事件去重、历史回放不会重复工具或图片，日志有界",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L296",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/web/dev-panel.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/r11/dev-panel-check.json"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D59",
       "title": "无障碍与窄屏",
       "requirement": "键盘、标签和 390px 检查通过，无整体横向溢出",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L297",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "node --experimental-strip-types scripts/dev-panel-check.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/r11/dev-panel-check.json"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D60",
       "title": "审批与停止",
       "requirement": "具体成员/动作/版本可见；批准不串用，根停止能收束资源",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L298",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "审批卡片绑定成员/代次有测试；UI 全流程批准与根停止收束未合并验收。"
     },
     {
       "id": "D61",
       "title": "预算总账",
       "requirement": "图片、工具结果、子成员和额外外部费用都进入正确账本",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L299",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D62",
       "title": "迁移备份清理",
       "requirement": "旧数据升级成功，引用资源备份可恢复，不清掉未决修改/对账证据",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L300",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "迁移/备份将在 R14 部署时执行；尚未在旧库临时副本演练。"
     },
     {
       "id": "D63",
       "title": "安全脱敏",
       "requirement": "秘钥、认证头、个人浏览器状态与私有资源不通过日志或 UI 泄露",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L301",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm test"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "D64",
       "title": "安装重现",
       "requirement": "干净环境按锁版本和文档安装后 doctor 通过，禁网环境错误准确",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L302",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "doctor 可运行；干净环境按锁文件重装未执行。"
     },
     {
       "id": "V01",
       "title": "从 UI 启动临时前端项目，查询日志、等待就绪、打开预览再停止",
       "requirement": "真实容器和服务、可达路由、WebSocket、定向停止，无孤儿进程",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L308",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "npx vitest run tests/previews",
+        "SANDBOX_INTEGRATION=1 npx vitest run tests/sandbox/preview-tunnel.docker.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "真实 Docker 沙箱内 dev server 经租约与宿主网关可达（network:none、无端口发布）；尚未用浏览器 MCP 在同一租约上完成打开+截图。"
     },
     {
       "id": "V02",
       "title": "经实际 Playwright MCP 完成页面操作，采集错误和桌面/390px 截图",
       "requirement": "实际截图、工具清单/调用、图像入模请求投影、受控页面结果",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L309",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "PLAYWRIGHT_MCP_LIVE=1 npx vitest run tests/mcp/browser-output.live.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "真实 Playwright MCP 截图文件引用已导入媒体并生成 image block；尚未把该块送入真实模型请求。"
     },
     {
       "id": "V03",
       "title": "Agent 读取工作区设计图并读取原截图，做文本与图片预算检查",
       "requirement": "真实文件、媒体哈希、发送变体、图片能力不足时明确拒绝",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L310",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "RUN_SMOKE=1 npx vitest run tests/smoke/live-vision.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r07-vision-smoke.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "真实 DeepSeek Flash 完成 S01–S03：单图/双图顺序/重启后回放，真实回答与 usage 保留。"
     },
     {
       "id": "V04",
       "title": "搜索公开技术资料，读取其中一页并输出来源链接",
       "requirement": "真实搜索 API 与公网 fetch；请求/来源/状态/费用配置脱敏证据",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L311",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "BLOCKED",
+      "testCommands": [
+        "npx vitest run tests/web"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r08-search-contract.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "缺少 TAVILY_API_KEY，真实搜索与来源网页读取无法执行；本地协议测试已通过。"
     },
     {
       "id": "V05",
       "title": "Agent 发起方案选择，刷新后回答，再继续同一任务；另测取消和旧答案",
       "requirement": "问题 ID、恢复事件、只有一次入模，原回合互斥不被绕过",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L312",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/questions"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r09-questions.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "真实模型提问→回答→同轮恢复已有证据；本轮补子成员汇总/旧代次/重复回答/重启读取答案测试。"
     },
     {
       "id": "V06",
       "title": "TS/JS 示例项目中定位定义、查引用，制造类型错误后修复",
       "requirement": "真实 LSP、正确行列与版本、旧诊断失效、当前诊断更新",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L313",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/semantic tests/tools/semantic-tools.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "真实 typescript-language-server：初始化、跨文件定义/引用、中文/emoji/CRLF、诊断更新、取消、SIGKILL 重连与文档重建。"
     },
     {
       "id": "V07",
       "title": "多文件增删改移动后撤销，再制造用户并发修改和发布中断",
       "requirement": "完整 before/after、冲突不丢内容、幂等与故障恢复 journal",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L314",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "npx vitest run tests/tools/change-protection.test.ts tests/service/workspace-undo.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "版本保护/冲突/journal/部分撤销预检有测试；UI 冲突与发布中断的完整浏览器流程未合并执行。"
     },
     {
       "id": "V08",
       "title": "正式产品入口由真实当前模型完成“读取设计图→启动预览→看图改样式→再截图验证”",
       "requirement": "模型真实收到两轮图片，代码和页面结果可核对，总 usage/工具数/资源清理有记录",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L315",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "RUN_SMOKE=1 npx vitest run tests/smoke/live-vision.test.ts",
+        "SANDBOX_INTEGRATION=1 npx vitest run tests/sandbox/preview-tunnel.docker.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r07-vision-smoke.txt",
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "真实视觉与真实预览分别通过；同一产品任务内的“读图→预览→截图→改样式→再截图”闭环尚未执行。"
     },
     {
       "id": "T01",
       "title": "单 Agent 回归",
       "requirement": "普通聊天/工具/停止/历史读取保持既有契约，不强制建 Team",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L239",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T02",
       "title": "fresh 委派",
       "requirement": "独立内部会话和轨迹，只收到显式上下文，真实产生独立 ModelTurn 调用",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L240",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T03",
       "title": "fork 边界",
       "requirement": "只继承已提交轮次及完整工具组；父子写入隔离；低权限成员不能借历史取得敏感输出",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L241",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T04",
       "title": "创建失败",
       "requirement": "初始化、持久化或工作区失败不泄露许可，不留下可运行幽灵成员",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L242",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T05",
       "title": "同成员跟进",
       "requirement": "忙时排队、空闲时继续；不会并发写同一成员轨迹",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L243",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T06",
       "title": "模型可替换",
       "requirement": "两个不同 provider 配置经相同端口成功执行，无 DeepSeek 名称分支",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L244",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T07",
       "title": "能力不足",
       "requirement": "工具/图片能力不符时预检失败或显式重新选择，零误派发",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L245",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T08",
       "title": "fork 协议差异",
       "requirement": "不可转换内容明确阻塞；不泄露私有 provider 字段",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L246",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T09",
       "title": "interrupt",
       "requirement": "当前执行及工具可取消，成员可继续新激活，旧回调不能污染新轮",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L247",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T10",
       "title": "close 与子树",
       "requirement": "关闭后拒绝跟进；后代收束，进程、等待、许可可核对释放",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L248",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T11",
       "title": "真正并行",
       "requirement": "屏障证明两个成员模型请求同时在途；不是只检查 Promise 数量",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L249",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T12",
       "title": "等待不死锁",
       "requirement": "低并发配置下，主成员 wait 不占请求许可，子成员仍能完成",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L250",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T13",
       "title": "树和容量",
       "requirement": "深度、成员数、激活数上限及环校验准确；越限不调用模型",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L251",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T14",
       "title": "运行创建幂等",
       "requirement": "双请求仅建一个运行；同键不同输入返回冲突",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L252",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T15",
       "title": "消息持久幂等",
       "requirement": "重复发送只存/注入一次，同键不同内容冲突；accepted 不冒充已处理",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L253",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T16",
       "title": "消息授权",
       "requirement": "跨 owner/Team、伪造 sender、已关闭成员均被拒绝",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L254",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T17",
       "title": "安全注入",
       "requirement": "忙时消息在合法边界注入；不能打断工具组或冒充高优先级指令",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L255",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T18",
       "title": "邮箱故障点",
       "requirement": "注入前后崩溃重启，无漏信和重复轨迹，ack/游标一致",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L256",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "邮箱注入/重投有单测；真实进程 kill 后重启的邮箱游标矩阵未完成。"
     },
     {
       "id": "T19",
       "title": "消息界限",
       "requirement": "大小、数量、扇出和自激预算生效，成员互发不能无限唤醒",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L257",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "大小/队列上限已测；自动激活、广播扇出与自激预算未单独测。"
     },
     {
       "id": "T20",
       "title": "成员资格",
       "requirement": "历史成员、关闭成员和外树成员不能认领任务；名称不是授权依据",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L258",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T21",
       "title": "DAG",
       "requirement": "自环、循环、悬空及跨运行依赖失败，合法图及修改成功",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L259",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T22",
       "title": "CAS 认领",
       "requirement": "两个真实数据库连接竞争同任务仅一方成功，版本递增",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L260",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T23",
       "title": "任务授权",
       "requirement": "成员不能改他人归属、放宽验收或自验收；主成员操作可审计",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L261",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T24",
       "title": "依赖调度",
       "requirement": "依赖 accepted 才 ready；失败/取消阻塞；outbox 重投不重复激活",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L262",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T25",
       "title": "提交不等于完成",
       "requirement": "activation 成功、工具成功、submitted 或根模型提前输出最终答案均不能自动使 Team succeeded",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L263",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T26",
       "title": "拒绝再交付",
       "requirement": "旧提交保留，新 attempt 重新验证；required 任务不能静默消失",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L264",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T27",
       "title": "租约失效",
       "requirement": "过期 generation 写回被拒；旧进程未终止不重派写任务",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L265",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "过期 generation 写回有测试；旧进程未终止前不重派写任务未构造。"
     },
     {
       "id": "T28",
       "title": "停止后迟到",
       "requirement": "迟到响应不能变成功、续调工具或发布文件",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L266",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "停止后迟到结果不能改成功（代码/测试）；完整停止后的发布/工具续调矩阵未测。"
     },
     {
       "id": "T29",
       "title": "调度公平性",
       "requirement": "全局/用户/Team 限流均生效，无长期饥饿和容量计数泄漏",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L267",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T30",
       "title": "暂停恢复",
       "requirement": "pausing/paused 语义准确；恢复重检权限、预算、generation",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L268",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T31",
       "title": "写工作区隔离",
       "requirement": "真实容器中成员不能读写兄弟目录、源目录、共享 Git 元数据",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L269",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T32",
       "title": "快照安全",
       "requirement": "未提交修改保留；凭据、忽略目录和越界链接不被复制",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L270",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T33",
       "title": "环境隔离",
       "requirement": "共享缓存不可互改；端口与可写依赖不串扰",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L271",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T34",
       "title": "差异产物",
       "requirement": "增删改、二进制、重命名、执行位按声明支持；哈希和路径校验准确",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L272",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T35",
       "title": "同文件冲突",
       "requirement": "两成员冲突显式呈现，无覆盖，解决后重新验证",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L273",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T36",
       "title": "源目录变化",
       "requirement": "发布前相关文件变化阻塞；用户内容不丢失，无关变化可继续",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L274",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T37",
       "title": "发布故障",
       "requirement": "多文件中途故障能识别已应用集合；不覆盖故障后用户编辑",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L275",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T38",
       "title": "发布幂等",
       "requirement": "相同发布请求只应用一次；不同候选同键冲突",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L276",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T39",
       "title": "证据绑定",
       "requirement": "候选哈希变化后旧测试证据失效；失效证据不能验收",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L277",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T40",
       "title": "权限交集",
       "requirement": "子成员扩大路径、命令、网络或角色权限均失败，MCP 同样检查",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L278",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/mcp/member-scope.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "成员权限交集与 MCP 服务/工具/外部写/未知/网络/路径负向测试通过；动作在发送前被拒绝且服务端计数为 0。"
     },
     {
       "id": "T41",
       "title": "审批归属",
       "requirement": "UI/服务核对成员、参数哈希、账号和代次；旧批准不能批准新动作",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L279",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T42",
       "title": "MCP 真实契约",
       "requirement": "受控本地 MCP 服务验证身份、stdio cwd、elicitation/Tasks 取消和 unknown 状态",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L280",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/mcp/member-scope.test.ts tests/teams/mcp-interactions.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt",
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "真实本地 MCP fixture 验证成员工具注册、审批和拒绝路径；与既有 T42 证据合并。"
     },
     {
       "id": "T43",
       "title": "图片授权",
       "requirement": "子成员获得显式授权才可读；跨用户/撤销后访问失败，不放宽原媒体检查",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L281",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T44",
       "title": "图片预算",
       "requirement": "同图发送给两成员分别计入请求，能力和图片预留均正确",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L282",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T45",
       "title": "团队预算竞争",
       "requirement": "两成员同时预留不透支；嵌套 spawn/摘要/重试无法绕过总账",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L283",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T46",
       "title": "usage 结算",
       "requirement": "缓存输入不重复累计，价格 unknown/usage 缺失不会按免费派发",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L284",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T47",
       "title": "总量终止",
       "requirement": "请求、Token、激活任一上限到达停止新派发，报告未完成项",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L285",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T48",
       "title": "进程恢复",
       "requirement": "SQLite 重启恢复成员/任务/邮箱/事件；模型响应丢失不自动重放写工具",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L286",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T49",
       "title": "外部效果未知",
       "requirement": "工具已生效但响应丢失时进入待对账，不重复执行，不假报成功",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L287",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/fault-injection"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r12-fault-injection.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "真实子进程在工具产生外部效果后被杀；重启恢复为 unknown，外部计数保持 1，未重放。"
     },
     {
       "id": "T50",
       "title": "配置失效",
       "requirement": "重启后模型、凭据或工具消失时明确阻塞，重新选择可恢复",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L288",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "未知模型在 spawn 前阻塞；重启后凭据/工具消失的重新选择流程未端到端测。"
     },
     {
       "id": "T51",
       "title": "SSE 重连",
       "requirement": "断开不取消 Team，补游标不重建运行、不重复事件；过期可拉快照",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L289",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T52",
       "title": "追加指令",
       "requirement": "steering 按序进入合法边界；普通第二轮仍受根会话互斥",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L290",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T53",
       "title": "API 所有权",
       "requirement": "所有成员/任务/事件/产物端点跨 owner 拒绝，猜 ID 不可下载",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L291",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T54",
       "title": "主界面流程",
       "requirement": "配置、委派、看板、成员详情、结果审阅均可从 UI 完成",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L292",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "Team 抽屉可配置/委派/看板；浏览器全流程自动化仍待 R11/R11 证据。"
     },
     {
       "id": "T55",
       "title": "UI 消息与错误",
       "requirement": "@ 成员指向稳定 ID；CAS/模型/预算错误可见并可恢复",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L293",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "稳定 ID @ 成员与错误码已实现；UI 自动化未完成。"
     },
     {
       "id": "T56",
       "title": "UI 控制与审批",
       "requirement": "暂停/停止/关闭区别明确；审批和冲突解决全流程可操作",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L294",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T57",
       "title": "UI 可访问性",
       "requirement": "390px 窄屏、键盘和标签检查通过；长轨迹不撑爆页面",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L295",
-      "status": "TODO",
+      "status": "PARTIAL",
       "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "390px/键盘检查未在本轮重新执行。"
     },
     {
       "id": "T58",
       "title": "审计与隐私",
       "requirement": "工具可追到成员/attempt；无密钥、私密推理和自动长期记忆污染",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L296",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "T59",
       "title": "迁移与清理",
       "requirement": "升级旧数据库及备份恢复成功；清理不删除仍被引用的产物/未知工作区",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L297",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams/migration.test.ts tests/teams/integration-flow.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "迁移/备份与引用保护有既有测试；R14 将再次执行真实备份/迁移。"
     },
     {
       "id": "T60",
       "title": "完整收束",
       "requirement": "required 未验收/有冲突/有未知效果时不成功；终态容量、进程和结果一致",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L298",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/teams tests/api/teams.test.ts tests/api/teams-e2e.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "E01",
       "title": "UI 发起普通委派，分别走 fresh/fork，给空闲成员跟进再关闭",
       "requirement": "独立调用与上下文摘要、成员轨迹、停止后无残留进程",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L306",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/api/teams-e2e.test.ts tests/teams/integration-flow.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "E02",
       "title": "开启 Team，两个成员并行执行独立任务，互发消息，第三任务依赖两者验收",
       "requirement": "真并发时间线、消息与任务版本、提交和验收差异、主成员最终汇总",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L307",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/api/teams-e2e.test.ts tests/teams/integration-flow.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "E03",
       "title": "在实际沙箱副本中生成两份无冲突修改，候选集成、测试、应用到临时源项目",
       "requirement": "基线/候选/发布哈希、工作区隔离检查、测试证据、源修改保留",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L308",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/api/teams-e2e.test.ts tests/teams/integration-flow.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "E04",
       "title": "制造同文件冲突，再由用户修改源目录，UI 处理冲突并重新验证",
       "requirement": "无丢失更新、冲突展示、过期基线拒绝、解决与发布 journal",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L309",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/api/teams-e2e.test.ts tests/teams/integration-flow.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "E05",
       "title": "在消息提交、工具已执行未记结果、多文件发布中途分别杀进程；重启、对账、停止",
       "requirement": "各故障点运行记录、无重复副作用、unknown 可见、迟到结果无效",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L310",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "npx vitest run tests/fault-injection"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r12-fault-injection.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "真实子进程 kill/重启已覆盖“工具效果已发生未入库”和“多文件发布首文件/用户后续编辑”；邮箱注入、根停止迟到、旧租约与配置丢失四类未完成。"
     },
     {
       "id": "E06",
       "title": "当前可用 DeepSeek 经正式产品入口完成小型只读协作，刷新重连并查看总账",
       "requirement": "主成员与至少两子成员真实 provider request、独立上下文、一次同伴消息、依赖与验收、请求数/usage/估算费用",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L311",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/api/teams-e2e.test.ts tests/teams/integration-flow.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/e06-orchestrated-run.json"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     },
     {
       "id": "R01",
       "title": "恢复原始编号、核对统一提交和部署版本、修正文档矛盾",
       "requirement": "全部",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L134",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm run acceptance:check"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/manifest.json"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "从 1a5c801 新建 fix/integration-acceptance；manifest 由原表生成并校验，R 卡入口在报告中。"
     },
     {
       "id": "R02",
       "title": "MCP 成员权限与执行身份交集，无越权副作用",
       "requirement": "T40、T41、T42；D40、D41、D53、D56、D60",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L135",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/mcp/member-scope.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "ExecutionScope 注入、成员权限交集、MCP 发送前拒绝、旧代次/收紧权限拒绝与真实 fixture 零副作用测试。"
     },
     {
       "id": "R03",
       "title": "补丁版本保护、共享 journal 和用户修改保护",
       "requirement": "D48–D55；V07",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L136",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "npx vitest run tests/tools/change-protection.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "write/edit/patch 统一锁与版本复验、跨文件 journal、用户修改保护完成；Team 发布尚未复用同一变更服务。"
     },
     {
       "id": "R04",
       "title": "受控出口、工作区网络和预览 HTTP/WebSocket 网关",
       "requirement": "D10–D12、D18；V01",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L137",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "npx vitest run tests/previews",
+        "SANDBOX_INTEGRATION=1 npx vitest run tests/sandbox/preview-tunnel.docker.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "预览租约/宿主网关/HTTP+WS/TTL/恢复与真实 Docker 预览完成；独立 dev_preview 出口 profile 与完整网络负向矩阵未完成。"
     },
     {
       "id": "R05",
       "title": "浏览器运行环境、缓存及成员网络隔离",
       "requirement": "D13–D19、D22、D23；V02",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L138",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "npx vitest run tests/browser/environment.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r05-browser-environment.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "专用缓存/profile/output 目录与 doctor/EPERM 诊断完成；浏览器仍为宿主进程，成员网络隔离未完成。"
     },
     {
       "id": "R06",
       "title": "截图/文件引用导入媒体、图像入模投影",
       "requirement": "D20、D21、D24–D28；V02、V03",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L139",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "PLAYWRIGHT_MCP_LIVE=1 npx vitest run tests/mcp/browser-output.live.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "Playwright MCP 文件引用按受信输出目录校验→媒体资产→image block；含真实 headless Chrome 用例与负向路径测试。"
     },
     {
       "id": "R07",
       "title": "核对视觉路由并做真实视觉闭环",
       "requirement": "V03、V08",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L140",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "RUN_SMOKE=1 npx vitest run tests/smoke/live-vision.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r07-vision-smoke.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "真实 DeepSeek Flash S01–S03 通过并输出诊断；V08 产品闭环未执行。"
     },
     {
       "id": "R08",
       "title": "配置真实搜索凭据并验收，不伪造数据",
       "requirement": "D32、D33、D36；V04",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L141",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "npx vitest run tests/web"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r08-search-contract.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "Tavily 适配器/认证/401/429/超时/取消/来源规范化有本地 HTTP 测试；真实调用因无密钥 BLOCKED。"
     },
     {
       "id": "R09",
       "title": "结构化提问的子成员汇总和恢复",
       "requirement": "D37–D41；V05",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L142",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "npx vitest run tests/questions"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r09-questions.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "子成员问题汇入根会话、成员/代次绑定、去重、旧代次拒绝、关闭取消、重启读取答案完成；中断 activation 的安全续跑未完成。"
     },
     {
       "id": "R10",
       "title": "完整 LSP 适配与更新/取消/重连",
       "requirement": "D42–D47；V06",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L143",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/semantic tests/tools/semantic-tools.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "真实 typescript-language-server 适配、编码、诊断版本、取消、崩溃重连与文档重建；工具报告实际后端。"
     },
     {
       "id": "R11",
       "title": "作业、预览、来源、差异与撤销 UI 及浏览器自动化",
       "requirement": "D57–D60；T54–T57；V01、V05、V07",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L144",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "npx vitest run tests/web/dev-panel.test.ts",
+        "node --experimental-strip-types scripts/dev-panel-check.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/r11/dev-panel-check.json"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "开发面板（作业/预览/来源/差异/范围撤销）真实 Chrome 62/62 断言通过；Team 配置/委派/成员/@消息/任务/审批/冲突的浏览器全流程仍未在同一脚本中验收。"
     },
     {
       "id": "R12",
       "title": "真实进程级恢复和迟到结果矩阵",
       "requirement": "E05；T18、T19、T27、T28、T49、T50；D08、D48–D50",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L145",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PARTIAL",
+      "testCommands": [
+        "npx vitest run tests/fault-injection"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r12-fault-injection.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "真实子进程 kill/重启覆盖 3 类故障（工具效果、发布首文件、用户后续编辑）；邮箱/租约/迟到响应/配置丢失未完成。"
     },
     {
       "id": "R13",
       "title": "双 Provider 契约与不兼容 fork 边界",
       "requirement": "T06、T08",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L146",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/provider/protocol-contract.test.ts tests/teams/dual-provider.test.ts tests/teams/fork-protocol.test.ts"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/logs/r13-providers.txt"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": "两套本地协议 fixture 覆盖编码/流式/工具回填/usage/错误/超时/取消；不可转换 fork 拒绝并要求 fresh。"
     },
     {
       "id": "R14",
       "title": "资源收束、清理引用、迁移及最后部署验证",
       "requirement": "T59、T60；D09、D62–D64",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L147",
-      "status": "TODO",
-      "testCommands": [],
-      "evidence": [],
-      "implementationCommit": "1a5c801",
-      "reason": "本次未单独验收"
+      "status": "PASS",
+      "testCommands": [
+        "npm run acceptance:check",
+        "npm run build",
+        "npm run migrate"
+      ],
+      "evidence": [
+        "docs/features/evidence/integration-acceptance/r14-deploy.json"
+      ],
+      "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
+      "reason": ""
     }
   ]
 }
