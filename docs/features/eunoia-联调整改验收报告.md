@@ -171,7 +171,7 @@
 | 编号 | 原要求 | 状态 | 测试命令 | 证据 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | D01 | 已有功能回归：单 Agent、工具、Skills、MCP/Team、媒体、幂等和停止契约保持 | **PASS** | `npm test` | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | — |
-| D02 | 工具目录：实际 schema/校验一致，身份由服务绑定，未配置状态与错误准确 | **PASS** | `npm test` | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt)<br>[r02-mcp-scope.txt](evidence/integration-acceptance/logs/r02-mcp-scope.txt) | — |
+| D02 | 工具目录：实际 schema/校验一致，身份由服务绑定，未配置状态与错误准确 | **PASS** | `npm test` | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | — |
 | D03 | 作业启动：长期进程快速返回句柄，命令只在受控工作区/容器执行 | **PASS** | `npm test` | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | — |
 | D04 | 作业隔离：两成员进程、cwd、环境和资源互不串用，越权 ID 被拒 | **PARTIAL** | — | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | 作业隔离有成员工作区与 Docker 测试，但成员进程工具的双成员隔离未单测。 |
 | D05 | 增量日志：stdout/stderr、游标、分页、丢失标识和输出上限正确 | **PASS** | `npm test` | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | — |
@@ -183,7 +183,7 @@
 | D11 | 预览代理：HTTP 与开发 WebSocket 可用，未授权端口与跨用户访问被拒 | **PASS** | `npm test` | [r04-preview-gateway.txt](evidence/integration-acceptance/logs/r04-preview-gateway.txt)<br>[r04-preview-docker.txt](evidence/integration-acceptance/logs/r04-preview-docker.txt) | — |
 | D12 | 预览 origin：被预览脚本无法读取主应用私有 API、控制 token 或 Cookie | **PARTIAL** | — | [r04-preview-gateway.txt](evidence/integration-acceptance/logs/r04-preview-gateway.txt) | 预览 origin 的 host/path/cookie 与跨主应用探测有测试；iframe sandbox 与 postMessage 未做浏览器端验证。 |
 | D13 | setup/doctor：依赖、浏览器、版本、网络、能力和账号状态准确，不自动安装 | **PASS** | `npm test` | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | — |
-| D14 | 浏览器实际连接：真实 Playwright MCP 能发现全部必需能力，锁定版本可复现 | **PASS** | `npm test` | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt)<br>[r02-mcp-scope.txt](evidence/integration-acceptance/logs/r02-mcp-scope.txt) | — |
+| D14 | 浏览器实际连接：真实 Playwright MCP 能发现全部必需能力，锁定版本可复现 | **PASS** | `npm test` | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt)<br>[r06-screenshot-live.txt](evidence/integration-acceptance/logs/r06-screenshot-live.txt) | — |
 | D15 | 浏览器隔离：两成员 Cookie/tab/profile/目录隔离，同名服务不串连接 | **PARTIAL** | — | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | 浏览器实例使用 --isolated，但两名成员 Cookie/tab/下载目录隔离未做双实例浏览器测试。 |
 | D16 | 浏览器动作：导航、点击、输入、选择、等待、tab、viewport 实际成功 | **PARTIAL** | — | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | 真实 headless Chrome 已验证导航与截图；点击/输入/选择/等待/tab 未逐项重跑。 |
 | D17 | 页面引用失效：旧元素引用不误操作，重取页面后可恢复 | **PARTIAL** | — | [full-regression.txt](evidence/integration-acceptance/logs/full-regression.txt) | 旧元素引用失效未做真实浏览器回归。 |
@@ -322,7 +322,7 @@
 | E03 | 在实际沙箱副本中生成两份无冲突修改，候选集成、测试、应用到临时源项目：基线/候选/发布哈希、工作区隔离检查、测试证据、源修改保留 | **PASS** | `npx vitest run tests/api/teams-e2e.test.ts tests/teams/integration-flow.test.ts` | [t-teams.txt](evidence/integration-acceptance/logs/t-teams.txt) | — |
 | E04 | 制造同文件冲突，再由用户修改源目录，UI 处理冲突并重新验证：无丢失更新、冲突展示、过期基线拒绝、解决与发布 journal | **PASS** | `npx vitest run tests/api/teams-e2e.test.ts tests/teams/integration-flow.test.ts` | [t-teams.txt](evidence/integration-acceptance/logs/t-teams.txt) | — |
 | E05 | 在消息提交、工具已执行未记结果、多文件发布中途分别杀进程；重启、对账、停止：各故障点运行记录、无重复副作用、unknown 可见、迟到结果无效 | **PARTIAL** | `npx vitest run tests/fault-injection` | [r12-fault-injection.txt](evidence/integration-acceptance/logs/r12-fault-injection.txt) | 真实子进程 kill/重启已覆盖“工具效果已发生未入库”和“多文件发布首文件/用户后续编辑”；邮箱注入、根停止迟到、旧租约与配置丢失四类未完成。 |
-| E06 | 当前可用 DeepSeek 经正式产品入口完成小型只读协作，刷新重连并查看总账：主成员与至少两子成员真实 provider request、独立上下文、一次同伴消息、依赖与验收、请求数/usage/估算费用 | **PASS** | `npx vitest run tests/api/teams-e2e.test.ts tests/teams/integration-flow.test.ts` | [e06-orchestrated-run.json](docs/features/evidence/e06-orchestrated-run.json) | — |
+| E06 | 当前可用 DeepSeek 经正式产品入口完成小型只读协作，刷新重连并查看总账：主成员与至少两子成员真实 provider request、独立上下文、一次同伴消息、依赖与验收、请求数/usage/估算费用 | **PASS** | `npx vitest run tests/api/teams-e2e.test.ts tests/teams/integration-flow.test.ts` | [e06-orchestrated-run.json](evidence/e06-orchestrated-run.json) | — |
 
 ### 8.5 R01–R14
 

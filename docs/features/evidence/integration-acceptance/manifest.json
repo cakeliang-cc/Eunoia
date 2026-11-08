@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T13:38:00.173Z",
+  "generatedAt": "2026-11-08T13:42:14.207Z",
   "baselineCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
   "report": "docs/features/eunoia-联调整改验收报告.md",
   "statusVocabulary": [
@@ -80,8 +80,7 @@
         "npm test"
       ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/full-regression.txt",
-        "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt"
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
       "reason": ""
@@ -256,7 +255,7 @@
       ],
       "evidence": [
         "docs/features/evidence/integration-acceptance/logs/full-regression.txt",
-        "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt"
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
       "reason": ""

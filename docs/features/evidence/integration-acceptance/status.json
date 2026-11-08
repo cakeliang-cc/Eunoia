@@ -19,8 +19,7 @@
         "npm test"
       ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/full-regression.txt",
-        "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt"
+        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
       ]
     },
     "D03": {
@@ -103,7 +102,7 @@
       ],
       "evidence": [
         "docs/features/evidence/integration-acceptance/logs/full-regression.txt",
-        "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt"
+        "docs/features/evidence/integration-acceptance/logs/r06-screenshot-live.txt"
       ]
     },
     "D20": {
