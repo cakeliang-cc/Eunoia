@@ -1887,6 +1887,14 @@
     background: var(--accent-soft); color: var(--accent-ink);
   }
   .mcp-url { font-family: var(--font-mono); font-size: 10.5px; overflow-wrap: anywhere; }
+  .msg-undo { width: auto; padding: 0 9px; font-size: 11.5px; }
+  .undo-report {
+    margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--surface); font-size: 11.5px;
+    line-height: 1.6; color: var(--ink-2); overflow-wrap: anywhere;
+  }
+  .undo-report .undo-conflict { color: var(--warn-ink); margin-top: 4px; }
+  .undo-report .msg-undo { margin-top: 7px; }
   @media (max-width: 560px) {
     .mcp-panel { width: 100vw; }
     .mcp-row > * { flex-basis: 100%; }

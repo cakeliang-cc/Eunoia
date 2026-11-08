@@ -74,6 +74,7 @@ import type { ModelProfile } from '../models/types.ts';
 import type { PreparedMediaPlan } from '../agent/request-plan.ts';
 import { preflightMedia, loadMediaPlan, planToolImages } from './media-turn.ts';
 import type { McpService } from '../mcp/service.ts';
+import type { WorkspaceChangeService } from '../sandbox/workspace-change-service.ts';
 import { mcpInstructions } from '../mcp/tool-adapter.ts';
 import { renderArchivedSummary } from '../session/summary.ts';
 import type { Message } from '../session/types.ts';
@@ -205,6 +206,11 @@ export interface TurnDependencies {
    * persisted binding; the model never chooses a server.
    */
   readonly mcp?: McpService | null;
+  /**
+   * Turn-scoped workspace undo (ADR 036). Null means this process cannot undo
+   * file changes; the turn still runs and the UI has no button to offer.
+   */
+  readonly workspaceChanges?: WorkspaceChangeService | null;
 }
 
 /**
@@ -293,6 +299,35 @@ export async function* runTurn(
       // The terminal event is the authority on the outcome, which is why the
       // settlement below is derived from what was emitted rather than from a
       // second set of bookkeeping flags that could disagree with it.
+      let enriched: AgentEvent = event;
+      if (
+        deps.workspaceChanges &&
+        persist &&
+        request.requestId &&
+        (event.type === 'completed' || event.type === 'interrupted' || event.type === 'error')
+      ) {
+        const summary = await deps.workspaceChanges
+          .finish({ userId: request.userId, turnId: request.requestId })
+          .catch((error: unknown) => {
+            log.warn('turn.workspace_undo_finish_failed', {
+              conversation_id: request.conversationId ?? null,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+          });
+        if (summary) {
+          enriched = {
+            ...event,
+            workspaceChanges: {
+              changesetId: summary.id,
+              fileCount: summary.fileCount,
+              added: summary.added,
+              modified: summary.modified,
+              deleted: summary.deleted,
+            },
+          };
+        }
+      }
       if (event.type === 'completed') {
         outcome = {
           status: 'completed',
@@ -335,9 +370,16 @@ export async function* runTurn(
           error: event.message,
         };
       }
-      yield event;
+      yield enriched;
     }
   } finally {
+    // A consumer that stopped reading never saw a terminal event; settle the
+    // change set anyway so the files it wrote still have an undo offer.
+    if (deps.workspaceChanges && persist && request.requestId) {
+      await deps.workspaceChanges
+        .finish({ userId: request.userId, turnId: request.requestId })
+        .catch(() => null);
+    }
     // Runs on the normal path, on a thrown error, and on a consumer that stops
     // iterating (a dropped connection) — the last of which is exactly the case
     // that would otherwise leave a conversation locked until restart.
@@ -566,6 +608,25 @@ async function* runTurnInner(
           userId: request.userId,
         })
       : null;
+    /**
+     * Arm undo before any tool can write. The baseline itself is captured by the
+     * recorder at the first actual mutation, so a read-only turn pays nothing.
+     */
+    if (deps.workspaceChanges && persist && request.requestId) {
+      await deps.workspaceChanges
+        .arm({
+          userId: request.userId,
+          conversationId,
+          turnId: request.requestId,
+          taskId: conversationId,
+        })
+        .catch((error: unknown) => {
+          log.warn('turn.workspace_undo_arm_failed', {
+            conversation_id: conversationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    }
     const toolRegistry = new ToolRegistry(
       createMemoryTools({
         store: deps.store,

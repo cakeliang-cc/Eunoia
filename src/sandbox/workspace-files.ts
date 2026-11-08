@@ -13,7 +13,8 @@
  * method in place would be the bypass ADR §12.1 forbids.
  */
 
-import { glob as fsGlob, readdir, readFile, stat } from 'node:fs/promises';
+import { glob as fsGlob, readdir, readFile, rm, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { basename, isAbsolute, join, relative, sep } from 'node:path';
 import { SandboxError, WorkspaceError } from './errors.ts';
 import {
@@ -59,6 +60,15 @@ export interface WriteResult {
 export interface GlobResult {
   readonly paths: string[];
   readonly truncated: boolean;
+}
+
+export type WorkspaceChangeKind = 'added' | 'modified' | 'deleted';
+
+/** One file's identity in a workspace snapshot. `sha256` null means unreadable. */
+export interface WorkspaceManifestEntry {
+  readonly path: string;
+  readonly sha256: string | null;
+  readonly size: number;
 }
 
 export interface GrepResult {
@@ -372,6 +382,52 @@ export class WorkspaceFiles {
   }
 
   /** A stable digest of the workspace's contents, for checkpoints and versions. */
+  /**
+   * A path → digest manifest, excluding ignored trees and credential files.
+   *
+   * This is the fact an undo needs: which files exist, and which bytes they
+   * hold. It is content-based, so a rewrite that changes nothing is not a
+   * change, and a same-size edit is not mistaken for a no-op.
+   */
+  async manifest(options: { readonly maxFiles?: number } = {}): Promise<{
+    readonly entries: WorkspaceManifestEntry[];
+    readonly truncated: boolean;
+  }> {
+    const files = await this.pathGuard.collectFiles('.', options.maxFiles ?? 20_000);
+    const entries: WorkspaceManifestEntry[] = [];
+    for (const file of files.sort()) {
+      const target = this.pathGuard.resolve(file);
+      const info = await this.pathGuard.lstatRegular(target).catch(() => null);
+      if (!info) continue;
+      const buffer = await readFile(target.host).catch(() => null);
+      entries.push({
+        path: file,
+        sha256: buffer ? createHash('sha256').update(buffer).digest('hex') : null,
+        size: Number(info.size),
+      });
+    }
+    return { entries, truncated: files.length >= (options.maxFiles ?? 20_000) };
+  }
+
+  /**
+   * Remove one workspace file.
+   *
+   * Only used by an explicit undo, after the caller has proved the file was
+   * created by the turn being undone and has not been touched since. Path
+   * guards, ignored trees and credentials still apply.
+   */
+  async deleteFile(input: string): Promise<{ path: string }> {
+    const resolved = this.pathGuard.resolve(input);
+    if (this.pathGuard.isIgnored(resolved.relative)) {
+      throw new WorkspaceError(`${resolved.relative} is in an ignored directory`);
+    }
+    if (this.pathGuard.isSensitive(resolved.relative)) {
+      throw new WorkspaceError(`${resolved.relative} is a protected file`);
+    }
+    await rm(resolved.host, { force: true });
+    return { path: resolved.relative };
+  }
+
   async contentDigest(): Promise<string> {
     const files = await this.pathGuard.collectFiles('.', 20_000);
     const { createHash } = await import('node:crypto');

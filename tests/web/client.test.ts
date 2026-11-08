@@ -941,3 +941,51 @@ describe('attachments', () => {
     expect(harness.element('attach-row').hidden).toBe(true);
   });
 });
+
+describe('turn undo', () => {
+  it('offers undo only when the turn changed files, and asks twice before calling', async () => {
+    const harness = await boot({
+      frames: [
+        {
+          type: 'completed',
+          text: '改好了。',
+          conversationId: 'c1',
+          messageId: 'm1',
+          workspaceChanges: {
+            changesetId: 'wcs_1',
+            fileCount: 2,
+            added: 1,
+            modified: 1,
+            deleted: 0,
+          },
+        },
+      ],
+    });
+    await harness.send('改一下');
+    const buttons = harness.transcript.querySelectorAll('.msg-undo');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.textContent).toContain('撤销本轮 · 2');
+
+    const before = harness.requests.length;
+    buttons[0]?.onclick?.();
+    await harness.settle();
+    expect(harness.requests.length).toBe(before);
+    expect(buttons[0]?.textContent).toContain('再点一次确认');
+
+    buttons[0]?.onclick?.();
+    await harness.settle();
+    const undoRequest = harness.requests.find((request) =>
+      request.url.includes('/changes/wcs_1/undo'),
+    );
+    expect(undoRequest?.method).toBe('POST');
+    expect(undoRequest?.url).toContain('/api/conversations/c1/changes/wcs_1/undo');
+  });
+
+  it('does not draw an undo button for a turn with no file changes', async () => {
+    const harness = await boot({
+      frames: [{ type: 'completed', text: '只是在聊天。', conversationId: 'c1', messageId: 'm1' }],
+    });
+    await harness.send('在吗');
+    expect(harness.transcript.querySelectorAll('.msg-undo')).toHaveLength(0);
+  });
+});

@@ -48,6 +48,7 @@ import type { SandboxContext } from './context.ts';
 import { GatewayFileOperations, type WorkspaceFilesPort } from './gateway-files.ts';
 import { assertId } from './ids.ts';
 import type { WorkspaceManager } from './workspace-manager.ts';
+import type { WorkspaceChangeRecorder } from './workspace-changes.ts';
 import type { AuditLog, SandboxMetrics } from './audit.ts';
 import type { CredentialBroker } from './credentials.ts';
 import type { SandboxSettings } from './config.ts';
@@ -97,6 +98,8 @@ export interface SandboxGatewayDeps {
   readonly now?: () => Date;
   /** Shared by the audit log, the credential broker and this gateway. */
   readonly redactor?: Redactor;
+  /** Optional turn-scoped undo recorder (ADR 036). */
+  readonly changes?: WorkspaceChangeRecorder;
 }
 
 export type { SandboxContext };
@@ -117,6 +120,7 @@ export class SandboxGateway {
   private readonly metrics: SandboxMetrics;
   private readonly credentials: CredentialBroker;
   private readonly settings: SandboxSettings;
+  private changes: WorkspaceChangeRecorder | null;
   private readonly now: () => Date;
   /** The deployment's structural policy; the permission layer narrows it. */
   private readonly policy: ReturnType<typeof taskPolicy>;
@@ -138,6 +142,7 @@ export class SandboxGateway {
     this.metrics = deps.metrics;
     this.credentials = deps.credentials;
     this.settings = deps.settings;
+    this.changes = deps.changes ?? null;
     this.now = deps.now ?? (() => new Date());
     this.policy = taskPolicy({
       resourcesProfile: 'default',
@@ -778,6 +783,19 @@ export class SandboxGateway {
     }
   }
 
+  /**
+   * Attach (or detach) the turn undo recorder after construction.
+   *
+   * The composition root owns the product store the recorder needs; the sandbox
+   * platform is built before the product store is wired to it. A setter keeps the
+   * dependency pointing one way instead of passing the product store into the
+   * sandbox layer.
+   */
+  setChangeRecorder(recorder: WorkspaceChangeRecorder | null): void {
+    this.changes = recorder;
+    this.fileOps.setChangeRecorder(recorder);
+  }
+
   // --------------------------------------------------------------- execution ---
 
   async execute(
@@ -787,6 +805,11 @@ export class SandboxGateway {
   ): Promise<ExecutionResult> {
     const { task, sandbox, taskContext, timeoutMs, commandDigest } =
       await this.resolveExecutionContext(context, input);
+
+    // A command can change files in ways no per-write hook can see. The undo
+    // recorder takes one full checkpoint before the first command of a turn so
+    // those files still have a before state.
+    await this.changes?.beforeCommand({ taskId: task.taskId }).catch(() => undefined);
 
     const duplicate = await this.findExistingExecution(sandbox, input, commandDigest);
     if (duplicate) return duplicate;

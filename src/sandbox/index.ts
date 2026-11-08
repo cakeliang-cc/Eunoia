@@ -39,6 +39,8 @@ import { log } from '../observability/logging.ts';
 
 export interface SandboxPlatform {
   readonly gateway: SandboxGateway;
+  /** Exposed so the composition root can build turn undo over the same workspaces. */
+  readonly workspaces: WorkspaceManager;
   readonly provider: SandboxToolProvider;
   readonly recovery: RecoveryManager;
   readonly permissionRecovery: PermissionRecovery;
@@ -171,6 +173,7 @@ export async function createSandboxPlatform(
 
   return {
     gateway,
+    workspaces,
     provider: createSandboxToolProvider(gateway),
     recovery,
     permissionRecovery,
@@ -345,6 +348,7 @@ export type { SandboxContext, ExecuteOptions } from './gateway.ts';
 export { SandboxController } from './controller.ts';
 export { RecoveryManager } from './recovery.ts';
 export { WorkspaceManager } from './workspace-manager.ts';
+export { WorkspaceChangeService, WorkspaceUndoError } from './workspace-change-service.ts';
 export { WorkspaceFiles } from './workspace-files.ts';
 export { createSandboxToolProvider } from './tool-adapter.ts';
 export type { SandboxToolProvider, SandboxToolTarget } from './tool-adapter.ts';

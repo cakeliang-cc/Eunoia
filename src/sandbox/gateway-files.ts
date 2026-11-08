@@ -29,6 +29,7 @@ import type { PermissionEvaluationRequest } from './permissions/types.ts';
 import type { SandboxStore } from './store.ts';
 import type { Task, Workspace } from './types.ts';
 import type { WorkspaceManager } from './workspace-manager.ts';
+import type { WorkspaceChangeRecorder } from './workspace-changes.ts';
 
 export interface GatewayFileOperationsDeps {
   readonly store: SandboxStore;
@@ -37,6 +38,7 @@ export interface GatewayFileOperationsDeps {
   readonly audit: AuditLog;
   readonly metrics: SandboxMetrics;
   readonly settings: SandboxSettings;
+  readonly changes?: WorkspaceChangeRecorder;
 }
 
 export class GatewayFileOperations {
@@ -46,6 +48,7 @@ export class GatewayFileOperations {
   readonly #audit: AuditLog;
   readonly #metrics: SandboxMetrics;
   readonly #settings: SandboxSettings;
+  #changes: WorkspaceChangeRecorder | null;
 
   constructor(deps: GatewayFileOperationsDeps) {
     this.#store = deps.store;
@@ -54,6 +57,12 @@ export class GatewayFileOperations {
     this.#audit = deps.audit;
     this.#metrics = deps.metrics;
     this.#settings = deps.settings;
+    this.#changes = deps.changes ?? null;
+  }
+
+  /** See SandboxGateway.setChangeRecorder. */
+  setChangeRecorder(recorder: WorkspaceChangeRecorder | null): void {
+    this.#changes = recorder;
   }
 
   async readFile(
@@ -138,6 +147,9 @@ export class GatewayFileOperations {
     content: string,
   ): Promise<Awaited<ReturnType<WorkspaceFilesPort['writeText']>>> {
     const { task, workspace, files } = await this.fileContext(context, path, 'fs.write', 'write');
+    await this.#changes
+      ?.beforeWrite({ taskId: task.taskId, path: files.resolve(path).relative })
+      .catch(() => undefined);
     const result = await files.writeText(path, content);
     await this.#workspaces.refreshVersion(workspace);
     await this.#audit.record({
@@ -156,6 +168,9 @@ export class GatewayFileOperations {
     options: Parameters<WorkspaceFilesPort['editText']>[0],
   ): Promise<Awaited<ReturnType<WorkspaceFilesPort['editText']>>> {
     const { task, workspace, files } = await this.fileContext(context, options.path, 'fs.write', 'edit');
+    await this.#changes
+      ?.beforeWrite({ taskId: task.taskId, path: files.resolve(options.path).relative })
+      .catch(() => undefined);
     const result = await files.editText(options);
     await this.#workspaces.refreshVersion(workspace);
     await this.#audit.record({

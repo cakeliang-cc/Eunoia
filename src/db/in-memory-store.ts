@@ -65,6 +65,13 @@ import type { UserContentV1 } from '../agent/content.ts';
 import { contentText } from '../agent/content.ts';
 import type { ImageAsset } from '../media/types.ts';
 import type { MediaAssetStore } from '../media/store.ts';
+import type {
+  ChangesetFileRecord,
+  ChangesetStatus,
+  NewChangesetInput,
+  WorkspaceChangesetRecord,
+  WorkspaceChangesetSummary,
+} from '../session/changeset.ts';
 
 /**
  * Conversation rows are mutable here while `Conversation` is readonly — the
@@ -94,6 +101,7 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore, ModelTr
   readonly #turns = new Map<string, TurnRecord>();
   readonly #turnEvents: TurnEventRecord[] = [];
   readonly #media = new Map<string, ImageAsset>();
+  readonly #changesets = new Map<string, WorkspaceChangesetRecord>();
   /** Message id → asset ids in content order; the reference index. */
   readonly #messageAssets = new Map<string, string[]>();
   /** Model transcript state (ADR 032). */
@@ -1168,6 +1176,95 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore, ModelTr
   }
 
   // ------------------------------------------------------------ plumbing -----
+
+  // ---------------------------------------------------------- changesets -----
+
+  async createWorkspaceChangeset(input: NewChangesetInput): Promise<void> {
+    this.#changesets.set(input.summary.id, {
+      ...input.summary,
+      files: input.files.map((file) => ({ ...file })),
+    });
+  }
+
+  async getWorkspaceChangeset(
+    userId: string,
+    id: string,
+  ): Promise<WorkspaceChangesetRecord | null> {
+    const record = this.#changesets.get(id);
+    if (!record || record.userId !== userId) return null;
+    return {
+      ...record,
+      files: record.files.map((file) => ({ ...file })),
+    };
+  }
+
+  async getWorkspaceChangesetForTurn(
+    userId: string,
+    conversationId: string,
+    turnId: string,
+  ): Promise<WorkspaceChangesetRecord | null> {
+    for (const record of this.#changesets.values()) {
+      if (
+        record.userId === userId &&
+        record.conversationId === conversationId &&
+        record.turnId === turnId
+      ) {
+        return this.getWorkspaceChangeset(userId, record.id);
+      }
+    }
+    return null;
+  }
+
+  async listWorkspaceChangesets(
+    userId: string,
+    conversationId: string,
+    limit = 50,
+  ): Promise<WorkspaceChangesetSummary[]> {
+    return [...this.#changesets.values()]
+      .filter((record) => record.userId === userId && record.conversationId === conversationId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, limit)
+      .map((record) => {
+        const summary: WorkspaceChangesetSummary = {
+          id: record.id,
+          userId: record.userId,
+          conversationId: record.conversationId,
+          turnId: record.turnId,
+          workspaceId: record.workspaceId,
+          checkpointId: record.checkpointId,
+          beforeDigest: record.beforeDigest,
+          afterDigest: record.afterDigest,
+          fileCount: record.fileCount,
+          added: record.added,
+          modified: record.modified,
+          deleted: record.deleted,
+          status: record.status,
+          createdAt: record.createdAt,
+          undoneAt: record.undoneAt,
+        };
+        return summary;
+      });
+  }
+
+  async finishWorkspaceUndo(input: {
+    readonly userId: string;
+    readonly changesetId: string;
+    readonly restoredPaths: readonly string[];
+    readonly status: ChangesetStatus;
+    readonly undoneAt: string;
+  }): Promise<void> {
+    const record = this.#changesets.get(input.changesetId);
+    if (!record || record.userId !== input.userId) return;
+    const restored = new Set(input.restoredPaths);
+    this.#changesets.set(input.changesetId, {
+      ...record,
+      status: input.status,
+      undoneAt: input.undoneAt,
+      files: record.files.map((file): ChangesetFileRecord =>
+        restored.has(file.path) ? { ...file, restored: true } : file,
+      ),
+    });
+  }
 
   async ping(): Promise<boolean> {
     return true;

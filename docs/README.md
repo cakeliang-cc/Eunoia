@@ -24,6 +24,8 @@
 - [模型轨迹与前缀缓存实施清单](./plans/eunoia-模型轨迹与前缀缓存实施清单.md)
 - [多模态实施计划与验收要求](./plans/eunoia-多模态实施计划与验收.md)
 - [多模态一期实际验收报告](./multimodal-acceptance.md)
+- [用户可操作的按轮撤销（ADR 036）](./adr/036-user-code-undo.md)
+- [语义代码工具（ADR 037）](./adr/037-semantic-code-tools.md)
 
 ## 设计和介绍
 

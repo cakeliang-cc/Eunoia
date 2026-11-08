@@ -367,9 +367,100 @@ function openMessageMenu(anchor, content) {
  * The action row under an assistant reply: copy, read aloud, export, regenerate
  * (last reply only), more. Rating controls stay text so they remain obvious.
  */
+/**
+ * The undo affordance for one turn.
+ *
+ * Two clicks, not a browser confirm: the first arms it and says what will be
+ * touched, the second applies. Conflicts are listed rather than overwritten, and
+ * a second, explicit "force" button exists for the person who has read them.
+ */
+function undoAction(actions, info) {
+  const label = `撤销本轮 · ${info.fileCount}`;
+  const button = el('button', 'msg-action msg-undo');
+  button.type = 'button';
+  button.textContent = label;
+  button.title = `撤销这一轮改动的 ${info.fileCount} 个文件（新增 ${info.added}，修改 ${info.modified}，删除 ${info.deleted}）`;
+  let timer = null;
+  button.onclick = async () => {
+    if (button.dataset.armed !== 'true') {
+      button.dataset.armed = 'true';
+      button.textContent = '再点一次确认';
+      timer = globalThis.setTimeout(() => {
+        button.dataset.armed = 'false';
+        button.textContent = label;
+      }, 5_000);
+      return;
+    }
+    if (timer) globalThis.clearTimeout(timer);
+    button.disabled = true;
+    button.textContent = '撤销中…';
+    await runUndo(actions, info, button, false);
+  };
+  return button;
+}
+
+async function runUndo(actions, info, button, force) {
+  const response = await fetch(
+    `/api/conversations/${state.conversationId}/changes/${info.changesetId}/undo`,
+    {
+      method: 'POST',
+      headers: permissionHeaders(),
+      body: JSON.stringify({ force }),
+    },
+  ).catch(() => null);
+  const payload = response ? await response.json().catch(() => ({})) : {};
+  if (!response || !response.ok) {
+    button.disabled = false;
+    button.dataset.armed = 'false';
+    button.textContent = '撤销失败，重试';
+    return;
+  }
+  let report = actions.parentElement?.querySelector('.undo-report');
+  if (!report) {
+    report = el('div', 'undo-report');
+    actions.after(report);
+  }
+  report.textContent = '';
+  const restored = Array.isArray(payload.restored) ? payload.restored : [];
+  const deleted = Array.isArray(payload.deleted) ? payload.deleted : [];
+  const conflicts = Array.isArray(payload.conflicts) ? payload.conflicts : [];
+  const skipped = Array.isArray(payload.skipped) ? payload.skipped : [];
+  report.append(
+    el(
+      'div',
+      null,
+      `已恢复 ${restored.length} 个文件${deleted.length > 0 ? `，删除 ${deleted.length} 个本轮新增的文件` : ''}。`,
+    ),
+  );
+  for (const conflict of conflicts) {
+    report.append(el('div', 'undo-conflict', `${conflict.path}：${conflict.reason}`));
+  }
+  for (const skip of skipped) {
+    report.append(el('div', 'undo-conflict', `${skip.path}：${skip.reason}`));
+  }
+  if (conflicts.length > 0 || skipped.length > 0) {
+    const forceButton = el('button', 'msg-action msg-undo', '强制撤销其余文件');
+    forceButton.type = 'button';
+    forceButton.title = '会覆盖你在本轮之后对这些文件做的修改';
+    forceButton.onclick = async () => {
+      forceButton.disabled = true;
+      forceButton.textContent = '强制撤销中…';
+      await runUndo(actions, info, button, true);
+    };
+    report.append(forceButton);
+  }
+  button.textContent = payload.status === 'undone' ? '已撤销' : '部分撤销';
+  button.disabled = true;
+  if (wbState.info?.configured) {
+    wbState.levels.clear();
+    void loadLevel('.');
+    if (wbState.tab === 'changes') void refreshChanges();
+  }
+}
+
 function addMessageActions(
   actions,
-  { content, messageId, canRegenerate = false, regenerate = null },
+  { content, messageId, canRegenerate = false, regenerate = null, undo = null },
 ) {
   actions.textContent = '';
   if (content && content.trim().length > 0) {
@@ -378,6 +469,7 @@ function addMessageActions(
     const share = actionButton('share', '导出', () => void shareText(content, 'eunoia-reply.md'));
     const more = actionButton('more', '更多', () => openMessageMenu(more, content));
     actions.append(copy, speak, share);
+    if (undo) actions.append(undoAction(actions, undo));
     if (canRegenerate && regenerate) {
       const again = actionButton('regenerate', '重新生成', regenerate);
       again.classList.add('msg-regenerate');
@@ -2091,6 +2183,7 @@ async function send(text, options = {}) {
   let thinking = null;
   let trace = null;
   let reply = '';
+  let workspaceChanges = null;
   let messageId = null;
 
   /** Drop the placeholder the moment there is anything real to show. */
@@ -2230,6 +2323,7 @@ async function send(text, options = {}) {
         terminal = true;
         trace?.finish();
         reply = event.text;
+        workspaceChanges = event.workspaceChanges ?? null;
         renderText(body, reply);
         // Only when the server names one: a turn that was not persisted reports
         // null, and taking that at face value would forget a conversation that
@@ -2252,6 +2346,7 @@ async function send(text, options = {}) {
         }
       } else if (event.type === 'interrupted') {
         terminal = true;
+        workspaceChanges = event.workspaceChanges ?? workspaceChanges;
         finishInterrupted(event);
       } else if (event.type === 'error') {
         terminal = true;
@@ -2284,6 +2379,7 @@ async function send(text, options = {}) {
       messageId,
       canRegenerate: Boolean(messageId) && Boolean(state.conversationId),
       regenerate: () => regenerateTurn(turnEl),
+      undo: workspaceChanges,
     });
   } catch (error) {
     // A stop also surfaces as an AbortError when the connection had to be cut.

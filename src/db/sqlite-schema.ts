@@ -19,6 +19,7 @@
 
 import { SANDBOX_SCHEMA } from '../sandbox/schema.ts';
 import { MCP_SCHEMA } from '../mcp/schema.ts';
+import { CHANGESET_SCHEMA } from '../session/changeset-schema.ts';
 
 /**
  * Version 2 adds the sandbox platform's tables (ADR 017); version 3 records the
@@ -56,10 +57,14 @@ import { MCP_SCHEMA } from '../mcp/schema.ts';
  * snapshots, prepared/sent tool actions, approval and elicitation interactions,
  * remote task handles, sealed credentials, conversation bindings, resource
  * snapshots and non-image artifacts. It is additive and idempotent (ADR 033).
+ * Version 12 adds user-operable turn undo: `workspace_changesets` (one per
+ * durable turn, with the digests around it and an optional checkpoint) and
+ * `workspace_changeset_files` (per-file before/after facts and whether the file
+ * has been restored). Additive and idempotent.
  * The base schema is idempotent, so a version-1 file gets the tables by executing
  * the full schema; later files get the new columns by `ALTER TABLE`.
  */
-export const SQLITE_SCHEMA_VERSION = 11;
+export const SQLITE_SCHEMA_VERSION = 12;
 
 export const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -485,6 +490,8 @@ CREATE INDEX IF NOT EXISTS model_context_state_conversation_idx
 ${SANDBOX_SCHEMA}
 
 ${MCP_SCHEMA}
+
+${CHANGESET_SCHEMA}
 `;
 
 /** Applied to a version-2 database that already has the sandbox tables. */
@@ -797,3 +804,10 @@ CREATE INDEX IF NOT EXISTS model_context_state_conversation_idx
  * same DDL.
  */
 export const SQLITE_MIGRATION_11 = MCP_SCHEMA;
+
+/**
+ * Version 11 → 12: turn-scoped workspace change sets.
+ *
+ * Additive and idempotent; the base schema already carries the same DDL.
+ */
+export const SQLITE_MIGRATION_12 = CHANGESET_SCHEMA;

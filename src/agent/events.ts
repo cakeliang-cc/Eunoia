@@ -162,6 +162,20 @@ export interface SafetyNoticeEvent {
 }
 
 /** The run finished normally. `text` is the complete assistant reply. */
+/**
+ * A turn's workspace changes, when it had any.
+ *
+ * Only the counts and the change-set id cross the wire: paths are available from
+ * the dedicated endpoint, and a chat stream should not become a file listing.
+ */
+export interface WorkspaceChangesSummary {
+  readonly changesetId: string;
+  readonly fileCount: number;
+  readonly added: number;
+  readonly modified: number;
+  readonly deleted: number;
+}
+
 export interface CompletedEvent {
   readonly type: 'completed';
   readonly text: string;
@@ -196,6 +210,8 @@ export interface CompletedEvent {
    */
   readonly accepted?: boolean;
   readonly acceptance?: readonly AcceptanceCheck[];
+  /** Files this turn changed; absent when nothing changed. */
+  readonly workspaceChanges?: WorkspaceChangesSummary;
   /** Actual provider usage for this turn's last request, when reported. */
   readonly usage?: import('./model-port.ts').ModelUsage & {
     /** True when the provider did not split image tokens out of the total. */
@@ -255,6 +271,8 @@ export interface InterruptedEvent {
   readonly turnUsage?: TurnUsageTotals;
   /** True when this is a stored outcome being replayed, not a live stop. */
   readonly replayed?: boolean;
+  /** Files this turn changed, for the "撤销本轮" action. */
+  readonly workspaceChanges?: WorkspaceChangesSummary;
 }
 
 /** The run failed. `retryable` distinguishes a transient fault from a real error. */
@@ -276,6 +294,8 @@ export interface ErrorEvent {
   readonly code?: string;
   /** Bounded, non-secret detail: modality, scope, block index, budget numbers. */
   readonly details?: Record<string, unknown>;
+  /** Files already written before the failure, so they can still be undone. */
+  readonly workspaceChanges?: WorkspaceChangesSummary;
 }
 
 export type AgentEvent =

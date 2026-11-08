@@ -61,6 +61,13 @@ import type {
   TurnRecord,
 } from '../session/turn-types.ts';
 import type { Store } from '../store.ts';
+import type {
+  ChangesetFileRecord,
+  ChangesetStatus,
+  NewChangesetInput,
+  WorkspaceChangesetRecord,
+  WorkspaceChangesetSummary,
+} from '../session/changeset.ts';
 import type { UserContentV1 } from '../agent/content.ts';
 import { contentText } from '../agent/content.ts';
 import type { ImageAsset, ImageMediaType, MediaAssetStatus } from '../media/types.ts';
@@ -72,6 +79,7 @@ import {
   SQLITE_MIGRATION_9,
   SQLITE_MIGRATION_10,
   SQLITE_MIGRATION_11,
+  SQLITE_MIGRATION_12,
   SQLITE_SCHEMA,
   SQLITE_SCHEMA_VERSION,
 } from './sqlite-schema.ts';
@@ -1910,6 +1918,139 @@ export class SqliteStore implements Store, TurnStore, MediaAssetStore, ModelTran
     }
   }
 
+  // ---------------------------------------------------------- changesets -----
+
+  async createWorkspaceChangeset(input: NewChangesetInput): Promise<void> {
+    const summary = input.summary;
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      this.#run(
+        `INSERT INTO workspace_changesets
+           (id, user_id, conversation_id, turn_id, workspace_id, checkpoint_id,
+            before_digest, after_digest, file_count, added, modified, deleted,
+            status, created_at, undone_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        summary.id,
+        summary.userId,
+        summary.conversationId,
+        summary.turnId,
+        summary.workspaceId,
+        summary.checkpointId,
+        summary.beforeDigest,
+        summary.afterDigest,
+        summary.fileCount,
+        summary.added,
+        summary.modified,
+        summary.deleted,
+        summary.status,
+        summary.createdAt,
+        summary.undoneAt,
+      );
+      for (const file of input.files) {
+        this.#run(
+          `INSERT INTO workspace_changeset_files
+             (changeset_id, path, kind, before_sha, after_sha, before_bytes,
+              after_bytes, before_content, restore_source, restored)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          summary.id,
+          file.path,
+          file.kind,
+          file.beforeSha,
+          file.afterSha,
+          file.beforeBytes,
+          file.afterBytes,
+          file.beforeContent,
+          file.restoreSource,
+          file.restored ? 1 : 0,
+        );
+      }
+      this.#db.exec('COMMIT');
+    } catch (error) {
+      this.#db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  async getWorkspaceChangeset(
+    userId: string,
+    id: string,
+  ): Promise<WorkspaceChangesetRecord | null> {
+    const row = this.#get<Record<string, unknown>>(
+      'SELECT * FROM workspace_changesets WHERE user_id = ? AND id = ?',
+      userId,
+      id,
+    );
+    if (!row) return null;
+    const files = this.#all<Record<string, unknown>>(
+      'SELECT * FROM workspace_changeset_files WHERE changeset_id = ? ORDER BY path',
+      id,
+    ).map(toChangesetFile);
+    return { ...toChangesetSummary(row), files };
+  }
+
+  async getWorkspaceChangesetForTurn(
+    userId: string,
+    conversationId: string,
+    turnId: string,
+  ): Promise<WorkspaceChangesetRecord | null> {
+    const row = this.#get<Record<string, unknown>>(
+      `SELECT * FROM workspace_changesets
+        WHERE user_id = ? AND conversation_id = ? AND turn_id = ?`,
+      userId,
+      conversationId,
+      turnId,
+    );
+    if (!row) return null;
+    return this.getWorkspaceChangeset(userId, String(row.id));
+  }
+
+  async listWorkspaceChangesets(
+    userId: string,
+    conversationId: string,
+    limit = 50,
+  ): Promise<WorkspaceChangesetSummary[]> {
+    return this.#all<Record<string, unknown>>(
+      `SELECT * FROM workspace_changesets
+        WHERE user_id = ? AND conversation_id = ?
+        ORDER BY created_at DESC LIMIT ?`,
+      userId,
+      conversationId,
+      limit,
+    ).map(toChangesetSummary);
+  }
+
+  async finishWorkspaceUndo(input: {
+    readonly userId: string;
+    readonly changesetId: string;
+    readonly restoredPaths: readonly string[];
+    readonly status: ChangesetStatus;
+    readonly undoneAt: string;
+  }): Promise<void> {
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const path of input.restoredPaths) {
+        this.#run(
+          `UPDATE workspace_changeset_files SET restored = 1
+            WHERE changeset_id = ? AND path = ?`,
+          input.changesetId,
+          path,
+        );
+      }
+      this.#run(
+        `UPDATE workspace_changesets SET status = ?, undone_at = ?
+          WHERE user_id = ? AND id = ?`,
+        input.status,
+        input.undoneAt,
+        input.userId,
+        input.changesetId,
+      );
+      this.#db.exec('COMMIT');
+    } catch (error) {
+      this.#db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   // ------------------------------------------------------------ plumbing -----
 
   async ping(): Promise<boolean> {
@@ -1990,6 +2131,9 @@ export function openSqliteStore(path: string): SqliteStore {
     }
     if (version < 11) {
       db.exec(SQLITE_MIGRATION_11);
+    }
+    if (version < 12) {
+      db.exec(SQLITE_MIGRATION_12);
     }
   }
   if (version < SQLITE_SCHEMA_VERSION) {
@@ -2476,4 +2620,38 @@ function hasTable(db: DatabaseSync, table: string): boolean {
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   return rows.some((row) => row.name === column);
+}
+
+function toChangesetSummary(row: Record<string, unknown>): WorkspaceChangesetSummary {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    conversationId: String(row.conversation_id),
+    turnId: String(row.turn_id),
+    workspaceId: String(row.workspace_id),
+    checkpointId: row.checkpoint_id === null ? null : String(row.checkpoint_id),
+    beforeDigest: String(row.before_digest),
+    afterDigest: String(row.after_digest),
+    fileCount: Number(row.file_count),
+    added: Number(row.added),
+    modified: Number(row.modified),
+    deleted: Number(row.deleted),
+    status: String(row.status) as WorkspaceChangesetSummary['status'],
+    createdAt: String(row.created_at),
+    undoneAt: row.undone_at === null ? null : String(row.undone_at),
+  };
+}
+
+function toChangesetFile(row: Record<string, unknown>): ChangesetFileRecord {
+  return {
+    path: String(row.path),
+    kind: String(row.kind) as ChangesetFileRecord['kind'],
+    beforeSha: row.before_sha === null ? null : String(row.before_sha),
+    afterSha: row.after_sha === null ? null : String(row.after_sha),
+    beforeBytes: row.before_bytes === null ? null : Number(row.before_bytes),
+    afterBytes: row.after_bytes === null ? null : Number(row.after_bytes),
+    beforeContent: row.before_content === null ? null : String(row.before_content),
+    restoreSource: String(row.restore_source) as ChangesetFileRecord['restoreSource'],
+    restored: Number(row.restored) === 1,
+  };
 }

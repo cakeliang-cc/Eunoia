@@ -8,6 +8,25 @@
 
 ## [Unreleased]
 
+### Added（按轮撤销与语义代码工具，ADR 036/037）
+
+- **用户可操作的按轮撤销。** 每个持久回合登记一份变更集：惰性 manifest 基线 + 文件
+  工具的写入前日志 + 命令前的检查点。回合结束比较前后摘要，准确列出新增/修改/删除。
+  撤销只覆盖“当前内容仍等于本轮结束内容”的文件；用户后来的修改、删除或重建成为
+  冲突而不是被覆盖，`force` 是显式覆盖。按文件记录恢复进度，重试幂等，全部完成才
+  标记 undone。
+- **schema v12。** 新增 `workspace_changesets` 与 `workspace_changeset_files`；增量、
+  幂等、级联删除。变更集不复制整仓，只存修改前文本（≤512 KiB）和检查点引用。
+- **API 与界面。** `GET/POST /api/conversations/:id/changes…` 列表、明细与撤销；回合
+  结束事件带 `workspaceChanges`，回复工具栏出现两次确认的“撤销本轮”，冲突逐条展示
+  并提供显式强制按钮。外部 MCP 调用不在撤销承诺内。
+- **语义代码工具。** `find_definition` / `find_references` / `diagnostics` 基于
+  TypeScript 编译器 API，支持跨文件定义、区分同名不同符号的引用、语法/类型诊断；
+  位置可用 1-based 行列或符号名。读取走 workspace 端口，有界（800 文件 / 8 MiB）、
+  只读、无语言服务器进程；非 TS/JS 显式拒绝。
+- **验证。** 撤销 9 项服务测试、4 项 API 测试、3 项沙箱钩子测试、2 项前端交互测试；
+  语义工具 10 项测试；全量回归通过。
+
 ### Added（MCP 主机，ADR 033）
 
 - **统一工具契约。** `ToolContract` 把模型可见 JSON Schema 与运行前 validator 成对

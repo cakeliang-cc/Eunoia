@@ -48,6 +48,24 @@ npm run dev                # http://127.0.0.1:8787
 - 离线对照：`npm run experiment:transcript`；真实调用需显式 `--live`，并有请求与
   Token 上限。结果写入 `docs/research/prefix-cache/experiments/`，不覆盖旧结果。
 
+## 撤销一轮修改
+
+- Agent 改完后，回复下方会出现 **撤销本轮**。第一次点击只是确认，第二次才执行。
+- 它只恢复“仍然保持本轮结束时内容”的文件：本轮新增的删除、修改/删除的用修改前
+  内容恢复；你在本轮之后手动改过、删过或重建过的文件会列为冲突，不会被覆盖。
+- 命令造成的改动通过本轮第一条命令前的检查点恢复；检查点已被清理时会明确说明
+  无法恢复，不会编造内容。
+- 撤销只针对工作区文件，不撤销外部 MCP 调用（远端写操作没有通用逆操作），也不
+  创建 Git 提交。设计与接口见 [ADR 036](docs/adr/036-user-code-undo.md)。
+
+## 语义代码工具
+
+- 新增 `find_definition`、`find_references`、`diagnostics`，使用 TypeScript 语言服务，
+  不是文本搜索：跨文件的定义、调用点和类型错误都能定位。
+- 只支持 TypeScript/JavaScript；其它语言会明确报不支持，不会用文本搜索冒充。
+- 每次调用读取有界的工作区快照（最多 800 个文件 / 8 MiB），只读，不启动语言服务器
+  进程。设计与边界见 [ADR 037](docs/adr/037-semantic-code-tools.md)。
+
 ## 外部服务（MCP）
 
 - 顶部 **外部服务** 可以添加 stdio 或 Streamable HTTP 的 MCP 服务；默认没有任何

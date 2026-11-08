@@ -21,8 +21,8 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { cp, mkdir, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { cp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { SandboxStore } from './store.ts';
 import type { Workspace, WorkspaceCheckpoint, WorkspaceMode } from './types.ts';
 import { WorkspaceFiles } from './workspace-files.ts';
@@ -251,6 +251,36 @@ export class WorkspaceManager {
     };
     await this.store.saveCheckpoint(checkpoint);
     return checkpoint;
+  }
+
+  /** Snapshot identity for the active workspace, excluding ignored/secret files. */
+  async manifest(workspace: Workspace): Promise<{
+    readonly entries: import('./workspace-files.ts').WorkspaceManifestEntry[];
+    readonly truncated: boolean;
+  }> {
+    return this.files(workspace.storageLocation).manifest();
+  }
+
+  /**
+   * Read one file from a checkpoint, for a turn undo.
+   *
+   * The checkpoint id is validated against the workspace before its directory is
+   * read; a caller cannot turn an arbitrary id into a path. Returns null when
+   * the checkpoint was pruned, which is an honest "cannot undo" rather than an
+   * empty file.
+   */
+  async readCheckpointFile(
+    workspaceId: string,
+    checkpointId: string,
+    relativePath: string,
+  ): Promise<Buffer | null> {
+    const checkpoints = await this.store.listCheckpoints(workspaceId);
+    const checkpoint = checkpoints.find((entry) => entry.checkpointId === checkpointId);
+    if (!checkpoint) return null;
+    const root = resolve(checkpoint.storageLocation);
+    const target = resolve(root, relativePath);
+    if (target !== root && !target.startsWith(`${root}${sep}`)) return null;
+    return readFile(target).catch(() => null);
   }
 
   /**

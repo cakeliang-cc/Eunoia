@@ -49,6 +49,7 @@ import {
   type TurnRunner,
 } from '../service/chat.ts';
 import { recoverInterruptedTurns } from '../service/recovery.ts';
+import { WorkspaceChangeService, WorkspaceUndoError } from '../sandbox/index.ts';
 import {
   ConversationBusyError,
   TurnCoordinator,
@@ -700,6 +701,8 @@ export interface AppDependencies {
   readonly mcp?: McpService | null;
   /** The runtime behind the MCP service, for status/interaction streams. */
   readonly mcpRuntime?: McpRuntime | null;
+  /** Turn-scoped workspace undo (ADR 036). */
+  readonly workspaceChanges?: WorkspaceChangeService | null;
 }
 
 function defaultModelProfileFor(id: string): ModelProfile {
@@ -719,6 +722,7 @@ export function createApp(deps: AppDependencies) {
   const media = deps.media ?? null;
   const mcp = deps.mcp ?? null;
   const mcpRuntime = deps.mcpRuntime ?? null;
+  const workspaceChanges = deps.workspaceChanges ?? null;
   const limits = deps.mediaLimits ?? mediaLimits();
   const config = deps.sessionConfig ?? sessionConfig();
   const imagePolicies = deps.imagePolicies ?? defaultImagePolicies();
@@ -975,6 +979,7 @@ export function createApp(deps: AppDependencies) {
       ...(deps.skills ? { skills: deps.skills } : {}),
       ...(deps.transcriptMode ? { transcriptMode: deps.transcriptMode } : {}),
       ...(deps.mcp ? { mcp: deps.mcp } : {}),
+      ...(deps.workspaceChanges ? { workspaceChanges: deps.workspaceChanges } : {}),
     };
   }
 
@@ -2217,6 +2222,88 @@ export function createApp(deps: AppDependencies) {
       return true;
     }
 
+    const changesMatch = /^\/api\/conversations\/([0-9a-f-]{36})\/changes$/.exec(pathname);
+    if (changesMatch) {
+      const conversationId = changesMatch[1] as string;
+      if (req.method === 'GET') {
+        if (!guardPermissionRead(req, res)) return true;
+        const userId = await identify(req, res);
+        if (!(await sessions.get(userId, conversationId))) {
+          sendJson(res, 404, { error: 'conversation not found' });
+          return true;
+        }
+        const turnId = url.searchParams.get('turnId');
+        if (turnId) {
+          const changeset = await store.getWorkspaceChangesetForTurn(
+            userId,
+            conversationId,
+            turnId,
+          );
+          sendJson(res, 200, { changeset });
+          return true;
+        }
+        const changesets = await store.listWorkspaceChangesets(userId, conversationId);
+        sendJson(res, 200, { changesets });
+        return true;
+      }
+    }
+
+    const undoMatch =
+      /^\/api\/conversations\/([0-9a-f-]{36})\/changes\/(wcs_[0-9a-f-]{36})\/undo$/.exec(
+        pathname,
+      );
+    if (undoMatch && req.method === 'POST') {
+      if (!guardPermissionWrite(req, res)) return true;
+      if (!workspaceChanges) {
+        sendJson(res, 503, { error: '撤销不可用：这个进程没有工作区变更服务' });
+        return true;
+      }
+      const conversationId = undoMatch[1] as string;
+      const changesetId = undoMatch[2] as string;
+      const parsedBody = await readBodyOrReject(req, res);
+      if (!parsedBody.ok) return true;
+      const body = asObject(parsedBody.value) ?? {};
+      const userId = await identify(req, res);
+      if (!(await sessions.get(userId, conversationId))) {
+        sendJson(res, 404, { error: 'conversation not found' });
+        return true;
+      }
+      try {
+        const result = await workspaceChanges.undo({
+          userId,
+          conversationId,
+          changesetId,
+          force: body.force === true,
+        });
+        sendJson(res, 200, result);
+      } catch (error) {
+        if (error instanceof WorkspaceUndoError) {
+          sendJson(res, error.status, { error: error.message, code: error.code });
+          return true;
+        }
+        throw error;
+      }
+      return true;
+    }
+
+    const changesetMatch =
+      /^\/api\/conversations\/([0-9a-f-]{36})\/changes\/(wcs_[0-9a-f-]{36})$/.exec(pathname);
+    if (changesetMatch) {
+      const conversationId = changesetMatch[1] as string;
+      const changesetId = changesetMatch[2] as string;
+      if (req.method === 'GET') {
+        if (!guardPermissionRead(req, res)) return true;
+        const userId = await identify(req, res);
+        const changeset = await store.getWorkspaceChangeset(userId, changesetId);
+        if (!changeset || changeset.conversationId !== conversationId) {
+          sendJson(res, 404, { error: 'changeset not found' });
+          return true;
+        }
+        sendJson(res, 200, { changeset });
+        return true;
+      }
+    }
+
     const messagesMatch = /^\/api\/conversations\/([0-9a-f-]{36})\/messages$/.exec(pathname);
     if (req.method === 'GET' && messagesMatch) {
       const userId = await identify(req, res);
@@ -2604,6 +2691,19 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
   const sandboxPlatform = settings
     ? await createSandboxPlatform({ store: sandboxStore, settings })
     : null;
+  /**
+   * Turn undo shares the sandbox's workspace manager and the product store's
+   * change-set tables. The recorder is attached after construction because the
+   * platform is built before this service exists.
+   */
+  const workspaceChanges = sandboxPlatform
+    ? new WorkspaceChangeService({
+        store: sandboxStore,
+        workspaces: sandboxPlatform.workspaces,
+        changesets: store,
+      })
+    : null;
+  sandboxPlatform?.gateway.setChangeRecorder(workspaceChanges);
   const toolPolicy: ToolPolicy = settings
     ? {
         ...DEFAULT_TOOL_POLICY,
@@ -2716,6 +2816,7 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     transcriptMode: transcriptMode(),
     mcp: mcpRuntime.service,
     mcpRuntime,
+    workspaceChanges,
   });
   log.info('server.model_transcript', { mode: transcriptMode() });
 

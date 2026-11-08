@@ -17,10 +17,19 @@ export {
 export { editFileTool, writeFileTool } from './edit-tools.ts';
 export { runCommandTool } from './command-tool.ts';
 export { changeDirectoryTool } from './change-directory-tool.ts';
+export {
+  diagnosticsTool,
+  findDefinitionTool,
+  findReferencesTool,
+  isSemanticPath,
+  SEMANTIC_EXTENSIONS,
+  semanticTools,
+} from './semantic-tools.ts';
 
 import { editFileTool, writeFileTool } from './edit-tools.ts';
 import { runCommandTool } from './command-tool.ts';
 import { changeDirectoryTool } from './change-directory-tool.ts';
+import { semanticTools } from './semantic-tools.ts';
 import { globTool, grepTool, listDirTool, readFileTool } from './read-tools.ts';
 
 /**
@@ -36,4 +45,5 @@ export const codingTools = [
   writeFileTool,
   runCommandTool,
   changeDirectoryTool,
+  ...semanticTools,
 ] as const;
