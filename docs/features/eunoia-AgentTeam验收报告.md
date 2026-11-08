@@ -92,7 +92,7 @@
 | T30 | ✅ | `acceptance.test.ts` T30：pausing→paused 与 resume 重检预算；resume 后 `stop` 收束。 |
 | T31 | ✅ | `workspaces.docker.test.ts`（TEAM_INTEGRATION=1 + Docker runc）：两个成员各自挂载 `/workspace`，甲写入的文件在乙容器不可见，容器内无法读取兄弟工作区或源目录，成员写入不落入源目录。 |
 | T32 | ✅ | `workspaces.test.ts`：排除 `.env`/`.git`/忽略目录/越界链接，保留源目录未提交修改。 |
-| T33 | ⛔ | 共享缓存、端口与可写依赖隔离未在真实容器验证。 |
+| T33 | ✅ | `workspaces.docker.test.ts`：两成员各自的 `node_modules` 副本互不可见；容器无发布端口（`docker ps` Ports 为空）；挂载中没有宿主 `node_modules`，`network.mode=none`。不存在共享可写缓存。 |
 | T34 | ✅ | `workspaces.test.ts`：增删改、重命名、二进制、执行位、路径穿越。 |
 | T35 | ✅ | `integration.test.ts`：同文件双方修改冲突显式保留，不覆盖。 |
 | T36 | ✅ | `integration.test.ts`：相关源文件变化阻止发布，无关变化不阻止。 |
@@ -121,7 +121,7 @@
 | T59 | ⚠️ | `migration.test.ts`：把 v11（无 Team 表）库升级到 12、保留会话消息、备份/恢复成功；清理仍只覆盖「referenced 工作区不删除」，未覆盖 artifact 引用计数。 |
 | T60 | ✅ | `acceptance.test.ts` T60 + E06：required 未验收时 run 为 `waiting_user`，不成功。 |
 
-统计：✅ 43，⚠️ 13，⛔ 4，❌ 0（T 维度）。**未全部通过。**
+统计：✅ 44，⚠️ 12，⛔ 3，❌ 0（T 维度）。**未全部通过。**
 
 ## 6. E01–E06 端到端结果
 
@@ -164,7 +164,7 @@
 5. **MCP（T42）**：MCP 宿主仍在另一条未提交开发线；成员未获得 MCP 工具句柄，stdio/elicitation/Tasks 取消未验收。
 5. **UI 自动化（T54–T57）**：抽屉与响应式样式已实现，但没有浏览器自动化点击/键盘/390px 断言。
 6. **候选发布编排**：`workspaces.ts`/`integration.ts` 有完整模块测试，但 Team API/服务没有把"物化候选 → 验证 → 发布 journal → UI 冲突编辑"串成一条可用链路。
-7. **容器层**：T31 已在 Docker/runc 下通过；T33 的共享缓存/端口/可写依赖隔离仍未验证。
+7. **容器层**：T31/T33 已在 Docker/runc 下通过（工作区、依赖目录、端口、源目录）；未覆盖真实分布式缓存服务。
 
 ## 8. 复现命令
 

@@ -9,6 +9,8 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSandboxPlatform, type SandboxPlatform } from '../../src/sandbox/index.ts';
@@ -17,6 +19,8 @@ import { RESOURCE_PROFILES, SANDBOX_POLICY_VERSION } from '../../src/sandbox/typ
 import type { SandboxSettings } from '../../src/sandbox/config.ts';
 import { TeamWorkspaceService } from '../../src/teams/workspaces.ts';
 import { testPermissionSettings } from '../sandbox/helpers.ts';
+
+const execFileAsync = promisify(execFile);
 
 const ENABLED = process.env.TEAM_INTEGRATION === '1';
 const IMAGE = process.env.SANDBOX_TEST_IMAGE_DIGEST?.trim() ?? '';
@@ -123,7 +127,11 @@ describe.skipIf(!enabled)('T31 — team member workspace isolation in a containe
     expect(b).not.toBeNull();
 
     const wrote = await a!.executor.run({
-      command: ['sh', '-c', 'printf member-a > /workspace/a.txt && cat /workspace/a.txt && cat /workspace/README.md'],
+      command: [
+        'sh',
+        '-c',
+        'printf member-a > /workspace/a.txt && mkdir -p /workspace/node_modules/pkg && printf cache-a > /workspace/node_modules/pkg/cache.txt && cat /workspace/a.txt && cat /workspace/README.md',
+      ],
       toolCallId: 'tool-a-1',
     });
     expect(wrote.status).toBe('SUCCEEDED');
@@ -131,11 +139,53 @@ describe.skipIf(!enabled)('T31 — team member workspace isolation in a containe
     expect(wrote.stdout).toContain('# source');
 
     const bList = await b!.executor.run({
-      command: ['sh', '-c', 'ls -a /workspace; test ! -e /workspace/a.txt'],
+      command: [
+        'sh',
+        '-c',
+        'ls -a /workspace; test ! -e /workspace/a.txt; test ! -e /workspace/node_modules/pkg/cache.txt',
+      ],
       toolCallId: 'tool-b-1',
     });
     expect(bList.status).toBe('SUCCEEDED');
     expect(bList.stdout).not.toContain('a.txt');
+    expect(bList.stdout).not.toContain('cache.txt');
+
+    // T33: no shared writable dependency directory and no published port.
+    expect(platform.settings.network.mode).toBe('none');
+    for (const workspace of [first, second]) {
+      const { stdout } = await execFileAsync('docker', [
+        'ps',
+        '-a',
+        '--filter',
+        `label=eunoia.task=${workspace.workspaceTaskId}`,
+        '--format',
+        '{{.Names}}|{{.Ports}}',
+      ]);
+      for (const line of stdout.trim().split('\n').filter(Boolean)) {
+        const ports = line.split('|')[1] ?? '';
+        expect(ports.trim()).toBe('');
+      }
+      const mounts = await execFileAsync('docker', [
+        'ps',
+        '-a',
+        '--filter',
+        `label=eunoia.task=${workspace.workspaceTaskId}`,
+        '--format',
+        '{{.Names}}',
+      ]);
+      for (const name of mounts.stdout.trim().split('\n').filter(Boolean)) {
+        const inspect = await execFileAsync('docker', [
+          'inspect',
+          '--format',
+          '{{json .Mounts}}',
+          name,
+        ]);
+        const parsed = JSON.parse(inspect.stdout) as Array<{ Source?: string }>;
+        for (const mount of parsed) {
+          expect(mount.Source ?? '').not.toContain('node_modules');
+        }
+      }
+    }
 
     // A sibling workspace is not mounted anywhere in the container; the host
     // source root is not either.
