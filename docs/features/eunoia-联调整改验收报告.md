@@ -17,7 +17,7 @@
 | 集成基线 | `1a5c801`（`.worktrees/integration`，`feat/team-mcp-integration`） |
 | 整改分支 | `fix/integration-acceptance`（新 worktree `.worktrees/integration-acceptance`） |
 | 代码提交 | `7b6dc65718ba9e653fd078e67d04aeddf5d96197` |
-| 主线合并 | `origin/main@3bc8386` 已合入本分支（merge commit `c6cde4a`） |
+| 主线合并 | `origin/main@3bc8386` 已合入本分支（merge commit `c6cde4a`）；`main` 已快进到 `8be1e46` |
 | 文档/验收提交 | 本分支最后一次提交（manifest、报告、证据） |
 | Node | v24.7.0 |
 | Docker | 28.3.3，runtime `runc`（gVisor 缺失且已显式确认） |
@@ -143,10 +143,10 @@
 ## 6 备份、构建、迁移、重启与运行身份
 
 1. 备份：`backups/eunoia-2026-11-08T13-29-50-178Z/`（SQLite + media manifest；`sha256 51a7bfe3a4ec…`，1 个媒体资产校验通过）。
-2. 构建：`npm run build` 通过；`dist/build-info.json` 记录 commit/构建时间；本次运行版本 `3f72c4fc…`（代码提交 `7b6dc657…`，报告/证据提交 `3f72c4f`；`build-info.dirty=false`）。
+2. 构建：`npm run build` 通过；`dist/build-info.json` 记录 commit/构建时间；本次运行版本 `8be1e46…`（实现提交 `7b6dc657…` + 最新 main 合并；`build-info.dirty=false`）。
 3. 迁移：`SQLITE_PATH=/Users/Zhuanz/Projects/designFree/data/eunoia.sqlite npm run migrate` → schema 15；未降低版本、未删除表。
 4. 重启：8788，PID 见 `r14-deploy.json`；日志 `data/server.log`；预览网关 8790（loopback）。
-5. `/health`：`status:ok`、`store:sqlite`、`build.commit=3f72c4fc…`、sandbox runtime ok、`network:none`。
+5. `/health`：`status:ok`、`store:sqlite`、`build.commit=8be1e46…`、sandbox runtime ok、`network:none`。
 6. 真实预览：API 启动容器内 dev server → 租约 ready → `http://<route>.preview.localhost:8790/` 返回 `final-preview-ok` → 停止后 404。
 7. 真实工具：部署服务内 DeepSeek 调用 `web_fetch`，真实回复 `标题：Example Domain` / `来源 URL：https://example.com/`，acceptance `tools_ok:true`。
 8. 清理：预览已停止；故障测试子进程全部退出；未杀用户其他进程；原工作区/数据库/备份保留。

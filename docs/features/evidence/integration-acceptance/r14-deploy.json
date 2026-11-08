@@ -1,14 +1,14 @@
 {
-  "verifiedAt": "2026-11-08T13:40:07Z",
+  "verifiedAt": "2026-11-08T13:51:07Z",
   "branch": "fix/integration-acceptance",
   "codeCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-  "servicePid": 63086,
+  "servicePid": 72694,
   "port": 8788,
   "host": "127.0.0.1",
   "build": {
-    "commit": "3f72c4fc3de1bc2234fffdea1d59c15e93c24fef",
+    "commit": "8be1e467850b9be989fc7d2749ba4db34d4192c5",
     "dirty": false,
-    "builtAt": "2026-11-08T13:39:52.604Z",
+    "builtAt": "2026-11-08T13:50:52.395Z",
     "packageVersion": "0.1.0"
   },
   "schemaVersion": 15,
@@ -157,5 +157,6 @@
       "totalSteps": 2,
       "incomplete": false
     }
-  }
+  },
+  "mainCommit": "8be1e467850b9be989fc7d2749ba4db34d4192c5"
 }
