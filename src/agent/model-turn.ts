@@ -21,6 +21,7 @@ import type {
   ModelRequest,
   SerializedTool,
 } from '@openai/agents';
+import type { PreparedMediaPlan } from './request-plan.ts';
 import type {
   LoopInputItem,
   LoopOutputItem,
@@ -38,7 +39,7 @@ export function createSdkModelTurn(model: Model): ModelTurn {
 
     const modelRequest: ModelRequest = {
       systemInstructions: request.instructions,
-      input: request.input.map(toAgentInput),
+      input: request.input.map((item) => toAgentInput(item, request.media)),
       modelSettings: {},
       tools: request.tools.map(toSerializedTool),
       toolsExplicitlyProvided: true,
@@ -86,7 +87,14 @@ export function createSdkModelTurn(model: Model): ModelTurn {
         yield {
           type: 'done',
           output,
-          ...(event.response.usage ? { usage: usageOf(event.response.usage) } : {}),
+          ...(event.response.usage
+            ? {
+                usage: usageOf(
+                  event.response.usage,
+                  (event.response as { model?: string }).model,
+                ),
+              }
+            : {}),
           responseId: event.response.id,
         };
         return;
@@ -133,7 +141,10 @@ export function createModelTurnResolver(
 
 // ------------------------------------------------------------------ mapping ---
 
-function toAgentInput(item: LoopInputItem): AgentInputItem {
+function toAgentInput(
+  item: LoopInputItem,
+  media: PreparedMediaPlan | undefined,
+): AgentInputItem {
   switch (item.type) {
     case 'message':
       if (item.role === 'assistant') {
@@ -141,20 +152,42 @@ function toAgentInput(item: LoopInputItem): AgentInputItem {
           type: 'message',
           role: 'assistant',
           status: 'completed',
-          content: [{ type: 'output_text', text: item.content }],
+          content: [{ type: 'output_text', text: flattenContent(item.content) }],
         };
       }
       if (item.role === 'system') {
         return {
           type: 'message',
           role: 'system',
-          content: item.content,
+          content: flattenContent(item.content),
         };
       }
+      if (typeof item.content === 'string') {
+        return {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: item.content }],
+        };
+      }
+      // An image part without planned bytes is a programming error. Sending the
+      // filename, a placeholder or a text-only request would be the failure the
+      // strict mode exists to prevent, so it throws inside this adapter rather
+      // than pretending the model saw something.
       return {
         type: 'message',
         role: 'user',
-        content: [{ type: 'input_text', text: item.content }],
+        content: item.content.map((part) => {
+          if (part.type === 'text') return { type: 'input_text' as const, text: part.text };
+          const image = media?.images.get(part.assetId);
+          if (!image || !image.data) {
+            throw new Error(`no planned image bytes for asset ${part.assetId}`);
+          }
+          return {
+            type: 'input_image' as const,
+            image: `data:${image.mediaType};base64,${Buffer.from(image.data).toString('base64')}`,
+            detail: image.detail,
+          };
+        }),
       };
     case 'function_call':
       return {
@@ -181,6 +214,14 @@ function toAgentInput(item: LoopInputItem): AgentInputItem {
         rawContent: [{ type: 'reasoning_text', text: item.text }],
       };
   }
+}
+
+/** Every non-user role keeps a flat string by construction. */
+function flattenContent(content: string | readonly { type: string; text?: string }[]): string {
+  if (typeof content === 'string') return content;
+  return content
+    .map((part) => (part.type === 'text' ? (part.text ?? '') : ''))
+    .join('');
 }
 
 function toSerializedTool(tool: {
@@ -244,17 +285,21 @@ function toLoopOutput(item: AgentOutputItem): LoopOutputItem | null {
   return null;
 }
 
-function usageOf(usage: {
-  readonly inputTokens?: number;
-  readonly outputTokens?: number;
-  readonly totalTokens?: number;
-  readonly inputTokensDetails?: readonly Record<string, number>[] | Record<string, number>;
-}): ModelUsage {
+function usageOf(
+  usage: {
+    readonly inputTokens?: number;
+    readonly outputTokens?: number;
+    readonly totalTokens?: number;
+    readonly inputTokensDetails?: readonly Record<string, number>[] | Record<string, number>;
+  },
+  responseModel?: string,
+): ModelUsage {
   const cache = cacheUsageOf(usage);
   return {
     inputTokens: usage.inputTokens ?? 0,
     outputTokens: usage.outputTokens ?? 0,
     totalTokens: usage.totalTokens ?? 0,
     cachedTokens: cache?.cached_tokens ?? 0,
+    ...(responseModel ? { responseModel } : {}),
   };
 }

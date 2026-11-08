@@ -27,11 +27,15 @@
     "sandbox:check": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types scripts/sandbox-security-check.ts",
     "sandbox:smoke": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types scripts/sandbox-smoke.ts",
     "sandbox:it": "NODE_OPTIONS='--experimental-sqlite --disable-warning=ExperimentalWarning' SANDBOX_INTEGRATION=1 vitest run tests/sandbox/integration.docker.test.ts",
-    "migrate:legacy": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types scripts/migrate-legacy-postgres.ts"
+    "migrate:legacy": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types scripts/migrate-legacy-postgres.ts",
+    "backup:verify": "node --experimental-strip-types scripts/verify-media-backup.ts",
+    "cleanup:media": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types src/media/cli.ts",
+    "browser:check": "node --experimental-strip-types scripts/browser-check.ts"
   },
   "dependencies": {
     "@openai/agents": "^0.18.0",
     "openai": "^7.2.0",
+    "sharp": "^0.35.5",
     "yaml": "^2.9.1",
     "zod": "^4.6.7"
   },

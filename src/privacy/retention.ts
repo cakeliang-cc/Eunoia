@@ -67,6 +67,11 @@ export interface SweepOptions {
   /** Injected so a test can age a user without waiting a day. */
   readonly now?: Date;
   readonly limit?: number;
+  /**
+   * Called before a user row is deleted, to remove data the database cascade
+   * cannot name afterwards — private media files, whose rows are about to go.
+   */
+  readonly beforeDelete?: (userId: string) => Promise<void>;
 }
 
 /**
@@ -92,6 +97,9 @@ export async function sweepUsers(store: Store, options: SweepOptions = {}): Prom
   let deleted = 0;
   for (const candidate of candidates) {
     if (dryRun) continue;
+    // The callback runs first: after the cascade there is no row left to name
+    // the files, and an orphaned image is data the person asked to remove.
+    await options.beforeDelete?.(candidate.id);
     if (await store.deleteUser(candidate.id)) deleted += 1;
   }
 

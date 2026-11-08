@@ -39,11 +39,15 @@ import { SANDBOX_SCHEMA } from '../sandbox/schema.ts';
  * digest an idempotent retry is answered from), `turn_events` (tool calls
  * written before they run, results written after), and `agent_runs.finish_reason`
  * so a completed row can say *how* it completed. Version 8 only adds tables and
- * one nullable column, so it needs no table rebuild.
+ * one nullable column, so it needs no table rebuild; version 9 adds multimodal
+ * content: `messages.content_parts` (the versioned block list, nullable for old
+ * rows), `media_assets` (private immutable images plus their derived variants)
+ * and `message_assets` (the ordered reference join). Version 9 is additive and
+ * idempotent, so an interrupted migration can be run again.
  * The base schema is idempotent, so a version-1 file gets the tables by executing
  * the full schema; later files get the new columns by `ALTER TABLE`.
  */
-export const SQLITE_SCHEMA_VERSION = 8;
+export const SQLITE_SCHEMA_VERSION = 9;
 
 export const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -80,7 +84,13 @@ CREATE TABLE IF NOT EXISTS messages (
   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role            TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+  -- Plain-text projection. For a multimodal row this is derived from the text
+  -- blocks of content_parts in the same transaction; it is never a second source
+  -- of truth a client can write independently.
   content         TEXT NOT NULL,
+  -- Versioned ordered content blocks (UserContentV1). NULL is an old row and is
+  -- deterministically interpreted as one text block.
+  content_parts   TEXT,
   interrupted     INTEGER NOT NULL DEFAULT 0 CHECK (interrupted IN (0, 1)),
   created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   token_estimate  INTEGER,
@@ -96,6 +106,61 @@ CREATE UNIQUE INDEX IF NOT EXISTS messages_conversation_seq_idx
 -- the leading user_id column that is a full table scan.
 CREATE INDEX IF NOT EXISTS messages_user_time_idx
   ON messages (user_id, created_at);
+
+-- Private, immutable image assets. The original bytes are never rewritten; the
+-- normalized and request variants are separate, versioned rows of facts. A
+-- client only ever receives the opaque id.
+CREATE TABLE IF NOT EXISTS media_assets (
+  id                  TEXT PRIMARY KEY,
+  user_id             TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  conversation_id     TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  name                TEXT NOT NULL,
+  media_type          TEXT NOT NULL CHECK (media_type IN ('image/jpeg', 'image/png', 'image/webp')),
+  bytes               INTEGER NOT NULL CHECK (bytes > 0),
+  width               INTEGER NOT NULL CHECK (width > 0),
+  height              INTEGER NOT NULL CHECK (height > 0),
+  sha256              TEXT NOT NULL,
+  storage_key         TEXT NOT NULL,
+  normalized_key      TEXT NOT NULL,
+  normalized_width    INTEGER NOT NULL CHECK (normalized_width > 0),
+  normalized_height   INTEGER NOT NULL CHECK (normalized_height > 0),
+  normalized_bytes    INTEGER NOT NULL CHECK (normalized_bytes > 0),
+  normalized_sha256   TEXT NOT NULL,
+  request_key         TEXT NOT NULL,
+  request_width       INTEGER NOT NULL CHECK (request_width > 0),
+  request_height      INTEGER NOT NULL CHECK (request_height > 0),
+  request_bytes       INTEGER NOT NULL CHECK (request_bytes > 0),
+  request_sha256      TEXT NOT NULL,
+  processor_version   TEXT NOT NULL,
+  policy_revision     TEXT NOT NULL,
+  status              TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'bound', 'released')),
+  lease_expires_at    TEXT,
+  created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS media_assets_conversation_idx
+  ON media_assets (conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS media_assets_user_idx
+  ON media_assets (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS media_assets_collect_idx
+  ON media_assets (status, created_at);
+
+-- Ordered references. The join is the reference count: an asset with a row here
+-- is in at least one message and may not be released as a draft.
+CREATE TABLE IF NOT EXISTS message_assets (
+  message_id      TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  asset_id        TEXT NOT NULL REFERENCES media_assets(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL,
+  position        INTEGER NOT NULL CHECK (position >= 0),
+  -- Position, not asset id, is the key: one image may legitimately appear twice
+  -- in a message, and both occurrences are separate visual inputs.
+  PRIMARY KEY (message_id, position)
+);
+
+CREATE INDEX IF NOT EXISTS message_assets_asset_idx ON message_assets (asset_id);
+CREATE INDEX IF NOT EXISTS message_assets_conversation_idx
+  ON message_assets (conversation_id);
 
 CREATE TABLE IF NOT EXISTS conversation_summaries (
   conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
@@ -223,6 +288,10 @@ CREATE TABLE IF NOT EXISTS turn_requests (
   context_tokens  INTEGER,
   accepted        INTEGER,
   acceptance      TEXT NOT NULL DEFAULT '[]',
+  -- Actual provider usage for the last request of the turn, as JSON. NULL means
+  -- no usage was observed, which is not the same as zero. Image-token detail is
+  -- not split by the provider and is marked unknown rather than inferred.
+  usage           TEXT,
   started_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ended_at        TEXT
 );
@@ -303,6 +372,61 @@ ALTER TABLE sandboxes ADD COLUMN resource_profile TEXT NOT NULL DEFAULT 'default
 export const SQLITE_MIGRATION_6 = `
 CREATE INDEX IF NOT EXISTS messages_user_time_idx
   ON messages (user_id, created_at);
+
+-- Private, immutable image assets. The original bytes are never rewritten; the
+-- normalized and request variants are separate, versioned rows of facts. A
+-- client only ever receives the opaque id.
+CREATE TABLE IF NOT EXISTS media_assets (
+  id                  TEXT PRIMARY KEY,
+  user_id             TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  conversation_id     TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  name                TEXT NOT NULL,
+  media_type          TEXT NOT NULL CHECK (media_type IN ('image/jpeg', 'image/png', 'image/webp')),
+  bytes               INTEGER NOT NULL CHECK (bytes > 0),
+  width               INTEGER NOT NULL CHECK (width > 0),
+  height              INTEGER NOT NULL CHECK (height > 0),
+  sha256              TEXT NOT NULL,
+  storage_key         TEXT NOT NULL,
+  normalized_key      TEXT NOT NULL,
+  normalized_width    INTEGER NOT NULL CHECK (normalized_width > 0),
+  normalized_height   INTEGER NOT NULL CHECK (normalized_height > 0),
+  normalized_bytes    INTEGER NOT NULL CHECK (normalized_bytes > 0),
+  normalized_sha256   TEXT NOT NULL,
+  request_key         TEXT NOT NULL,
+  request_width       INTEGER NOT NULL CHECK (request_width > 0),
+  request_height      INTEGER NOT NULL CHECK (request_height > 0),
+  request_bytes       INTEGER NOT NULL CHECK (request_bytes > 0),
+  request_sha256      TEXT NOT NULL,
+  processor_version   TEXT NOT NULL,
+  policy_revision     TEXT NOT NULL,
+  status              TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'bound', 'released')),
+  lease_expires_at    TEXT,
+  created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS media_assets_conversation_idx
+  ON media_assets (conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS media_assets_user_idx
+  ON media_assets (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS media_assets_collect_idx
+  ON media_assets (status, created_at);
+
+-- Ordered references. The join is the reference count: an asset with a row here
+-- is in at least one message and may not be released as a draft.
+CREATE TABLE IF NOT EXISTS message_assets (
+  message_id      TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  asset_id        TEXT NOT NULL REFERENCES media_assets(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL,
+  position        INTEGER NOT NULL CHECK (position >= 0),
+  -- Position, not asset id, is the key: one image may legitimately appear twice
+  -- in a message, and both occurrences are separate visual inputs.
+  PRIMARY KEY (message_id, position)
+);
+
+CREATE INDEX IF NOT EXISTS message_assets_asset_idx ON message_assets (asset_id);
+CREATE INDEX IF NOT EXISTS message_assets_conversation_idx
+  ON message_assets (conversation_id);
 CREATE INDEX IF NOT EXISTS memories_user_updated_idx
   ON memories (user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS agent_runs_user_idx ON agent_runs (user_id);
@@ -363,4 +487,65 @@ CREATE TABLE IF NOT EXISTS turn_events (
 );
 
 CREATE INDEX IF NOT EXISTS turn_events_turn_idx ON turn_events (turn_id, seq);
+`;
+
+
+/**
+ * Version 8 → 9: multimodal messages and private media.
+ *
+ * Additive only. The media tables are `IF NOT EXISTS`, and the message column is
+ * added by the caller after a `PRAGMA table_info` check because SQLite has no
+ * `ADD COLUMN IF NOT EXISTS`. The base schema already carries both, so a fresh
+ * database applies this migration as a no-op.
+ */
+export const SQLITE_MIGRATION_9 = `
+CREATE TABLE IF NOT EXISTS media_assets (
+  id                  TEXT PRIMARY KEY,
+  user_id             TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  conversation_id     TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  name                TEXT NOT NULL,
+  media_type          TEXT NOT NULL CHECK (media_type IN ('image/jpeg', 'image/png', 'image/webp')),
+  bytes               INTEGER NOT NULL CHECK (bytes > 0),
+  width               INTEGER NOT NULL CHECK (width > 0),
+  height              INTEGER NOT NULL CHECK (height > 0),
+  sha256              TEXT NOT NULL,
+  storage_key         TEXT NOT NULL,
+  normalized_key      TEXT NOT NULL,
+  normalized_width    INTEGER NOT NULL CHECK (normalized_width > 0),
+  normalized_height   INTEGER NOT NULL CHECK (normalized_height > 0),
+  normalized_bytes    INTEGER NOT NULL CHECK (normalized_bytes > 0),
+  normalized_sha256   TEXT NOT NULL,
+  request_key         TEXT NOT NULL,
+  request_width       INTEGER NOT NULL CHECK (request_width > 0),
+  request_height      INTEGER NOT NULL CHECK (request_height > 0),
+  request_bytes       INTEGER NOT NULL CHECK (request_bytes > 0),
+  request_sha256      TEXT NOT NULL,
+  processor_version   TEXT NOT NULL,
+  policy_revision     TEXT NOT NULL,
+  status              TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'bound', 'released')),
+  lease_expires_at    TEXT,
+  created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS media_assets_conversation_idx
+  ON media_assets (conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS media_assets_user_idx
+  ON media_assets (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS media_assets_collect_idx
+  ON media_assets (status, created_at);
+
+CREATE TABLE IF NOT EXISTS message_assets (
+  message_id      TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  asset_id        TEXT NOT NULL REFERENCES media_assets(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL,
+  position        INTEGER NOT NULL CHECK (position >= 0),
+  -- Position, not asset id, is the key: one image may legitimately appear twice
+  -- in a message, and both occurrences are separate visual inputs.
+  PRIMARY KEY (message_id, position)
+);
+
+CREATE INDEX IF NOT EXISTS message_assets_asset_idx ON message_assets (asset_id);
+CREATE INDEX IF NOT EXISTS message_assets_conversation_idx
+  ON message_assets (conversation_id);
 `;

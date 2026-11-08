@@ -40,6 +40,7 @@ import type { ToolRegistry } from '../tools/registry.ts';
 import type { AgentEvent, ThinkingDoneEvent } from './events.ts';
 import type { ExecutionRecorder } from './execution-log.ts';
 import { fitContext, type ContextBudget } from './context-budget.ts';
+import type { PreparedMediaPlan } from './request-plan.ts';
 import type {
   LoopInputItem,
   LoopOutputItem,
@@ -85,6 +86,12 @@ export interface AgentLoopOptions {
    * session layer's budget covers the history, not the turn.
    */
   readonly contextBudget?: ContextBudget;
+  /**
+   * Fixed media plan for this turn. The same plan is used by every step's budget
+   * and by the adapter, so an image cannot be counted at one size and sent at
+   * another.
+   */
+  readonly media?: PreparedMediaPlan;
 }
 
 interface CallPlan {
@@ -168,6 +175,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
           tools: toolSchemas,
           items: input,
           budget: options.contextBudget,
+          ...(options.media ? { media: options.media } : {}),
         });
         requestInput = fit.items;
         requestTokens = fit.tokens;
@@ -209,6 +217,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
         input: requestInput,
         tools: toolSchemas,
         ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.media ? { media: options.media } : {}),
       })) {
         if (event.type === 'text_delta') {
           const closed = closeThinking();
@@ -293,6 +302,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
           finishReason: streamIncomplete ? 'incomplete_stream' : 'completed',
           steps: step,
           ...(requestTokens !== null ? { contextTokens: requestTokens } : {}),
+          ...(lastUsage ? { usage: lastUsage } : {}),
         };
         return;
       }
@@ -314,6 +324,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       text,
       finishReason: streamIncomplete ? 'incomplete_stream' : 'loop_exhausted',
       steps: maxSteps,
+      ...(lastUsage ? { usage: lastUsage } : {}),
     };
   } catch (error) {
     const closed = closeThinking();

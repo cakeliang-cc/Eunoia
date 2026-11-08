@@ -6,7 +6,16 @@ export default tseslint.config(
     // `reference/` is vendored study material (a clone of an unrelated project),
     // not source this repository maintains. Linting it produced 339 errors and
     // zero signal, which is how a lint gate stops being run.
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'reference/**'],
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'coverage/**',
+      'reference/**',
+      // Local study notes and their one-off experiment scripts are not product
+      // source. They are gitignored, but ESLint reads the working tree, and
+      // linting them reports missing Node globals rather than a defect.
+      'docs/myfree/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

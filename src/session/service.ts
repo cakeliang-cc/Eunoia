@@ -13,6 +13,7 @@
  */
 
 import { log } from '../observability/logging.ts';
+import type { UserContentV1 } from '../agent/content.ts';
 import { defaultModelProfile, modelProfile, summaryModelProfile } from '../models/registry.ts';
 import type { ModelProfile } from '../models/types.ts';
 import {
@@ -137,6 +138,8 @@ export class SessionService {
     role: Message['role'];
     content: string;
     interrupted?: boolean;
+    contentParts?: UserContentV1 | null;
+    assetIds?: readonly string[];
   }): Promise<Message> {
     return this.#store.appendMessage(message);
   }
@@ -188,6 +191,28 @@ export class SessionService {
 
   stats(userId: string): Promise<HistoryStats> {
     return this.#store.historyStats(userId);
+  }
+
+  /**
+   * The raw replay window, without compaction or truncation.
+   *
+   * Preflight needs to know whether the images the model would see are compatible
+   * with the route *before* a user message is written. `prepare` may compact and
+   * is therefore the wrong read for that decision.
+   */
+  async window(
+    userId: string,
+    conversationId: string,
+  ): Promise<{ summary: string | null; messages: Message[] }> {
+    const conversation = await this.#store.getConversation(userId, conversationId);
+    if (!conversation) throw new Error(`conversation ${conversationId} not found`);
+    const summary = await this.#store.getSummary(conversationId);
+    const messages = await this.#store.messagesAfter(
+      conversationId,
+      summary?.throughSeq ?? 0,
+      this.#config.replayMaxMessages,
+    );
+    return { summary: summary?.summary ?? null, messages };
   }
 
   /**

@@ -61,10 +61,15 @@ import type {
   TurnRecord,
 } from '../session/turn-types.ts';
 import type { Store } from '../store.ts';
+import type { UserContentV1 } from '../agent/content.ts';
+import { contentText } from '../agent/content.ts';
+import type { ImageAsset, ImageMediaType, MediaAssetStatus } from '../media/types.ts';
+import type { MediaAssetStore } from '../media/store.ts';
 import {
   SQLITE_MIGRATION_3,
   SQLITE_MIGRATION_6,
   SQLITE_MIGRATION_8,
+  SQLITE_MIGRATION_9,
   SQLITE_SCHEMA,
   SQLITE_SCHEMA_VERSION,
 } from './sqlite-schema.ts';
@@ -97,9 +102,38 @@ interface MessageRow {
   user_id: string;
   role: string;
   content: string;
+  content_parts: string | null;
   interrupted: number;
   created_at: string;
   seq: number;
+}
+
+interface MediaAssetRow {
+  id: string;
+  user_id: string;
+  conversation_id: string;
+  name: string;
+  media_type: string;
+  bytes: number;
+  width: number;
+  height: number;
+  sha256: string;
+  storage_key: string;
+  normalized_key: string;
+  normalized_width: number;
+  normalized_height: number;
+  normalized_bytes: number;
+  normalized_sha256: string;
+  request_key: string;
+  request_width: number;
+  request_height: number;
+  request_bytes: number;
+  request_sha256: string;
+  processor_version: string;
+  policy_revision: string;
+  status: string;
+  lease_expires_at: string | null;
+  created_at: string;
 }
 
 interface ConversationRow {
@@ -139,6 +173,7 @@ interface TurnRow {
   context_tokens: number | null;
   accepted: number | null;
   acceptance: string;
+  usage: string | null;
   started_at: string;
   ended_at: string | null;
 }
@@ -170,10 +205,17 @@ const MEMORY_COLUMNS = `
   superseded_by, source_message_id, created_at, updated_at, last_accessed_at, access_count
 `;
 
-const MESSAGE_COLUMNS = `id, conversation_id, user_id, role, content, interrupted, created_at, seq`;
+const MESSAGE_COLUMNS = `id, conversation_id, user_id, role, content, content_parts,
+  interrupted, created_at, seq`;
+
+const MEDIA_COLUMNS = `id, user_id, conversation_id, name, media_type, bytes, width, height,
+  sha256, storage_key, normalized_key, normalized_width, normalized_height, normalized_bytes,
+  normalized_sha256, request_key, request_width, request_height, request_bytes, request_sha256,
+  processor_version, policy_revision, status, lease_expires_at, created_at`;
 
 const TURN_COLUMNS = `id, turn_id, user_id, conversation_id, request_hash, status, finish_reason,
-  reply, message_id, error, model, steps, context_tokens, accepted, acceptance, started_at, ended_at`;
+  reply, message_id, error, model, steps, context_tokens, accepted, acceptance, usage,
+  started_at, ended_at`;
 
 const TURN_EVENT_COLUMNS = `id, turn_id, conversation_id, seq, kind, call_id, tool_name,
   status, execution_id, payload, created_at`;
@@ -189,7 +231,7 @@ const UPDATABLE_COLUMNS: Readonly<Record<keyof MemoryPatch, string>> = {
   tags: 'tags',
 };
 
-export class SqliteStore implements Store, TurnStore {
+export class SqliteStore implements Store, TurnStore, MediaAssetStore {
   /**
    * The raw connection, for tests and diagnostics.
    *
@@ -510,7 +552,17 @@ export class SqliteStore implements Store, TurnStore {
     role: Message['role'];
     content: string;
     interrupted?: boolean;
+    /** The structured fact. When present the text projection is derived here. */
+    contentParts?: UserContentV1 | null;
+    /** Image references to bind in the same transaction, in content order. */
+    assetIds?: readonly string[];
   }): Promise<Message> {
+    if (message.contentParts && message.contentParts.version !== 1) {
+      throw new Error(`unsupported content version ${String(message.contentParts.version)}`);
+    }
+    // The projection has one source when structured content exists. A caller
+    // cannot pass a different `content` and have both stored.
+    const projection = message.contentParts ? contentText(message.contentParts) : message.content;
     this.#db.exec('BEGIN IMMEDIATE');
     try {
       const owned = this.#get<{ one: number }>(
@@ -530,17 +582,29 @@ export class SqliteStore implements Store, TurnStore {
 
       this.#run(
         `INSERT INTO messages
-           (id, conversation_id, user_id, role, content, token_estimate, seq, created_at, interrupted)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, conversation_id, user_id, role, content, content_parts, token_estimate,
+            seq, created_at, interrupted)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         message.conversationId,
         message.userId,
         message.role,
-        message.content,
-        Math.ceil(message.content.length / 4),
+        projection,
+        message.contentParts ? JSON.stringify(message.contentParts) : null,
+        Math.ceil(projection.length / 4),
         seq,
         now,
         message.interrupted === true ? 1 : 0,
+      );
+
+      // Bound in the same transaction as the message. A partial write cannot
+      // leave a message whose images are still drafts (or a draft marked bound
+      // to a message that was rolled back).
+      this.#bindMessageAssets(
+        message.userId,
+        message.conversationId,
+        id,
+        message.role === 'user' ? (message.assetIds ?? []) : [],
       );
 
       this.#run(
@@ -621,6 +685,7 @@ export class SqliteStore implements Store, TurnStore {
         conversationId,
         userId,
       );
+      await this.releaseUnreferencedAssets(conversationId);
     }
     return result.changes;
   }
@@ -678,8 +743,8 @@ export class SqliteStore implements Store, TurnStore {
 
   async listMessages(userId: string, conversationId: string, limit = 200): Promise<Message[]> {
     return this.#all<MessageRow>(
-      `SELECT m.id, m.conversation_id, m.user_id, m.role, m.content, m.interrupted,
-              m.created_at, m.seq
+      `SELECT m.id, m.conversation_id, m.user_id, m.role, m.content, m.content_parts,
+              m.interrupted, m.created_at, m.seq
          FROM messages m
          JOIN conversations c ON c.id = m.conversation_id
         WHERE m.conversation_id = ? AND c.user_id = ?
@@ -835,6 +900,183 @@ export class SqliteStore implements Store, TurnStore {
   }
 
 
+  // --------------------------------------------------------------- media -----
+
+  async createMediaAsset(asset: ImageAsset): Promise<void> {
+    this.#run(
+      `INSERT INTO media_assets
+         (id, user_id, conversation_id, name, media_type, bytes, width, height, sha256,
+          storage_key, normalized_key, normalized_width, normalized_height, normalized_bytes,
+          normalized_sha256, request_key, request_width, request_height, request_bytes,
+          request_sha256, processor_version, policy_revision, status, lease_expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      asset.id,
+      asset.userId,
+      asset.conversationId,
+      asset.name,
+      asset.mediaType,
+      asset.bytes,
+      asset.width,
+      asset.height,
+      asset.sha256,
+      asset.storageKey,
+      asset.normalized.key,
+      asset.normalized.width,
+      asset.normalized.height,
+      asset.normalized.bytes,
+      asset.normalized.sha256,
+      asset.request.key,
+      asset.request.width,
+      asset.request.height,
+      asset.request.bytes,
+      asset.request.sha256,
+      asset.normalized.processorVersion,
+      asset.normalized.policyRevision,
+      asset.status,
+      asset.leaseExpiresAt ? asset.leaseExpiresAt.toISOString() : null,
+      asset.createdAt.toISOString(),
+    );
+  }
+
+  async getMediaAsset(userId: string, assetId: string): Promise<ImageAsset | null> {
+    const row = this.#get<MediaAssetRow>(
+      `SELECT ${MEDIA_COLUMNS} FROM media_assets WHERE id = ? AND user_id = ?`,
+      assetId,
+      userId,
+    );
+    return row ? toMediaAsset(row) : null;
+  }
+
+  async listMediaAssets(userId: string, assetIds: readonly string[]): Promise<ImageAsset[]> {
+    if (assetIds.length === 0) return [];
+    const placeholders = assetIds.map(() => '?').join(', ');
+    return this.#all<MediaAssetRow>(
+      `SELECT ${MEDIA_COLUMNS} FROM media_assets WHERE user_id = ? AND id IN (${placeholders})`,
+      userId,
+      ...assetIds,
+    ).map(toMediaAsset);
+  }
+
+  async listConversationMedia(userId: string, conversationId: string): Promise<ImageAsset[]> {
+    return this.#all<MediaAssetRow>(
+      `SELECT ${MEDIA_COLUMNS} FROM media_assets
+        WHERE user_id = ? AND conversation_id = ? ORDER BY created_at ASC`,
+      userId,
+      conversationId,
+    ).map(toMediaAsset);
+  }
+
+  async listUserMedia(userId: string): Promise<ImageAsset[]> {
+    return this.#all<MediaAssetRow>(
+      `SELECT ${MEDIA_COLUMNS} FROM media_assets WHERE user_id = ? ORDER BY created_at ASC`,
+      userId,
+    ).map(toMediaAsset);
+  }
+
+  async messageAssetIds(messageId: string): Promise<string[]> {
+    return this.#all<{ asset_id: string }>(
+      'SELECT asset_id FROM message_assets WHERE message_id = ? ORDER BY position ASC',
+      messageId,
+    ).map((row) => row.asset_id);
+  }
+
+  async setMediaLease(
+    userId: string,
+    assetIds: readonly string[],
+    until: Date | null,
+  ): Promise<void> {
+    if (assetIds.length === 0) return;
+    const placeholders = assetIds.map(() => '?').join(', ');
+    this.#run(
+      `UPDATE media_assets SET lease_expires_at = ?
+        WHERE user_id = ? AND id IN (${placeholders})`,
+      until ? until.toISOString() : null,
+      userId,
+      ...assetIds,
+    );
+  }
+
+  async deletePendingMediaAsset(
+    userId: string,
+    assetId: string,
+    now: Date = new Date(),
+  ): Promise<boolean> {
+    const result = this.#run(
+      `DELETE FROM media_assets
+        WHERE id = ? AND user_id = ? AND status = 'pending'
+          AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+          AND NOT EXISTS (SELECT 1 FROM message_assets WHERE asset_id = ?)`,
+      assetId,
+      userId,
+      now.toISOString(),
+      assetId,
+    );
+    return result.changes > 0;
+  }
+
+  async deleteMediaAssets(assetIds: readonly string[]): Promise<void> {
+    if (assetIds.length === 0) return;
+    const placeholders = assetIds.map(() => '?').join(', ');
+    this.#run(`DELETE FROM media_assets WHERE id IN (${placeholders})`, ...assetIds);
+  }
+
+  async listCollectableMedia(now: Date, graceMs: number): Promise<ImageAsset[]> {
+    const cutoff = new Date(now.getTime() - graceMs).toISOString();
+    return this.#all<MediaAssetRow>(
+      `SELECT ${MEDIA_COLUMNS} FROM media_assets AS a
+        WHERE a.created_at <= ?
+          AND (a.lease_expires_at IS NULL OR a.lease_expires_at <= ?)
+          AND (
+            a.status = 'released'
+            OR (a.status = 'pending'
+                AND NOT EXISTS (SELECT 1 FROM message_assets AS r WHERE r.asset_id = a.id))
+          )
+        ORDER BY a.created_at ASC`,
+      cutoff,
+      now.toISOString(),
+    ).map(toMediaAsset);
+  }
+
+  async releaseUnreferencedAssets(conversationId: string): Promise<void> {
+    this.#run(
+      `UPDATE media_assets SET status = 'released', lease_expires_at = NULL
+        WHERE conversation_id = ? AND status = 'bound'
+          AND NOT EXISTS (SELECT 1 FROM message_assets AS r WHERE r.asset_id = media_assets.id)`,
+      conversationId,
+    );
+  }
+
+  #bindMessageAssets(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+    assetIds: readonly string[],
+  ): void {
+    for (const [position, assetId] of assetIds.entries()) {
+      const row = this.#get<{ user_id: string; conversation_id: string; status: string }>(
+        'SELECT user_id, conversation_id, status FROM media_assets WHERE id = ?',
+        assetId,
+      );
+      if (
+        !row ||
+        row.user_id !== userId ||
+        row.conversation_id !== conversationId ||
+        row.status === 'released'
+      ) {
+        throw new Error(`media asset ${assetId} is not available to this conversation`);
+      }
+      this.#run(
+        `INSERT INTO message_assets (message_id, asset_id, conversation_id, position)
+         VALUES (?, ?, ?, ?)`,
+        messageId,
+        assetId,
+        conversationId,
+        position,
+      );
+      this.#run(`UPDATE media_assets SET status = 'bound' WHERE id = ?`, assetId);
+    }
+  }
+
   // --------------------------------------------------------------- turns -----
 
   async createTurn(record: TurnRecord): Promise<CreateTurnResult> {
@@ -918,6 +1160,10 @@ export class SqliteStore implements Store, TurnStore {
     if (patch.acceptance !== undefined) {
       values.push(JSON.stringify(patch.acceptance));
       assignments.push('acceptance = ?');
+    }
+    if (patch.usage !== undefined) {
+      values.push(patch.usage === null ? null : JSON.stringify(patch.usage));
+      assignments.push('usage = ?');
     }
 
     values.push(id);
@@ -1145,6 +1391,9 @@ export function openSqliteStore(path: string): SqliteStore {
     if (version < 8) {
       migrateToVersion8(db);
     }
+    if (version < 9) {
+      migrateToVersion9(db);
+    }
   }
   if (version < SQLITE_SCHEMA_VERSION) {
     db.exec(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
@@ -1181,10 +1430,62 @@ function toMessage(row: MessageRow): Message {
     userId: row.user_id,
     role: row.role as Message['role'],
     content: row.content,
+    contentParts: parseContentParts(row.content_parts),
     interrupted: Number(row.interrupted) === 1,
     createdAt: new Date(row.created_at),
     seq: Number(row.seq),
   };
+}
+
+function toMediaAsset(row: MediaAssetRow): ImageAsset {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    conversationId: row.conversation_id,
+    name: row.name,
+    mediaType: row.media_type as ImageMediaType,
+    bytes: Number(row.bytes),
+    width: Number(row.width),
+    height: Number(row.height),
+    sha256: row.sha256,
+    storageKey: row.storage_key,
+    normalized: {
+      key: row.normalized_key,
+      width: Number(row.normalized_width),
+      height: Number(row.normalized_height),
+      bytes: Number(row.normalized_bytes),
+      sha256: row.normalized_sha256,
+      processorVersion: row.processor_version,
+      policyRevision: row.policy_revision,
+    },
+    request: {
+      key: row.request_key,
+      width: Number(row.request_width),
+      height: Number(row.request_height),
+      bytes: Number(row.request_bytes),
+      sha256: row.request_sha256,
+      processorVersion: row.processor_version,
+      policyRevision: row.policy_revision,
+    },
+    status: row.status as MediaAssetStatus,
+    leaseExpiresAt: row.lease_expires_at ? new Date(row.lease_expires_at) : null,
+    createdAt: new Date(row.created_at),
+  };
+}
+
+function parseContentParts(value: string | null): UserContentV1 | null {
+  if (value === null || value.length === 0) return null;
+  const parsed = parseJson<unknown>(value, null);
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    (parsed as { version?: unknown }).version !== 1 ||
+    !Array.isArray((parsed as { parts?: unknown }).parts)
+  ) {
+    // Unknown versions are refused rather than silently read as empty text.
+    throw new Error('stored message has unsupported content_parts');
+  }
+  return parsed as UserContentV1;
 }
 
 function toTurn(row: TurnRow): TurnRecord {
@@ -1204,6 +1505,7 @@ function toTurn(row: TurnRow): TurnRecord {
     contextTokens: row.context_tokens === null ? null : Number(row.context_tokens),
     accepted: row.accepted === null ? null : Number(row.accepted) === 1,
     acceptance: parseJson<TurnRecord['acceptance']>(row.acceptance, []),
+    usage: row.usage === null ? null : parseJson<TurnRecord['usage']>(row.usage, null),
     startedAt: new Date(row.started_at),
     endedAt: row.ended_at ? new Date(row.ended_at) : null,
   };
@@ -1444,6 +1746,18 @@ function createAgentRunIndexes(db: DatabaseSync): void {
  * is not idempotent in SQLite, and a migration that crashed after adding it
  * must converge on the next open rather than fail with "duplicate column name".
  */
+function migrateToVersion9(db: DatabaseSync): void {
+  const columns = db.prepare('PRAGMA table_info(messages)').all() as { name: string }[];
+  if (!columns.some((column) => column.name === 'content_parts')) {
+    db.exec('ALTER TABLE messages ADD COLUMN content_parts TEXT');
+  }
+  const turnColumns = db.prepare('PRAGMA table_info(turn_requests)').all() as { name: string }[];
+  if (turnColumns.length > 0 && !turnColumns.some((column) => column.name === 'usage')) {
+    db.exec('ALTER TABLE turn_requests ADD COLUMN usage TEXT');
+  }
+  db.exec(SQLITE_MIGRATION_9);
+}
+
 function migrateToVersion8(db: DatabaseSync): void {
   if (!hasColumn(db, 'agent_runs', 'finish_reason')) {
     db.exec('ALTER TABLE agent_runs ADD COLUMN finish_reason TEXT');

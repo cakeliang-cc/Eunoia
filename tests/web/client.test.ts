@@ -863,7 +863,9 @@ describe('message actions', () => {
     await harness.send('今天什么都不想做。');
 
     action(harness, 'more')?.onclick?.();
-    const menu = harness.transcript.find((node) => node.classList.contains('msg-menu'))[0];
+    const menu =
+      harness.transcript.find((node) => node.classList.contains('msg-menu'))[0] ??
+      harness.body.find((node) => node.classList.contains('msg-menu'))[0];
     expect(menu).toBeDefined();
     const copyPlain = menu?.children.find((node) => node.textContent === '复制纯文本');
     expect(copyPlain).toBeDefined();

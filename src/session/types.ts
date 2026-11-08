@@ -12,12 +12,29 @@
  * in `messages`.
  */
 
+import type { UserContentV1 } from '../agent/content.ts';
+
 export interface Message {
   readonly id: string;
   readonly conversationId: string;
   readonly userId: string;
   readonly role: 'user' | 'assistant' | 'system';
+  /**
+   * The plain-text projection.
+   *
+   * For a multimodal user message this is derived from the text blocks of
+   * `contentParts` by the same storage operation; it exists for the old client,
+   * search and export, and is never a second source of truth.
+   */
   readonly content: string;
+  /**
+   * The ordered, versioned content blocks, or null for a pre-multimodal row.
+   *
+   * A null value is deterministically one text block with `content` as its
+   * text. Images appear here only as opaque asset ids; their bytes and provider
+   * encodings live in the media layer.
+   */
+  readonly contentParts?: UserContentV1 | null;
   /**
    * The person stopped the turn while this reply was still being generated.
    *

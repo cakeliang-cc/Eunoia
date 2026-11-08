@@ -34,9 +34,19 @@ import { CONVERSATION_TITLE_MAX_CHARS } from '../session/types.ts';
 import { sessionConfig, sessionReplayBudget } from '../session/config.ts';
 import { SessionService } from '../session/service.ts';
 import { MODEL_CATALOG } from '../models/catalog.ts';
-import { defaultModelProfile, isKnownModelId, summaryModelProfile } from '../models/registry.ts';
+import {
+  defaultModelProfile,
+  isKnownModelId,
+  modelProfile,
+  summaryModelProfile,
+} from '../models/registry.ts';
 import { providerFor } from '../provider/index.ts';
-import { runTurn, type TurnAttachment, type TurnRunner } from '../service/chat.ts';
+import {
+  modelHistoryContents,
+  runTurn,
+  type TurnAttachment,
+  type TurnRunner,
+} from '../service/chat.ts';
 import { recoverInterruptedTurns } from '../service/recovery.ts';
 import {
   ConversationBusyError,
@@ -48,6 +58,30 @@ import {
 import type { TurnRecord } from '../session/turn-types.ts';
 import { selectStore } from '../db/select.ts';
 import { agentMaxSteps, skillsEnabled, workspaceConfig } from '../config.ts';
+import type { UserContentV1 } from '../agent/content.ts';
+import {
+  contentHasImages,
+  contentImageIds,
+  contentText,
+  legacyContent,
+  messageContent,
+  parseUserContent,
+} from '../agent/content.ts';
+import type { SessionConfig } from '../session/config.ts';
+import type { ModelProfile } from '../models/types.ts';
+import { MediaService } from '../media/service.ts';
+import { FileMediaBlobStore, MemoryMediaBlobStore } from '../media/blob-store.ts';
+import { mediaRoot } from '../media/config.ts';
+import { DecodeGate } from '../media/decode.ts';
+import { MediaError, isMediaError } from '../media/errors.ts';
+import type { MediaLimits } from '../media/types.ts';
+import { mediaLimits, DEFAULT_MEDIA_LIMITS } from '../media/limits.ts';
+import { toAssetView } from '../media/types.ts';
+import type { ImagePolicyRegistry } from '../provider/image-policy.ts';
+import { defaultImagePolicies } from '../provider/image-policy-registry.ts';
+import { isMediaPlanError } from '../agent/request-plan.ts';
+import { preflightMedia } from '../service/media-turn.ts';
+import type { Message } from '../session/types.ts';
 import { DEFAULT_TOOL_POLICY } from '../tools/types.ts';
 import type { ToolPolicy } from '../tools/types.ts';
 import type { SandboxPlatform } from '../sandbox/index.ts';
@@ -334,7 +368,13 @@ function permissionErrorStatus(error: unknown): number {
 }
 
 export interface ChatPayload {
+  /** The text projection; empty is valid when `content` carries only images. */
   readonly message: string;
+  /**
+   * Ordered text/image blocks. Present only when the client used the new field;
+   * the legacy `message` request keeps its old shape.
+   */
+  readonly content?: UserContentV1;
   readonly conversationId: string | null;
   /**
    * Client-generated id for this turn, so it can be stopped from a second
@@ -362,16 +402,43 @@ export interface ChatPayload {
   readonly attachments?: readonly string[];
 }
 
-export function parseChatRequest(raw: unknown): ChatPayload | string {
+export function parseChatRequest(
+  raw: unknown,
+  limits: Pick<MediaLimits, 'maxImagesPerMessage'> = DEFAULT_MEDIA_LIMITS,
+): ChatPayload | string {
   const body = asObject(raw);
   if (!body) return 'body must be a JSON object';
 
-  const message = body.message;
-  if (typeof message !== 'string') return 'field "message" must be a string';
-  const trimmed = message.trim();
-  if (trimmed.length === 0) return 'field "message" must not be empty';
-  if (trimmed.length > MAX_MESSAGE_CHARS) {
-    return `field "message" exceeds ${MAX_MESSAGE_CHARS} characters`;
+  const hasMessage = body.message !== undefined && body.message !== null;
+  const hasContent = body.content !== undefined && body.content !== null;
+  if (hasMessage && hasContent) {
+    // Two facts for the same message is a client bug. Accepting both would make
+    // the projection and the blocks disagree on the first edit.
+    return 'fields "message" and "content" cannot both be provided';
+  }
+
+  let message: string;
+  let content: UserContentV1 | undefined;
+  if (hasContent) {
+    const parsed = parseUserContent(body.content, {
+      maxTextChars: MAX_MESSAGE_CHARS,
+      maxImages: limits.maxImagesPerMessage,
+    });
+    if (!parsed.ok) return parsed.error;
+    content = parsed.value;
+    // Only the text blocks become the projection. An image-only message has an
+    // empty projection and is still valid — the server must not invent words
+    // the person did not write.
+    message = contentText(content);
+  } else {
+    const rawMessage = body.message;
+    if (typeof rawMessage !== 'string') return 'field "message" must be a string';
+    const trimmed = rawMessage.trim();
+    if (trimmed.length === 0) return 'field "message" must not be empty';
+    if (trimmed.length > MAX_MESSAGE_CHARS) {
+      return `field "message" exceeds ${MAX_MESSAGE_CHARS} characters`;
+    }
+    message = trimmed;
   }
 
   const conversationId = body.conversationId;
@@ -409,7 +476,8 @@ export function parseChatRequest(raw: unknown): ChatPayload | string {
   }
 
   return {
-    message: trimmed,
+    message,
+    ...(content ? { content } : {}),
     conversationId: (conversationId as string | null) ?? null,
     ...(typeof turnId === 'string' ? { turnId } : {}),
     ...(typeof requestId === 'string' ? { requestId } : {}),
@@ -607,6 +675,22 @@ export interface AppDependencies {
    * assertions it makes about busy/retry behaviour.
    */
   readonly turns?: TurnCoordinator;
+  /**
+   * Private media storage, when this process accepts images.
+   *
+   * Null is a text-only process: an image request is refused with a typed
+   * capability error, never silently downgraded to a filename.
+   */
+  readonly media?: MediaService | null;
+  readonly imagePolicies?: ImagePolicyRegistry;
+  readonly mediaLimits?: MediaLimits;
+  readonly sessionConfig?: SessionConfig;
+  /** Profile lookup, injectable so tests can add a second offline route. */
+  readonly modelProfiles?: (id: string) => ModelProfile;
+}
+
+function defaultModelProfileFor(id: string): ModelProfile {
+  return modelProfile(id);
 }
 
 export function createApp(deps: AppDependencies) {
@@ -619,6 +703,15 @@ export function createApp(deps: AppDependencies) {
    * same visibility a second process would have.
    */
   const turns = deps.turns ?? new TurnCoordinator(store);
+  const media = deps.media ?? null;
+  const limits = deps.mediaLimits ?? mediaLimits();
+  const config = deps.sessionConfig ?? sessionConfig();
+  const imagePolicies = deps.imagePolicies ?? defaultImagePolicies();
+  const profileFor = deps.modelProfiles ?? defaultModelProfileFor;
+  const defaultModelId = defaultModelProfile().id;
+  const availableImageModels = Object.values(MODEL_CATALOG)
+    .filter((profile) => profile.capabilities.input.image === 'supported')
+    .map((profile) => profile.id);
 
   /**
    * The turns currently streaming, so a second request can stop one.
@@ -855,6 +948,12 @@ export function createApp(deps: AppDependencies) {
       turns,
       modelProvider: deps.modelProvider,
       runner: deps.runner,
+      media,
+      imagePolicies,
+      mediaLimits: limits,
+      sessionConfig: config,
+      modelProfileFor: profileFor,
+      availableImageModels,
       ...(deps.sandbox ? { sandbox: deps.sandbox.provider } : {}),
       ...(deps.toolPolicy ? { toolPolicy: deps.toolPolicy } : {}),
       ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
@@ -1077,6 +1176,172 @@ export function createApp(deps: AppDependencies) {
     return attachments;
   }
 
+  /**
+   * Preflight the images a turn would send.
+   *
+   * Runs before admission and before a user message exists, which is what makes
+   * a 422 leave no transcript row and no running turn behind. A text-only turn
+   * skips it: the existing text path has its own (unchanged) behaviour.
+   */
+  async function preflightTurnContent(
+    userId: string,
+    conversation: { readonly id: string; readonly modelId: string | null },
+    content: UserContentV1,
+    excludeMessageId?: string | null,
+  ): Promise<{ assets: readonly import('../media/types.ts').ImageAsset[]; plan: import('../agent/request-plan.ts').PreparedMediaPlan } | null> {
+    const profile = profileFor(conversation.modelId ?? defaultModelId);
+    const window = await sessions.window(userId, conversation.id);
+    const history = modelHistoryContents(window.messages, excludeMessageId ?? null);
+    if (!contentHasImages(content) && !history.some((entry) => contentHasImages(entry))) {
+      return null;
+    }
+    const result = await preflightMedia(
+      {
+        media,
+        policies: imagePolicies,
+        limits,
+        inputBudgetTokens: config.inputBudgetTokens,
+        availableModels: availableImageModels,
+      },
+      {
+        userId,
+        conversationId: conversation.id,
+        profile,
+        content,
+        history,
+        requiresTools: true,
+        // The system prompt and tool declarations are not optional; using the
+        // configured reserve keeps the preflight conservative without building
+        // the whole agent twice.
+        fixedTokens: config.promptReserveTokens,
+      },
+    );
+    return { assets: result.assets, plan: result.plan };
+  }
+
+  /** Original digests in content order, one per image occurrence. */
+  function contentAssetDigests(
+    content: UserContentV1,
+    assets: readonly { readonly id: string; readonly sha256: string }[],
+  ): string[] {
+    const byId = new Map(assets.map((asset) => [asset.id, asset.sha256]));
+    return contentImageIds(content).map((id) => byId.get(id) ?? '');
+  }
+
+  /** One error body shape for media/capability failures, never a stack trace. */
+  function sendTypedError(res: ServerResponse, error: unknown): boolean {
+    if (isMediaError(error) || isMediaPlanError(error)) {
+      sendJson(res, error.status, {
+        error: {
+          code: error.code,
+          message: error.message,
+          retryable: error.retryable,
+          details: error.details,
+        },
+      });
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Add authorized display metadata to a stored message's image blocks.
+   *
+   * The stored row keeps only ids. This is the one place a preview URL is
+   * attached, and it is computed per request from the caller's own assets.
+   */
+  async function hydrateMessages(
+    userId: string,
+    messages: readonly Message[],
+  ): Promise<Message[]> {
+    if (!media) return [...messages];
+    const ids = new Set<string>();
+    for (const message of messages) {
+      if (message.role !== 'user' || !message.contentParts) continue;
+      for (const part of message.contentParts.parts) {
+        if (part.type === 'image') ids.add(part.assetId);
+      }
+    }
+    if (ids.size === 0) return [...messages];
+    const assets = await store.listMediaAssets(userId, [...ids]);
+    const byId = new Map(assets.map((asset) => [asset.id, toAssetView(asset, { withUrl: true })]));
+    return messages.map((message) => {
+      if (message.role !== 'user' || !message.contentParts) return message;
+      const parts = message.contentParts.parts.map((part) => {
+        if (part.type === 'text') return part;
+        const image = byId.get(part.assetId);
+        return image
+          ? { type: 'image' as const, assetId: part.assetId, image }
+          : {
+              type: 'image' as const,
+              assetId: part.assetId,
+              image: {
+                id: part.assetId,
+                name: '图片不可用',
+                mediaType: 'application/octet-stream',
+                bytes: 0,
+                width: 0,
+                height: 0,
+                status: 'missing',
+              },
+            };
+      });
+      return {
+        ...message,
+        contentParts: { version: 1 as const, parts },
+      };
+    });
+  }
+
+  /**
+   * Read one image for preview.
+   *
+   * Cookie identity, owner scope, no path in the response, no caching. A client
+   * that cannot read the row gets the same 404 as a nonexistent id.
+   */
+  async function handleMediaImageGet(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    assetId: string,
+  ): Promise<void> {
+    if (!media) {
+      sendTypedError(res, new MediaError('MEDIA_UNAVAILABLE', '图片存储未启用', 404));
+      return;
+    }
+    const userId = readIdentity(req);
+    if (!userId) {
+      sendJson(res, 404, { error: 'image not found' });
+      return;
+    }
+    const requestedConversation = url.searchParams.get('conversationId');
+    if (requestedConversation !== null && !isUuid(requestedConversation)) {
+      sendJson(res, 400, { error: 'conversationId must be a uuid' });
+      return;
+    }
+    try {
+      const loaded = await media.readPreview(userId, assetId, requestedConversation);
+      // RFC 5987 filename: percent-encode what is not an attr-char; the raw name
+      // never reaches a header as text, which is where a CR/LF would matter.
+      const disposition = encodeURIComponent(loaded.asset.name).replace(
+        /[!'()*]/g,
+        (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+      );
+      res.writeHead(200, {
+        'Content-Type': loaded.asset.mediaType,
+        'Content-Length': String(loaded.bytes.length),
+        'X-Content-Type-Options': 'nosniff',
+        'Cache-Control': 'private, no-store, max-age=0',
+        'Content-Disposition': `inline; filename*=UTF-8''${disposition}`,
+        'Cross-Origin-Resource-Policy': 'same-origin',
+      });
+      res.end(loaded.bytes);
+    } catch (error) {
+      if (sendTypedError(res, error)) return;
+      throw error;
+    }
+  }
+
   async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
     let raw: unknown;
     try {
@@ -1086,7 +1351,7 @@ export function createApp(deps: AppDependencies) {
       return;
     }
 
-    const parsed = parseChatRequest(raw);
+    const parsed = parseChatRequest(raw, limits);
     if (typeof parsed === 'string') {
       sendJson(res, 400, { error: parsed });
       return;
@@ -1098,9 +1363,11 @@ export function createApp(deps: AppDependencies) {
     // stream for a stop. They default to the same value because a client that
     // already generates one per send should not have to generate two.
     const requestId = parsed.requestId ?? turnId;
+    const content = parsed.content ?? legacyContent(parsed.message);
 
     log.info('chat.request', {
       message_fingerprint: `len=${parsed.message.length}`,
+      images: parsed.content ? contentImageIds(content).length : 0,
       conversation_id: parsed.conversationId,
       request_id: requestId,
       continued: parsed.continue === true,
@@ -1118,14 +1385,19 @@ export function createApp(deps: AppDependencies) {
     // A conversation id the caller *did* supply must exist and belong to them.
     // Silently opening a different thread would make the admission record point
     // at a conversation the request never mentioned.
+    let conversation;
     let conversationId = parsed.conversationId;
     if (conversationId === null) {
-      const conversation = await sessions.create(userId);
+      conversation = await sessions.create(userId);
       conversationId = conversation.id;
       await applyDefaultPermissionMode(userId, conversationId);
-    } else if (!(await sessions.get(userId, conversationId))) {
-      sendJson(res, 404, { error: 'conversation not found' });
-      return;
+    } else {
+      const existing = await sessions.get(userId, conversationId);
+      if (!existing) {
+        sendJson(res, 404, { error: 'conversation not found' });
+        return;
+      }
+      conversation = existing;
     }
 
     let attachments: TurnAttachment[];
@@ -1134,6 +1406,21 @@ export function createApp(deps: AppDependencies) {
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : 'bad attachments' });
       return;
+    }
+
+    /**
+     * Capability, ownership, budget and body preflight happens *before*
+     * admission. A 422 here has not written a user message and has not taken the
+     * conversation lock, which is the difference between a rejected request and
+     * a turn that failed after being accepted.
+     */
+    let assetDigests: string[] = [];
+    try {
+      const preflight = await preflightTurnContent(userId, conversation, content);
+      if (preflight) assetDigests = contentAssetDigests(content, preflight.assets);
+    } catch (error) {
+      if (sendTypedError(res, error)) return;
+      throw error;
     }
 
     // Admission happens before a single byte of the turn is written: a busy
@@ -1151,6 +1438,10 @@ export function createApp(deps: AppDependencies) {
         message: parsed.message,
         continue: parsed.continue === true,
         attachments: parsed.attachments ?? [],
+        ...(parsed.content ? { content: parsed.content } : {}),
+        ...(parsed.content && contentHasImages(parsed.content)
+          ? { assetDigests }
+          : {}),
       }),
     });
     if (!admitted.proceed) return;
@@ -1159,6 +1450,7 @@ export function createApp(deps: AppDependencies) {
       userId,
       conversationId,
       message: parsed.message,
+      ...(parsed.content ? { content: parsed.content } : {}),
       requestId,
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(parsed.continue ? { continue: true } : {}),
@@ -1184,7 +1476,8 @@ export function createApp(deps: AppDependencies) {
     }
 
     const userId = await identify(req, res);
-    if (!(await sessions.get(userId, parsed.conversationId))) {
+    const conversation = await sessions.get(userId, parsed.conversationId);
+    if (!conversation) {
       sendJson(res, 404, { error: 'conversation not found' });
       return;
     }
@@ -1192,13 +1485,30 @@ export function createApp(deps: AppDependencies) {
     const turnId = parsed.turnId ?? randomUUID();
     const requestId = parsed.requestId ?? turnId;
 
-    // Read before admission, because the digest covers the text being rerun and
+    // Read before admission, because the digest covers the content being rerun and
     // because rewinding a conversation that is busy would delete the reply the
     // running turn is about to replace.
     const lastUser = await sessions.lastUserMessage(userId, parsed.conversationId);
     if (!lastUser) {
       sendJson(res, 409, { error: '这一轮还没有可以重新生成的回复' });
       return;
+    }
+
+    const content = messageContent(lastUser);
+
+    /**
+     * Regeneration preflights the stored images *before* the old reply is
+     * rewound. A refusal keeps the transcript exactly as it was — the failure
+     * this ordering exists to prevent is "regeneration failed and the good reply
+     * is gone".
+     */
+    let assetDigests: string[] = [];
+    try {
+      const preflight = await preflightTurnContent(userId, conversation, content, lastUser.id);
+      if (preflight) assetDigests = contentAssetDigests(content, preflight.assets);
+    } catch (error) {
+      if (sendTypedError(res, error)) return;
+      throw error;
     }
 
     const admitted = await admitTurn(res, {
@@ -1211,6 +1521,8 @@ export function createApp(deps: AppDependencies) {
         userId,
         conversationId: parsed.conversationId,
         message: lastUser.content,
+        ...(lastUser.contentParts ? { content } : {}),
+        ...(lastUser.contentParts && contentHasImages(content) ? { assetDigests } : {}),
       }),
     });
     if (!admitted.proceed) return;
@@ -1235,6 +1547,7 @@ export function createApp(deps: AppDependencies) {
       conversation_id: parsed.conversationId,
       request_id: requestId,
       removed: rewound.removed,
+      images: contentImageIds(content).length,
     });
 
     await streamTurn(res, turnId, {
@@ -1341,6 +1654,7 @@ export function createApp(deps: AppDependencies) {
     // property of the list, not of the order inside one 480-line function.
     for (const group of [
       handleStatusRoutes,
+      handleMediaRoutes,
       handlePermissionRoutes,
       handleConversationRoutes,
       handleMemoryRoutes,
@@ -1375,6 +1689,7 @@ export function createApp(deps: AppDependencies) {
         max_steps: deps.maxSteps ?? agentMaxSteps(),
         skills: deps.skills?.count() ?? 0,
         skills_version: deps.skills?.version() || null,
+        media: media !== null,
       });
       return true;
     }
@@ -1462,7 +1777,9 @@ export function createApp(deps: AppDependencies) {
       // and creating a person in order to delete them would also hand back a
       // cookie for a row that no longer exists.
       const userId = readIdentity(req);
+      const assets = userId !== null && media ? await media.userAssets(userId) : [];
       const deleted = userId === null ? false : await store.deleteUser(userId);
+      if (deleted && media) await media.removeAssetBytes(assets);
       clearIdentity(res);
       // `deleted: false` is a 200, not a 404. The caller asked for a state, and
       // somebody with no row here is already in it — the only interesting
@@ -1476,10 +1793,155 @@ export function createApp(deps: AppDependencies) {
         models: Object.values(MODEL_CATALOG).map((profile) => ({
           id: profile.id,
           providerId: profile.providerId,
+          displayName: profile.displayName,
           contextWindowTokens: profile.contextWindowTokens,
           defaultInputBudgetTokens: profile.defaultInputBudgetTokens,
+          input: profile.capabilities.input,
+          output: profile.capabilities.output,
+          tools: profile.capabilities.tools,
+          imagePolicyId: profile.capabilities.imagePolicyId ?? null,
+          policyRevision: profile.capabilities.policyRevision,
+          image: profile.capabilities.image ?? null,
         })),
       });
+      return true;
+    }
+
+    return false;
+  }
+
+  async function handleMediaRoutes(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+  ): Promise<boolean> {
+    const { pathname } = url;
+
+    // ------------------------------------------------------------- media -----
+
+    if (req.method === 'POST' && pathname === '/api/media/images') {
+      if (!media) {
+        sendTypedError(res, new MediaError('MEDIA_UNAVAILABLE', '这个进程没有配置图片存储', 503));
+        return true;
+      }
+      const conversationId = url.searchParams.get('conversationId') ?? '';
+      const requestedName = url.searchParams.get('name') ?? '';
+      if (!isUuid(conversationId)) {
+        sendJson(res, 400, { error: 'field "conversationId" must be a uuid' });
+        return true;
+      }
+      const name = sanitizeUploadName(requestedName);
+      if (!name) {
+        sendJson(res, 400, { error: '文件名不合法' });
+        return true;
+      }
+
+      const userId = await identify(req, res);
+      if (!(await sessions.get(userId, conversationId))) {
+        // Same answer for "not yours" and "does not exist": a draft upload is not
+        // a way to probe another conversation's id.
+        sendJson(res, 404, { error: 'conversation not found' });
+        return true;
+      }
+
+      let body: Buffer;
+      try {
+        body = await readRawBody(req, limits.maxImageBytes);
+      } catch {
+        sendJson(res, 413, {
+          error: { code: 'MEDIA_TOO_LARGE', message: '图片超过大小上限', retryable: false, details: {} },
+        });
+        return true;
+      }
+      if (body.length === 0) {
+        sendJson(res, 400, {
+          error: { code: 'MEDIA_CORRUPT', message: '图片是空的', retryable: false, details: {} },
+        });
+        return true;
+      }
+
+      try {
+        const asset = await media.putImage({
+          userId,
+          conversationId,
+          name,
+          // The header is a claim; the decoder compares it with the real format
+          // and rejects a mismatch.
+          declaredMediaType: req.headers['content-type'] ?? null,
+          bytes: body,
+        });
+        log.info('media.uploaded', {
+          media_type: asset.mediaType,
+          bytes: asset.bytes,
+          width: asset.width,
+          height: asset.height,
+          request_width: asset.request.width,
+          request_height: asset.request.height,
+        });
+        sendJson(res, 201, { asset: toAssetView(asset, { withUrl: true }) });
+      } catch (error) {
+        if (sendTypedError(res, error)) return true;
+        throw error;
+      }
+      return true;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/media/capabilities') {
+      const keyConfigured = Boolean(
+        process.env.DEEPSEEK_API_KEY?.trim() || process.env.ANTHROPIC_AUTH_TOKEN?.trim(),
+      );
+      sendJson(res, 200, {
+        version: 1,
+        defaultModelId,
+        limits: {
+          maxImagesPerMessage: limits.maxImagesPerMessage,
+          maxImageBytes: limits.maxImageBytes,
+          maxMessageImageBytes: limits.maxMessageImageBytes,
+          maxDimension: limits.maxDimension,
+          maxPixels: limits.maxPixels,
+          maxConcurrentDecodes: limits.maxConcurrentDecodes,
+          requestLongEdge: limits.requestLongEdge,
+          maxRequestBodyBytes: limits.maxRequestBodyBytes,
+        },
+        supportedMediaTypes: ['image/jpeg', 'image/png', 'image/webp'],
+        models: Object.values(MODEL_CATALOG).map((profile) => ({
+          id: profile.id,
+          providerId: profile.providerId,
+          displayName: profile.displayName,
+          available: profile.providerId === 'deepseek' ? keyConfigured : false,
+          contextWindowTokens: profile.contextWindowTokens,
+          defaultInputBudgetTokens: profile.defaultInputBudgetTokens,
+          input: profile.capabilities.input,
+          output: profile.capabilities.output,
+          tools: profile.capabilities.tools,
+          imagePolicyId: profile.capabilities.imagePolicyId ?? null,
+          policyRevision: profile.capabilities.policyRevision,
+          image: profile.capabilities.image ?? null,
+        })),
+      });
+      return true;
+    }
+
+    const imageMatch = /^\/api\/media\/images\/([0-9a-f-]{36})$/.exec(pathname);
+
+    if (req.method === 'GET' && imageMatch) {
+      await handleMediaImageGet(req, res, url, imageMatch[1] as string);
+      return true;
+    }
+
+    if (req.method === 'DELETE' && imageMatch) {
+      if (!media) {
+        sendTypedError(res, new MediaError('MEDIA_UNAVAILABLE', '这个进程没有配置图片存储', 404));
+        return true;
+      }
+      const userId = await identify(req, res);
+      try {
+        await media.deleteDraft(userId, imageMatch[1] as string);
+        sendJson(res, 200, { deleted: imageMatch[1] });
+      } catch (error) {
+        if (sendTypedError(res, error)) return true;
+        throw error;
+      }
       return true;
     }
 
@@ -1722,12 +2184,16 @@ export function createApp(deps: AppDependencies) {
       const id = messagesMatch[1] as string;
       // A missing conversation is a 404, not an empty transcript: "this id does
       // not exist" and "you have not said anything yet" are different answers.
-      if (!(await sessions.get(userId, id))) {
+      const conversation = await sessions.get(userId, id);
+      if (!conversation) {
         sendJson(res, 404, { error: 'conversation not found' });
         return true;
       }
       const messages = await sessions.messages(userId, id);
-      sendJson(res, 200, { messages });
+      sendJson(res, 200, {
+        messages: await hydrateMessages(userId, messages),
+        modelId: conversation.modelId,
+      });
       return true;
     }
 
@@ -1774,11 +2240,16 @@ export function createApp(deps: AppDependencies) {
     if (req.method === 'DELETE' && conversationMatch) {
       const userId = await identify(req, res);
       const id = conversationMatch[1] as string;
+      // Read the asset rows *before* the cascade deletes them; afterwards there
+      // is nothing left to name the files. The conversation delete is still the
+      // authority on whether this worked.
+      const assets = media ? await media.conversationAssets(userId, id) : [];
       const deleted = await sessions.delete(userId, id);
       if (!deleted) {
         sendJson(res, 404, { error: 'conversation not found' });
         return true;
       }
+      if (media) await media.removeAssetBytes(assets);
       sendJson(res, 200, { deleted: id });
       return true;
     }
@@ -2128,6 +2599,27 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     }
   }
 
+  const mediaLimitConfig = mediaLimits();
+  // `STORE=memory` is a throwaway process, so its media is in memory too; a
+  // SQLite process gets the private directory next to its database file.
+  const blobStore =
+    kind === 'memory' && !process.env.MEDIA_ROOT?.trim()
+      ? new MemoryMediaBlobStore()
+      : new FileMediaBlobStore(mediaRoot());
+  const mediaService = new MediaService({
+    store,
+    blobs: blobStore,
+    limits: mediaLimitConfig,
+    gate: new DecodeGate(mediaLimitConfig.maxConcurrentDecodes),
+  });
+  log.info('server.media', {
+    store: kind === 'memory' && !process.env.MEDIA_ROOT?.trim() ? 'memory' : mediaRoot(),
+    max_images: mediaLimitConfig.maxImagesPerMessage,
+    max_image_bytes: mediaLimitConfig.maxImageBytes,
+    request_long_edge: mediaLimitConfig.requestLongEdge,
+    decode_concurrency: mediaLimitConfig.maxConcurrentDecodes,
+  });
+
   const server = createApp({
     store,
     sessions,
@@ -2138,6 +2630,10 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     maxSteps,
     workspaceUi,
     skills,
+    media: mediaService,
+    imagePolicies: defaultImagePolicies(),
+    mediaLimits: mediaLimitConfig,
+    sessionConfig: config,
   });
 
   // Turns still marked running belong to a process that no longer exists. The

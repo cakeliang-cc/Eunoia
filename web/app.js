@@ -6,6 +6,10 @@ const composer = $('composer');
 const attachButton = $('attach');
 const attachInput = $('attach-input');
 const attachRow = $('attach-row');
+const imagePick = $('image-pick');
+const imageInput = $('image-input');
+const mediaRow = $('media-row');
+const modelSelect = $('model-select');
 const historyDrawer = $('history');
 const titleEl = $('thread-title');
 const root = document.documentElement;
@@ -21,10 +25,23 @@ const state = {
    * a dropped network when the stream ends without a terminal frame.
    */
   turn: null,
-  /** Files uploaded for the next message: `{ path, name, mime, bytes }`. */
+  /** Non-visual files uploaded for the next message: `{ path, name, mime, bytes }`. */
   attachments: [],
+  /**
+   * Visual image drafts, in selection order.
+   *
+   * Each item is `{ key, file, name, bytes, state, asset, error, previewUrl,
+   * conversationId }`. The server asset id is the only durable fact; the local
+   * object URL exists to show the picture before it is uploaded.
+   */
+  mediaDrafts: [],
   /** Uploads that have started but not answered yet. */
   uploading: 0,
+  /** Server-published limits and route capabilities; null until fetched. */
+  mediaLimits: null,
+  models: [],
+  defaultModelId: null,
+  selectedModelId: null,
   memoryEnabled: true,
   showArchived: false,
   feedback: new Map(),
@@ -282,7 +299,19 @@ async function exportConversation() {
   }
   const { messages = [] } = await response.json();
   const body = messages
-    .map((message) => `${message.role === 'user' ? '你' : 'Eunoia'}：\n${message.content}`)
+    .map((message) => {
+      const parts = Array.isArray(message.contentParts?.parts)
+        ? message.contentParts.parts
+        : [{ type: 'text', text: message.content }];
+      const rendered = parts
+        .map((part) =>
+          part.type === 'text'
+            ? part.text
+            : `图片附件：${part.image?.name ?? '图片'}（不可公开ID：${part.assetId}）`,
+        )
+        .join('\n');
+      return `${message.role === 'user' ? '你' : 'Eunoia'}：\n${rendered}`;
+    })
     .join('\n\n');
   await shareText(`# Eunoia 对话\n\n${body}\n`, 'eunoia-conversation.md');
 }
@@ -1486,10 +1515,11 @@ function humanBytes(bytes) {
  */
 async function ensureConversationForUpload() {
   if (state.conversationId) return state.conversationId;
+  const modelId = state.pendingModelId || state.selectedModelId;
   const response = await fetch('/api/conversations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: '{}',
+    body: JSON.stringify(modelId ? { modelId } : {}),
   }).catch(() => null);
   if (!response || !response.ok) throw new Error('创建会话失败');
   const payload = await response.json().catch(() => ({}));
@@ -1521,6 +1551,419 @@ function renderAttachments() {
     pending.dataset.state = 'uploading';
     attachRow.append(pending);
   }
+}
+
+// ------------------------------------------------------------ images ----
+
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+function isVisualImage(file) {
+  const type = String(file?.type || '').toLowerCase();
+  if (IMAGE_TYPES.includes(type)) return true;
+  // A browser can leave `type` empty for a drag from some file managers. The
+  // extension is only a hint; the server still decodes and verifies the bytes.
+  return /\.(jpe?g|png|webp)$/i.test(String(file?.name || ''));
+}
+
+function mediaLimits() {
+  return (
+    state.mediaLimits || {
+      maxImagesPerMessage: 5,
+      maxImageBytes: 10 * 1024 * 1024,
+      maxDimension: 8192,
+      maxPixels: 40000000,
+    }
+  );
+}
+
+function releasePreview(draft) {
+  if (!draft?.objectUrl) return;
+  try {
+    URL.revokeObjectURL(draft.objectUrl);
+  } catch {
+    // The URL already went away with the page; nothing to release.
+  }
+  draft.objectUrl = null;
+}
+
+function currentModel() {
+  return state.models.find((model) => model.id === state.selectedModelId) || null;
+}
+
+function modelSupportsImages() {
+  const model = currentModel();
+  // Unknown declarations are not a reason to block locally: the server owns the
+  // decision, and it returns an actionable code. Only a declared "unsupported"
+  // is shown as a definite incompatibility.
+  return model ? model.input?.image === 'supported' : null;
+}
+
+function modelLabel(model) {
+  const visual = model?.input?.image === 'supported' ? ' · 可看图' : '';
+  return `${model?.displayName || model?.id || '模型'}${visual}`;
+}
+
+async function refreshModelCapabilities() {
+  const response = await fetch('/api/media/capabilities').catch(() => null);
+  if (!response || !response.ok) return;
+  const payload = await response.json().catch(() => null);
+  if (!payload) return;
+  state.mediaLimits = payload.limits || null;
+  state.models = Array.isArray(payload.models) ? payload.models : [];
+  state.defaultModelId = payload.defaultModelId || null;
+  state.selectedModelId = state.selectedModelId || state.defaultModelId;
+  if (!modelSelect) return;
+  modelSelect.textContent = '';
+  for (const model of state.models) {
+    const option = el('option', null, modelLabel(model));
+    option.value = model.id;
+    option.disabled = model.available === false;
+    modelSelect.append(option);
+  }
+  modelSelect.hidden = state.models.length === 0;
+  if (state.selectedModelId) modelSelect.value = state.selectedModelId;
+  renderMediaDrafts();
+}
+
+async function chooseModel(modelId) {
+  state.selectedModelId = modelId || null;
+  if (!state.conversationId) {
+    // Saved locally; `ensureConversationForUpload` creates the conversation with
+    // it. The current message is not rewritten either way.
+    state.pendingModelId = modelId || null;
+    renderMediaDrafts();
+    return;
+  }
+  const response = await fetch(`/api/conversations/${state.conversationId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ modelId: modelId || null }),
+  }).catch(() => null);
+  if (!response || !response.ok) {
+    notice('模型切换没有保存，请再试一次。');
+  }
+  renderMediaDrafts();
+}
+
+function addDraftMedia(body, drafts) {
+  if (drafts.length === 0) return;
+  const strip = el('div', 'msg-media');
+  for (const draft of drafts) {
+    const src = draft.asset?.url || draft.objectUrl;
+    if (!src) {
+      strip.append(el('span', 'missing', '图片不可用'));
+      continue;
+    }
+    const button = el('button');
+    button.type = 'button';
+    button.setAttribute('aria-label', `查看图片 ${draft.name}`);
+    const img = el('img');
+    img.src = src;
+    img.alt = draft.name;
+    button.append(img);
+    button.onclick = () => openImagePreview(src, draft.name);
+    strip.append(button);
+  }
+  body.append(strip);
+}
+
+/**
+ * Render stored blocks in their stored order.
+ *
+ * The order is the message: "第一张是设计稿，第二张是实现" means nothing if the
+ * transcript puts both images after both paragraphs. Consecutive images share
+ * one strip; a text block between them starts a new one.
+ */
+function renderStoredParts(body, parts) {
+  let strip = null;
+  for (const part of parts) {
+    if (part.type === 'text') {
+      if (strip) {
+        body.append(strip);
+        strip = null;
+      }
+      body.append(el('span', null, part.text));
+      continue;
+    }
+    if (!strip) {
+      strip = el('div', 'msg-media');
+      body.append(strip);
+    }
+    const meta = part.image;
+    if (!meta || meta.status === 'missing' || !meta.url) {
+      strip.append(el('span', 'missing', '图片不可用'));
+      continue;
+    }
+    const button = el('button');
+    button.type = 'button';
+    button.setAttribute('aria-label', `查看图片 ${meta.name}`);
+    const img = el('img');
+    img.src = meta.url;
+    img.alt = meta.name;
+    img.loading = 'lazy';
+    button.append(img);
+    button.onclick = () => openImagePreview(meta.url, meta.name);
+    strip.append(button);
+  }
+  if (strip) body.append(strip);
+}
+
+let previewOverlay = null;
+let previewReturnFocus = null;
+
+function closeImagePreview() {
+  if (!previewOverlay) return;
+  previewOverlay.remove();
+  previewOverlay = null;
+  if (previewReturnFocus?.focus) previewReturnFocus.focus();
+  previewReturnFocus = null;
+}
+
+function openImagePreview(src, name) {
+  closeImagePreview();
+  previewReturnFocus = document.activeElement;
+  const overlay = el('div', 'image-preview');
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', `预览 ${name}`);
+  const img = el('img');
+  img.src = src;
+  img.alt = name;
+  const bar = el('div', 'preview-bar');
+  const caption = el('span', null, name);
+  const close = el('button', 'preview-close', '关闭');
+  close.type = 'button';
+  close.onclick = () => closeImagePreview();
+  bar.append(caption, close);
+  const wrap = el('div');
+  wrap.append(img, bar);
+  overlay.append(wrap);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) closeImagePreview();
+  });
+  if (document.body) document.body.append(overlay);
+  previewOverlay = overlay;
+  close.focus?.();
+}
+
+function renderMediaDrafts() {
+  if (!mediaRow) return;
+  mediaRow.textContent = '';
+  mediaRow.hidden = state.mediaDrafts.length === 0;
+  for (const draft of state.mediaDrafts) {
+    const card = el('div', 'media-card');
+    card.dataset.state = draft.state;
+    const src = draft.asset?.url || draft.objectUrl;
+    if (src) {
+      const img = el('img');
+      img.src = src;
+      img.alt = draft.name;
+      card.append(img);
+    }
+    const meta = el('div', 'media-meta');
+    meta.append(el('span', 'media-name', draft.name));
+    const detail =
+      draft.state === 'failed'
+        ? draft.error || '上传失败'
+        : draft.state === 'uploading' || draft.state === 'local'
+          ? '上传中…'
+          : `${draft.asset?.width || '?'}×${draft.asset?.height || '?'} · ${humanBytes(
+              draft.asset?.bytes ?? draft.bytes,
+            )}`;
+    meta.append(el('span', null, detail));
+    if (draft.state === 'failed') {
+      const retry = el('button', 'media-retry', '重试');
+      retry.type = 'button';
+      retry.onclick = () => void uploadImageDraft(draft);
+      meta.append(retry);
+    }
+    card.append(meta);
+
+    const remove = el('button', null, '×');
+    remove.type = 'button';
+    remove.setAttribute('aria-label', `移除 ${draft.name}`);
+    remove.onclick = () => void removeImageDraft(draft);
+    card.append(remove);
+    mediaRow.append(card);
+  }
+
+  const ready = state.mediaDrafts.filter((draft) => draft.state === 'ready');
+  if (ready.length > 0 && modelSupportsImages() === false) {
+    mediaRow.append(
+      el(
+        'div',
+        'media-warning',
+        '当前模型不支持图片。可以换到“可看图”的模型，或移除图片；图片会保留不丢。',
+      ),
+    );
+  }
+  if (!state.sending) sendButton.disabled = state.uploading > 0;
+}
+
+function nextDraftKey() {
+  state.draftSeq = (state.draftSeq || 0) + 1;
+  return `img-${state.draftSeq}`;
+}
+
+function createImageDraft(file) {
+  const draft = {
+    key: nextDraftKey(),
+    file,
+    name: file.name || 'image',
+    bytes: file.size || 0,
+    state: 'local',
+    asset: null,
+    error: null,
+    objectUrl: null,
+    conversationId: null,
+  };
+  try {
+    if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+      draft.objectUrl = URL.createObjectURL(file);
+    }
+  } catch {
+    // A preview is a convenience; the upload can proceed without one.
+  }
+  return draft;
+}
+
+async function uploadImageDraft(draft) {
+  if (!draft || draft.state === 'uploading' || draft.state === 'ready') return;
+  const limits = mediaLimits();
+  if (draft.bytes > limits.maxImageBytes) {
+    draft.state = 'failed';
+    draft.error = `超过 ${humanBytes(limits.maxImageBytes)}`;
+    renderMediaDrafts();
+    return;
+  }
+
+  draft.state = 'uploading';
+  draft.error = null;
+  state.uploading += 1;
+  renderMediaDrafts();
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  draft.controller = controller;
+
+  try {
+    const conversationId = await ensureConversationForUpload();
+    draft.conversationId = conversationId;
+    const query =
+      `conversationId=${encodeURIComponent(conversationId)}` +
+      `&name=${encodeURIComponent(draft.name)}`;
+    const response = await fetch(`/api/media/images?${query}`, {
+      method: 'POST',
+      headers: { 'Content-Type': draft.file.type || 'application/octet-stream' },
+      body: draft.file,
+      ...(controller ? { signal: controller.signal } : {}),
+    }).catch(() => null);
+    const payload = await response?.json().catch(() => ({}));
+    if (!response || !response.ok || !payload?.asset) {
+      const error = payload?.error;
+      throw new Error(
+        (error && typeof error === 'object' ? error.message : error) ||
+          `HTTP ${response?.status ?? '网络错误'}`,
+      );
+    }
+
+    // A late answer belongs to the conversation the upload started in. Putting
+    // it into the current draft strip would attach A's image to B's message.
+    if (state.conversationId !== conversationId) {
+      void fetch(`/api/media/images/${encodeURIComponent(payload.asset.id)}`, {
+        method: 'DELETE',
+      }).catch(() => undefined);
+      releasePreview(draft);
+      draft.state = 'failed';
+      draft.error = '会话已切换，图片没有加入当前对话';
+      return;
+    }
+
+    draft.asset = payload.asset;
+    draft.name = payload.asset.name || draft.name;
+    releasePreview(draft);
+    draft.state = 'ready';
+    if (payload.asset.url) draft.objectUrl = null;
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      draft.state = 'failed';
+      draft.error = '上传已取消';
+    } else {
+      draft.state = 'failed';
+      draft.error = error?.message || String(error);
+    }
+  } finally {
+    draft.controller = null;
+    state.uploading = Math.max(0, state.uploading - 1);
+    renderMediaDrafts();
+  }
+}
+
+async function removeImageDraft(draft) {
+  const index = state.mediaDrafts.indexOf(draft);
+  if (index === -1) return;
+  if (draft.controller) draft.controller.abort();
+  state.mediaDrafts.splice(index, 1);
+  releasePreview(draft);
+  renderMediaDrafts();
+  // A ready-but-unbound image is a draft on the server too; release it rather
+  // than waiting for the 24h sweep. A bound image answers 409 and is left alone.
+  if (draft.asset?.id) {
+    void fetch(`/api/media/images/${encodeURIComponent(draft.asset.id)}`, {
+      method: 'DELETE',
+    }).catch(() => undefined);
+  }
+}
+
+function clearImageDrafts() {
+  for (const draft of state.mediaDrafts) {
+    if (draft.controller) draft.controller.abort();
+    releasePreview(draft);
+  }
+  state.mediaDrafts = [];
+  renderMediaDrafts();
+}
+
+/**
+ * Partition selected or pasted files: pictures go to the visual queue, other
+ * files keep the existing workspace upload path. The two are deliberately not
+ * silently merged — only one of them makes the model see pixels.
+ */
+function addFilesByKind(files) {
+  const list = Array.from(files ?? []);
+  const images = [];
+  const others = [];
+  for (const file of list) {
+    if (isVisualImage(file)) images.push(file);
+    else others.push(file);
+  }
+  if (others.length > 0) void addFiles(others);
+  if (images.length > 0) void addImageFiles(images);
+}
+
+async function addImageFiles(files) {
+  const limits = mediaLimits();
+  const existing = state.mediaDrafts.length;
+  const room = Math.max(0, limits.maxImagesPerMessage - existing);
+  if (room === 0) {
+    notice(`一次最多发送 ${limits.maxImagesPerMessage} 张图片。`);
+    return;
+  }
+  const accepted = [];
+  for (const file of Array.from(files ?? []).slice(0, room)) {
+    if (file.size > limits.maxImageBytes) {
+      notice(`${file.name} 超过 ${humanBytes(limits.maxImageBytes)}，没有上传。`);
+      continue;
+    }
+    const draft = createImageDraft(file);
+    state.mediaDrafts.push(draft);
+    accepted.push(draft);
+  }
+  if (state.mediaDrafts.length > limits.maxImagesPerMessage) {
+    notice(`一次最多发送 ${limits.maxImagesPerMessage} 张图片。`);
+  }
+  renderMediaDrafts();
+  // Sequential: one conversation is created once and the server's decode gate
+  // is the thing that should decide decode concurrency, not this loop.
+  for (const draft of accepted) await uploadImageDraft(draft);
 }
 
 /**
@@ -1577,14 +2020,37 @@ function regenerateTurn(turnEl) {
 async function send(text, options = {}) {
   if (state.sending) return;
   const regenerate = options.regenerate === true;
+  const retry = options.retry === true;
+  // A retry of an accepted-but-cut turn must resend the *same* body: the image
+  // drafts were deliberately cleared once the server accepted them, and
+  // rebuilding the payload from an empty strip would change the request digest.
+  const resend = options.resend && typeof options.resend === 'object' ? options.resend : null;
+  const readyImages = state.mediaDrafts.filter((draft) => draft.state === 'ready' && draft.asset);
   if (regenerate && !state.conversationId) return;
   if (!regenerate && state.uploading > 0) {
-    notice('文件还在上传，等它完成再发送。');
+    notice('图片还在上传，等它完成再发送。');
     return;
+  }
+  if (!regenerate && !resend && readyImages.length > 0 && modelSupportsImages() === false) {
+    notice('当前模型不支持图片，先换到“可看图”的模型，或移除图片。');
+    return;
+  }
+  if (!regenerate && !options.continue && !retry && !resend) {
+    if (text.trim().length === 0 && readyImages.length === 0 && state.attachments.length === 0) {
+      notice('说点什么，或者选一张图片。');
+      return;
+    }
+    // A non-default model selection has to exist before the first chat request,
+    // because the server pins the route to the conversation it admits.
+    if (!state.conversationId && state.selectedModelId && state.selectedModelId !== state.defaultModelId) {
+      await ensureConversationForUpload().catch(() => undefined);
+    }
   }
   state.sending = true;
   const turn = {
-    id: newTurnId(),
+    // A retry reuses the idempotency key; the server answers from the record
+    // instead of running the same request twice.
+    id: options.requestId || newTurnId(),
     controller: new AbortController(),
     stopping: false,
     watchdog: null,
@@ -1596,12 +2062,12 @@ async function send(text, options = {}) {
   setSendMode('stop');
   // A continuation or a regeneration is not what the person was typing; keep
   // any draft.
-  if (!options.continue && !regenerate) {
+  if (!options.continue && !regenerate && !retry) {
     input.value = '';
     resize();
   }
 
-  if (!regenerate) {
+  if (!regenerate && !retry) {
     // Only the newest reply can be regenerated; the previous turn's control is
     // no longer the last one once this send starts.
     for (const node of transcript.querySelectorAll('.msg-regenerate')) node.remove();
@@ -1609,9 +2075,10 @@ async function send(text, options = {}) {
     // The server derives a title from the first message, but the sidebar and the
     // topbar should not sit on "新的对话" while it does. This is the same rule.
     if (!state.conversationId || !conversationTitles.get(state.conversationId)) {
-      setThreadTitle(deriveTitle(text));
+      setThreadTitle(deriveTitle(text || (readyImages.length > 0 ? '图片' : '对话')));
     }
-    addTurn('user', text);
+    const echo = addTurn('user', text);
+    addDraftMedia(echo.text, readyImages);
   }
 
   const { turn: turnEl, bubble, text: body, note, actions } = addTurn('assistant');
@@ -1688,10 +2155,18 @@ async function send(text, options = {}) {
     // from the recorded outcome instead of running the model twice. It shares a
     // value with `turnId` because both identify this send, and the stop request
     // needs the latter.
+    // The visual message uses the versioned block field; a text-only send keeps
+    // the legacy field so its request digest is unchanged.
+    const parts = [];
+    if (text.trim().length > 0) parts.push({ type: 'text', text });
+    for (const draft of readyImages) {
+      parts.push({ type: 'image', assetId: draft.asset.id });
+    }
+    const structured = readyImages.length > 0 && parts.length > 0;
     const payload = regenerate
       ? { conversationId: state.conversationId, turnId: turn.id, requestId: turn.id }
-      : {
-          message: text,
+      : resend ?? {
+          ...(structured ? { content: { version: 1, parts } } : { message: text }),
           conversationId: state.conversationId,
           turnId: turn.id,
           requestId: turn.id,
@@ -1700,6 +2175,7 @@ async function send(text, options = {}) {
             ? { attachments: state.attachments.map((file) => file.path) }
             : {}),
         };
+    if (!regenerate) turn.sentPayload = payload;
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1707,16 +2183,24 @@ async function send(text, options = {}) {
       signal: turn.controller.signal,
     });
 
-    if (!regenerate && state.attachments.length > 0) {
-      // They are uploaded and named in this request; keeping them on the strip
-      // would attach them to the next message too.
-      state.attachments = [];
-      renderAttachments();
-    }
-
     if (!response.ok || !response.body) {
       const detail = await response.json().catch(() => ({}));
-      throw new Error(detail.error || `HTTP ${response.status}`);
+      const error = detail.error;
+      const message =
+        error && typeof error === 'object'
+          ? `${error.message}${error.code ? `（${error.code}）` : ''}`
+          : error || `HTTP ${response.status}`;
+      throw new Error(message);
+    }
+
+    if (!regenerate) {
+      // The server accepted the turn: the drafts are now message references, so
+      // keeping them on the strip would attach them to the next message too.
+      if (state.attachments.length > 0) {
+        state.attachments = [];
+        renderAttachments();
+      }
+      if (readyImages.length > 0) clearImageDrafts();
     }
 
     for await (const event of readFrames(response)) {
@@ -1814,6 +2298,21 @@ async function send(text, options = {}) {
       body.textContent = '';
       body.append(el('span', null, `出错了：${error.message}`));
       body.style.color = 'var(--danger)';
+      // A retry reuses the same request id: if the turn was actually accepted
+      // before the connection broke, the server replays its outcome instead of
+      // running the model again. The image drafts were kept on failure, so this
+      // does not re-upload anything.
+      const retryButton = el('button', null, '重试');
+      retryButton.type = 'button';
+      retryButton.onclick = () => {
+        turnEl.remove();
+        void send(text, {
+          requestId: turn.id,
+          retry: true,
+          ...(turn.sentPayload ? { resend: turn.sentPayload } : {}),
+        });
+      };
+      body.append(retryButton);
     }
   } finally {
     // Whether it finished, failed, or was cut off, nothing is arriving now.
@@ -1915,16 +2414,32 @@ async function loadConversation(id) {
   // `?? []` rather than trusting the shape: a proxy or a future server that
   // answers 200 with something else should leave the page usable, not throw
   // inside a click handler where nothing is listening for it.
-  const { messages = [] } = await response.json();
+  const payload = await response.json();
+  const { messages = [], modelId = null } = payload ?? {};
   if (messages.length === 0) return false;
+  // The route is pinned to the conversation; the selector follows it rather than
+  // claiming the process default.
+  if (modelId) {
+    state.selectedModelId = modelId;
+    if (modelSelect) modelSelect.value = modelId;
+    renderMediaDrafts();
+  }
 
   transcript.textContent = '';
   transcript.classList.remove('empty');
   // Staged files belong to the thread they were uploaded for.
   state.attachments = [];
   renderAttachments();
+  clearImageDrafts();
   for (const [index, message] of messages.entries()) {
-    const { turn, note, actions } = addTurn(message.role, message.content);
+    const rendered =
+      message.role === 'user' && Array.isArray(message.contentParts?.parts)
+        ? addTurn('user', '')
+        : addTurn(message.role, message.content);
+    const { turn, note, actions } = rendered;
+    if (message.role === 'user' && Array.isArray(message.contentParts?.parts)) {
+      renderStoredParts(rendered.text, message.contentParts.parts);
+    }
     if (message.role === 'assistant') {
       const last = index === messages.length - 1;
       if (message.interrupted) {
@@ -1960,6 +2475,7 @@ function clearConversationView() {
   rememberConversation(null);
   state.attachments = [];
   renderAttachments();
+  clearImageDrafts();
   transcript.textContent = '';
   transcript.classList.add('empty');
   // On mobile the list covers the canvas; starting a new conversation is a
@@ -3319,7 +3835,10 @@ input.addEventListener('keydown', (event) => {
 $('composer').addEventListener('submit', (event) => {
   event.preventDefault();
   const text = input.value.trim();
-  if (text.length > 0) void send(text);
+  const hasImages = state.mediaDrafts.some((draft) => draft.state === 'ready');
+  // A picture with no words is a complete request; the server keeps it that way
+  // rather than inventing a prompt for the person.
+  if (text.length > 0 || hasImages || state.attachments.length > 0) void send(text);
 });
 
 // The same button sends and stops. While a turn is streaming its `type` is
@@ -3345,6 +3864,58 @@ attachInput.addEventListener('change', () => {
   const files = Array.from(attachInput.files ?? []);
   attachInput.value = '';
   void addFiles(files);
+});
+
+if (imagePick) {
+  imagePick.onclick = () => {
+    if (state.sending) {
+      notice('等这一轮结束再添加图片。');
+      return;
+    }
+    if (typeof imageInput?.click === 'function') imageInput.click();
+  };
+}
+if (imageInput) {
+  imageInput.addEventListener('change', () => {
+    const files = Array.from(imageInput.files ?? []);
+    imageInput.value = '';
+    if (files.length > 0) void addImageFiles(files);
+  });
+}
+
+if (modelSelect) {
+  modelSelect.addEventListener('change', () => {
+    void chooseModel(modelSelect.value);
+  });
+}
+
+/**
+ * Paste and drop feed the same queue as the picker.
+ *
+ * A text paste is untouched. A file paste is intercepted only when it carries
+ * files, because letting the browser insert a binary into a textarea produces a
+ * NUL-laden draft that fails much later.
+ */
+input.addEventListener('paste', (event) => {
+  const files = Array.from(event.clipboardData?.files ?? []);
+  if (files.length === 0) return;
+  event.preventDefault();
+  addFilesByKind(files);
+});
+
+const composerForm = $('composer');
+composerForm.addEventListener('dragover', (event) => {
+  event.preventDefault();
+  composerForm.classList.add('dragging');
+});
+composerForm.addEventListener('dragleave', () => {
+  composerForm.classList.remove('dragging');
+});
+composerForm.addEventListener('drop', (event) => {
+  event.preventDefault();
+  composerForm.classList.remove('dragging');
+  const files = Array.from(event.dataTransfer?.files ?? []);
+  if (files.length > 0) addFilesByKind(files);
 });
 
 // Forget the id as well as clearing the screen: otherwise the next reload
@@ -3472,6 +4043,7 @@ async function refreshMemoryStatus() {
  * badge can follow it.
  */
 async function bootstrap() {
+  await refreshModelCapabilities().catch(() => undefined);
   await restore().catch(() => undefined);
   await refreshHistory();
   await refreshMemoryStatus();

@@ -54,6 +54,25 @@ import { applyOutputCheck, safetyDirectiveFor } from '../safety/response.ts';
 import { maxRisk } from '../safety/risk.ts';
 import { conversationTitle } from '../session/types.ts';
 import { SessionService } from '../session/service.ts';
+import type { UserContentV1 } from '../agent/content.ts';
+import {
+  contentHasImages,
+  contentImageIds,
+  contentText,
+  legacyContent,
+  messageContent,
+  textContent,
+} from '../agent/content.ts';
+import type { SessionConfig } from '../session/config.ts';
+import { sessionConfig } from '../session/config.ts';
+import type { MediaService } from '../media/service.ts';
+import type { MediaLimits } from '../media/types.ts';
+import { mediaLimits } from '../media/limits.ts';
+import type { ImagePolicyRegistry } from '../provider/image-policy.ts';
+import { ImagePolicyRegistry as EmptyImagePolicyRegistry } from '../provider/image-policy.ts';
+import type { ModelProfile } from '../models/types.ts';
+import type { PreparedMediaPlan } from '../agent/request-plan.ts';
+import { preflightMedia, loadMediaPlan } from './media-turn.ts';
 import { renderArchivedSummary } from '../session/summary.ts';
 import type { Message } from '../session/types.ts';
 import type { FinishReason } from '../finish-reason.ts';
@@ -142,6 +161,23 @@ export interface TurnDependencies {
    * is right only while the server and the person share one.
    */
   readonly timeZone?: string;
+  /**
+   * Private media storage, when this process accepts images.
+   *
+   * Optional so an evaluation or a text-only test needs no filesystem. A turn
+   * that carries an image without it fails with a typed capability error rather
+   * than silently dropping the picture.
+   */
+  readonly media?: MediaService | null;
+  /** Route image-token policies, built once at the composition root. */
+  readonly imagePolicies?: ImagePolicyRegistry;
+  readonly mediaLimits?: MediaLimits;
+  /** Product/session limits; production passes the process config once. */
+  readonly sessionConfig?: SessionConfig;
+  /** Model profile lookup; tests may add an offline route. */
+  readonly modelProfileFor?: (id: string) => ModelProfile;
+  /** Routes that can accept images, for the client's actionable error details. */
+  readonly availableImageModels?: readonly string[];
 }
 
 /**
@@ -161,6 +197,11 @@ export interface TurnRequest {
   readonly userId: string;
   readonly conversationId?: string | null;
   readonly message: string;
+  /**
+   * Ordered text/image blocks. When supplied this is the fact; `message` is its
+   * text projection (the HTTP layer fills both from one parsed value).
+   */
+  readonly content?: UserContentV1;
   readonly signal?: AbortSignal;
   /**
    * The client's idempotency key, already admitted by `TurnCoordinator.begin`.
@@ -233,6 +274,21 @@ export async function* runTurn(
           messageId: event.messageId ?? null,
           ...(event.accepted !== undefined ? { accepted: event.accepted } : {}),
           ...(event.acceptance !== undefined ? { acceptance: event.acceptance } : {}),
+          ...(event.usage
+            ? {
+                usage: {
+                  ...event.usage,
+                  responseModel: event.usage.responseModel ?? null,
+                  // The inner event knows whether the actual media plan carried
+                  // images (including a history-only or continue turn). Fall back
+                  // to the request only when it did not say.
+                  imageTokensUnknown:
+                    event.usage?.imageTokensUnknown ??
+                    (request.regenerate ||
+                      contentHasImages(request.content ?? legacyContent(request.message))),
+                },
+              }
+            : {}),
           ...(event.steps !== undefined ? { steps: event.steps } : {}),
           ...(event.contextTokens !== undefined ? { contextTokens: event.contextTokens } : {}),
         };
@@ -281,246 +337,448 @@ async function* runTurnInner(
   const persist = request.persist ?? true;
   const runner = deps.runner ?? streamReply;
   const session = deps.session ?? new SessionService(deps.store);
+  const config = deps.sessionConfig ?? sessionConfig();
+  const profileFor = deps.modelProfileFor ?? modelProfile;
+  const policies = deps.imagePolicies ?? new EmptyImagePolicyRegistry();
+  const limits = deps.mediaLimits ?? mediaLimits();
+  let releaseMedia: (() => Promise<void>) | null = null;
 
-  let message = request.message?.trim() ?? '';
-  if (!request.regenerate && message.length === 0) {
-    yield { type: 'error', message: 'message is empty', retryable: false };
-    return;
-  }
-  if (request.regenerate && !persist) {
-    // Rerunning is defined in terms of the stored transcript; without one there
-    // is nothing to rerun and nothing to replace.
-    yield { type: 'error', message: 'regenerate needs a persisted conversation', retryable: false };
-    return;
-  }
+  try {
+    let message = request.message?.trim() ?? '';
+    let content: UserContentV1 = request.content ?? legacyContent(message);
+    if (request.content) message = contentText(content);
 
-  // Before anything is written. `conversations.user_id` and every per-user table
-  // reference `users`, and the in-memory store enforces none of those keys — so
-  // this ordering was invisible offline and a 500 the first time it met
-  // Postgres: the conversation was created before its owner existed.
-  await deps.store.ensureUser(request.userId);
-
-  const conversation = await session.ensure(request.userId, request.conversationId);
-  const conversationId = conversation.id;
-
-  let userMessage: Message | null = null;
-  if (persist && request.regenerate) {
-    // The HTTP layer rewound the conversation to this message already. Reading
-    // it back (rather than trusting a request body) is what makes the rerun use
-    // exactly the text that is in the transcript.
-    userMessage = await session.lastUserMessage(request.userId, conversationId);
-    if (!userMessage) {
-      yield { type: 'error', message: 'nothing to regenerate', retryable: false };
+    if (!request.regenerate && !contentHasImages(content) && contentText(content).trim().length === 0) {
+      yield { type: 'error', message: 'message is empty', retryable: false };
       return;
     }
-    message = userMessage.content;
-  } else if (persist) {
-    userMessage = await session.append({
-      conversationId,
-      userId: request.userId,
-      role: 'user',
-      content: message,
-    });
+    if (request.regenerate && !persist) {
+      yield {
+        type: 'error',
+        message: 'regenerate needs a persisted conversation',
+        retryable: false,
+      };
+      return;
+    }
 
-    // The conversation takes its name from the message that opened it. Done
-    // here rather than at creation because `ensureConversation` runs before the
-    // user's message exists, and because a conversation created by a client that
-    // then failed to send anything should stay unnamed rather than be labelled
-    // with nothing.
-    await session
-      .name(request.userId, conversationId, conversationTitle(message))
-      .catch(() => undefined);
-  }
+    // Before anything is written. `conversations.user_id` and every per-user
+    // table reference `users`, and the in-memory store enforces none of those
+    // keys — so this ordering was invisible offline and a 500 the first time it
+    // met Postgres: the conversation was created before its owner existed.
+    await deps.store.ensureUser(request.userId);
 
-  // The database is the source of truth for replay. Working memory is no longer
-  // consulted here: a process-local window cannot honour a summary boundary, and
-  // two sources would eventually disagree about what the model has seen.
-  const replay = await session.prepare(request.userId, conversationId, {
-    ...(userMessage ? { protectSeq: userMessage.seq } : {}),
-    ...(request.signal ? { signal: request.signal } : {}),
-  });
-  const userMessageId = userMessage?.id ?? null;
+    const conversation = await session.ensure(request.userId, request.conversationId);
+    const conversationId = conversation.id;
+    const profile = profileFor(conversation.modelId ?? COMPANION_MODEL);
 
-  const now = deps.now?.() ?? new Date();
-  const context = await buildTurnContext(deps.store, request.userId, message, {
-    now,
-    retrieve: request.retrieve,
-    ...(deps.timeZone ? { timeZone: deps.timeZone } : {}),
-  });
-  const riskLevel = request.riskLevel ?? context.risk.level;
+    let userMessage: Message | null = null;
+    if (persist && request.regenerate) {
+      // The HTTP layer rewound the conversation to this message already. Reading
+      // it back (rather than trusting a request body) is what makes the rerun use
+      // exactly the text and images that are in the transcript.
+      userMessage = await session.lastUserMessage(request.userId, conversationId);
+      if (!userMessage) {
+        yield {
+          type: 'error',
+          message: 'nothing to regenerate',
+          retryable: false,
+        };
+        return;
+      }
+      content = messageContent(userMessage);
+      message = contentText(content);
+    }
 
-  if (context.memoryCount > 0) {
-    yield {
-      type: 'memory_retrieved',
-      count: context.memoryCount,
-      considered: context.memoryConsidered,
-    };
-  }
-  if (riskLevel !== 'none') {
-    yield { type: 'safety_notice', level: riskLevel, replaced: false };
-  }
+    /**
+     * The replay window as it is *before* this message is appended.
+     *
+     * Preflight runs here so an unsupported route or a missing asset fails before
+     * a user message and a running turn are written. `session.prepare` is not
+     * used for this read because it may compact; the actual replay is planned
+     * again below.
+     */
+    const window = await session.window(request.userId, conversationId);
+    const preflightHistory = modelHistoryContents(window.messages, userMessage?.id ?? null);
+    const needsMediaPreflight =
+      contentHasImages(content) || preflightHistory.some((entry) => contentHasImages(entry));
 
-  const history: ConversationTurn[] = replay.messages
-    // The current user turn is passed separately to the model. Replaying it
-    // here as well would make the model answer its own prompt twice.
-    .filter((entry) => entry.id !== userMessageId)
-    // System rows are storage bookkeeping, not conversation. They never become
-    // model turns.
-    .filter((entry): entry is typeof entry & { role: 'user' | 'assistant' } =>
-      entry.role === 'user' || entry.role === 'assistant',
-    )
-    .map((entry) => ({ role: entry.role, content: entry.content }));
-
-  const policy = deps.toolPolicy ?? DEFAULT_TOOL_POLICY;
-  const sandboxSession = deps.sandbox
-    ? await deps.sandbox.forTask({
-        taskId: conversationId,
-        sessionId: conversationId,
-        userId: request.userId,
-      })
-    : null;
-  const toolRegistry = new ToolRegistry(
-    createMemoryTools({
-      store: deps.store,
-      userId: request.userId,
-      sourceMessageId: userMessageId,
-      now,
-    }),
-  );
-  if (sandboxSession) toolRegistry.registerAll(codingTools);
-  const skills = deps.skills ?? null;
-  if (skills && skills.count() > 0) {
-    toolRegistry.registerAll(
-      createSkillTools(skills, { availableTools: new Set(toolRegistry.names()) }),
-    );
-  }
-
-  /**
-   * The execution log for this turn, when it is persisted.
-   *
-   * Only persisted turns get one: an evaluation run has no `turn_requests` row
-   * for the events to reference, and writing bookkeeping nobody will recover is
-   * cost without a question it can answer.
-   */
-  const recorder =
-    persist && request.requestId
-      ? new StoreTurnRecorder({
-          store: deps.store,
-          turnId: request.requestId,
+    if (needsMediaPreflight) {
+      await preflightMedia(
+        {
+          media: deps.media ?? null,
+          policies,
+          limits,
+          inputBudgetTokens: config.inputBudgetTokens,
+          ...(deps.availableImageModels ? { availableModels: deps.availableImageModels } : {}),
+        },
+        {
+          userId: request.userId,
           conversationId,
+          profile,
+          content,
+          history: preflightHistory,
+          // Tools are always available (memory tools at minimum). A route that
+          // cannot carry them must not be allowed through just because the image
+          // would otherwise fit.
+          requiresTools: true,
+          fixedTokens: config.promptReserveTokens,
+        },
+      );
+    }
+
+    if (persist && !request.regenerate) {
+      const title = conversationTitle(
+        message.length > 0 ? message : contentHasImages(content) ? '图片' : '对话',
+      );
+      userMessage = await session.append({
+        conversationId,
+        userId: request.userId,
+        role: 'user',
+        content: message,
+        // Only a structured request stores structured content. The legacy
+        // `message` path keeps a null column, which reads back as one text block.
+        contentParts: request.content ? content : null,
+        assetIds: request.content ? contentImageIds(content) : [],
+      });
+
+      // The conversation takes its name from the message that opened it. Done
+      // here rather than at creation because `ensureConversation` runs before the
+      // user's message exists, and because a conversation created by a client that
+      // then failed to send anything should stay unnamed rather than be labelled
+      // with nothing.
+      await session.name(request.userId, conversationId, title).catch(() => undefined);
+    }
+
+    // The database is the source of truth for replay. Working memory is no longer
+    // consulted here: a process-local window cannot honour a summary boundary, and
+    // two sources would eventually disagree about what the model has seen.
+    const replay = await session.prepare(request.userId, conversationId, {
+      ...(userMessage ? { protectSeq: userMessage.seq } : {}),
+      ...(request.signal ? { signal: request.signal } : {}),
+    });
+    const userMessageId = userMessage?.id ?? null;
+
+    const history: ConversationTurn[] = replay.messages
+      // The current user turn is passed separately to the model. Replaying it
+      // here as well would make the model answer its own prompt twice.
+      .filter((entry) => entry.id !== userMessageId)
+      // System rows are storage bookkeeping, not conversation. They never become
+      // model turns.
+      .filter((entry): entry is typeof entry & { role: 'user' | 'assistant' } =>
+        entry.role === 'user' || entry.role === 'assistant',
+      )
+      .map((entry) => ({
+        role: entry.role,
+        content: entry.content,
+        ...(entry.role === 'user' && entry.contentParts
+          ? { contentParts: entry.contentParts }
+          : {}),
+      }));
+
+    // The actual replay's images, after compaction/truncation. This is the set
+    // the model will really receive; planning the pre-compaction window and then
+    // sending the post-compaction one is exactly the mismatch that makes a token
+    // estimate wrong.
+    const actualHistory = modelHistoryContents(replay.messages, userMessageId);
+    let mediaPlan: PreparedMediaPlan | undefined;
+    if (contentHasImages(content) || actualHistory.some((entry) => contentHasImages(entry))) {
+      const planned = await preflightMedia(
+        {
+          media: deps.media ?? null,
+          policies,
+          limits,
+          inputBudgetTokens: config.inputBudgetTokens,
+          ...(deps.availableImageModels ? { availableModels: deps.availableImageModels } : {}),
+        },
+        {
+          userId: request.userId,
+          conversationId,
+          profile,
+          content,
+          history: actualHistory,
+          requiresTools: true,
+          fixedTokens: config.promptReserveTokens,
+        },
+      );
+      const loaded = await loadMediaPlan({ media: deps.media ?? null }, request.userId, planned.plan);
+      mediaPlan = loaded.plan;
+      releaseMedia = loaded.release;
+    }
+
+    const now = deps.now?.() ?? new Date();
+    const context = await buildTurnContext(deps.store, request.userId, message, {
+      now,
+      retrieve: request.retrieve,
+      ...(deps.timeZone ? { timeZone: deps.timeZone } : {}),
+    });
+    const riskLevel = request.riskLevel ?? context.risk.level;
+
+    if (context.memoryCount > 0) {
+      yield {
+        type: 'memory_retrieved',
+        count: context.memoryCount,
+        considered: context.memoryConsidered,
+      };
+    }
+    if (riskLevel !== 'none') {
+      yield { type: 'safety_notice', level: riskLevel, replaced: false };
+    }
+
+    const policy = deps.toolPolicy ?? DEFAULT_TOOL_POLICY;
+    const sandboxSession = deps.sandbox
+      ? await deps.sandbox.forTask({
+          taskId: conversationId,
+          sessionId: conversationId,
+          userId: request.userId,
         })
       : null;
-
-  /**
-   * The model's window for this conversation.
-   *
-   * Built here rather than in the loop because the loop is model-agnostic and a
-   * conversation may pin a different model than the process default.
-   */
-  const profile = modelProfile(conversation.modelId ?? COMPANION_MODEL);
-  const contextBudget: ContextBudget = {
-    windowTokens: profile.contextWindowTokens,
-    outputReserveTokens: profile.maxOutputTokens,
-    safetyBufferTokens: profile.safetyBufferTokens,
-    estimator: profile.tokenEstimator,
-  };
-
-  const agentOptions: AgentOptions = {
-    tools: toolRegistry,
-    policy,
-    workspace: sandboxSession?.workspace ?? null,
-    executor: sandboxSession?.executor ?? null,
-    // ADR 021: the run gets the task's working-directory port beside the file and
-    // command ports, so `change_directory` needs no access to the sandbox.
-    cwd: sandboxSession?.cwd ?? null,
-    model: conversation.modelId ?? COMPANION_MODEL,
-    contextBudget,
-    ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
-    ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
-    ...(recorder ? { recorder } : {}),
-    now,
-  };
-  const agent = createCompanionAgent(agentOptions);
-  const runtimeContext = buildRuntimeContext({
-    relationshipBlock: context.relationshipBlock,
-    narrativeBlock: context.narrativeBlock,
-    archivedSummaryBlock: replay.summary ? renderArchivedSummary(replay.summary) : null,
-    situationBlock: context.situationBlock,
-    ...(sandboxSession ? { workspaceBlock: workspaceBlock(sandboxSession.displayPath, policy) } : {}),
-    skillsBlock: skills?.indexBlock() ?? '',
-    toolGuidelines: toolRegistry.guidelines(),
-    memoryBlock: context.memoryBlock,
-    ...(request.attachments && request.attachments.length > 0
-      ? { attachmentsBlock: renderAttachments(request.attachments) }
-      : {}),
-    ...(request.continue ? { continuationBlock: CONTINUATION_DIRECTIVE } : {}),
-    safetyDirective: safetyDirectiveFor(riskLevel),
-  });
-
-  const buffer = riskLevel === 'crisis';
-  let reply = '';
-  /**
-   * What the client has actually been shown.
-   *
-   * `reply` only becomes meaningful at `completed`, which never arrives for an
-   * interrupted turn. These deltas are the half-finished reply, and they are
-   * what gets persisted so "continue" has something to continue from.
-   */
-  let streamed = '';
-  let interrupted = false;
-  let usedTools = false;
-  /** Tool calls that returned an error; an acceptance condition, not a status. */
-  let failedTools = 0;
-  const toolCalls: string[] = [];
-  let failed: string | null = null;
-  /**
-   * Why the model side ended. The runner's own value when it has one, so a test
-   * double that does not know about finish reasons still behaves like a normal
-   * completion.
-   */
-  let finishReason: FinishReason = 'completed';
-
-  for await (const event of runner(agent, message, {
-    signal: request.signal,
-    history,
-    context: runtimeContext,
-    ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
-  })) {
-    if (event.type === 'completed') {
-      reply = event.text;
-      finishReason = event.finishReason ?? 'completed';
-      continue;
+    const toolRegistry = new ToolRegistry(
+      createMemoryTools({
+        store: deps.store,
+        userId: request.userId,
+        sourceMessageId: userMessageId,
+        now,
+      }),
+    );
+    if (sandboxSession) toolRegistry.registerAll(codingTools);
+    const skills = deps.skills ?? null;
+    if (skills && skills.count() > 0) {
+      toolRegistry.registerAll(
+        createSkillTools(skills, { availableTools: new Set(toolRegistry.names()) }),
+      );
     }
-    if (event.type === 'error') {
-      // A stop is not a failure. The runner reports cancellation as an error
-      // because that is how the loop unwinds; here it ends the turn normally,
-      // with the partial reply kept.
-      if (request.signal?.aborted === true || event.message === 'cancelled') {
-        interrupted = true;
+
+    /**
+     * The execution log for this turn, when it is persisted.
+     *
+     * Only persisted turns get one: an evaluation run has no `turn_requests` row
+     * for the events to reference, and writing bookkeeping nobody will recover is
+     * cost without a question it can answer.
+     */
+    const recorder =
+      persist && request.requestId
+        ? new StoreTurnRecorder({
+            store: deps.store,
+            turnId: request.requestId,
+            conversationId,
+          })
+        : null;
+
+    /**
+     * The model's window for this conversation.
+     *
+     * Built here rather than in the loop because the loop is model-agnostic and a
+     * conversation may pin a different model than the process default.
+     */
+    const contextBudget: ContextBudget = {
+      windowTokens: profile.contextWindowTokens,
+      outputReserveTokens: profile.maxOutputTokens,
+      safetyBufferTokens: profile.safetyBufferTokens,
+      estimator: profile.tokenEstimator,
+    };
+
+    const agentOptions: AgentOptions = {
+      tools: toolRegistry,
+      policy,
+      workspace: sandboxSession?.workspace ?? null,
+      executor: sandboxSession?.executor ?? null,
+      // ADR 021: the run gets the task's working-directory port beside the file and
+      // command ports, so `change_directory` needs no access to the sandbox.
+      cwd: sandboxSession?.cwd ?? null,
+      model: conversation.modelId ?? COMPANION_MODEL,
+      contextBudget,
+      ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
+      ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
+      ...(recorder ? { recorder } : {}),
+      now,
+    };
+    const agent = createCompanionAgent(agentOptions);
+    const runtimeContext = buildRuntimeContext({
+      relationshipBlock: context.relationshipBlock,
+      narrativeBlock: context.narrativeBlock,
+      archivedSummaryBlock: replay.summary ? renderArchivedSummary(replay.summary) : null,
+      situationBlock: context.situationBlock,
+      ...(sandboxSession ? { workspaceBlock: workspaceBlock(sandboxSession.displayPath, policy) } : {}),
+      skillsBlock: skills?.indexBlock() ?? '',
+      toolGuidelines: toolRegistry.guidelines(),
+      memoryBlock: context.memoryBlock,
+      ...(request.attachments && request.attachments.length > 0
+        ? { attachmentsBlock: renderAttachments(request.attachments) }
+        : {}),
+      ...(request.continue ? { continuationBlock: CONTINUATION_DIRECTIVE } : {}),
+      safetyDirective: safetyDirectiveFor(riskLevel),
+    });
+
+    const buffer = riskLevel === 'crisis';
+    let reply = '';
+    /**
+     * What the client has actually been shown.
+     *
+     * `reply` only becomes meaningful at `completed`, which never arrives for an
+     * interrupted turn. These deltas are the half-finished reply, and they are
+     * what gets persisted so "continue" has something to continue from.
+     */
+    let streamed = '';
+    let interrupted = false;
+    let usedTools = false;
+    /** Tool calls that returned an error; an acceptance condition, not a status. */
+    let failedTools = 0;
+    const toolCalls: string[] = [];
+    let failed: string | null = null;
+    /**
+     * Why the model side ended. The runner's own value when it has one, so a test
+     * double that does not know about finish reasons still behaves like a normal
+     * completion.
+     */
+    let finishReason: FinishReason = 'completed';
+    let turnUsage:
+      | (import('../agent/model-port.ts').ModelUsage & { readonly imageTokensUnknown: boolean })
+      | null = null;
+
+    // The current user content is passed as structured blocks when the request
+    // had them; a legacy request stays a string so its wire shape is unchanged.
+    for await (const event of runner(agent, message, {
+      signal: request.signal,
+      history,
+      context: runtimeContext,
+      // A regeneration has no `request.content`, but its stored user message
+      // does. Passing only the text projection here silently dropped the image
+      // from a rerun — the exact failure S03 caught on a live endpoint.
+      ...(request.content || request.regenerate ? { content } : {}),
+      ...(mediaPlan ? { media: mediaPlan } : {}),
+      ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
+    })) {
+      if (event.type === 'completed') {
+        reply = event.text;
+        finishReason = event.finishReason ?? 'completed';
+        if (event.usage) {
+          turnUsage = {
+            ...event.usage,
+            // The provider does not split image tokens out of `input_tokens`;
+            // the local estimate is not a measured component of the real total.
+            imageTokensUnknown:
+              mediaPlan !== undefined && mediaPlan.occurrences > 0,
+          };
+        }
+        continue;
+      }
+      if (event.type === 'error') {
+        // A stop is not a failure. The runner reports cancellation as an error
+        // because that is how the loop unwinds; here it ends the turn normally,
+        // with the partial reply kept.
+        if (request.signal?.aborted === true || event.message === 'cancelled') {
+          interrupted = true;
+          break;
+        }
+        failed = event.message;
+        yield { ...event, finishReason: event.finishReason ?? 'failed' };
         break;
       }
-      failed = event.message;
-      yield { ...event, finishReason: event.finishReason ?? 'failed' };
-      break;
+      if (event.type === 'tool_call') {
+        usedTools = true;
+        toolCalls.push(event.name);
+      }
+      if (event.type === 'tool_result' && !event.ok) failedTools += 1;
+      // Withholding deltas is the whole point of `buffer`. Reasoning is withheld
+      // alongside the reply: a person in crisis should not watch the model work
+      // its way toward them, and if the reply is then replaced by the safety
+      // fallback, reasoning that argued for the discarded reply is worse than
+      // nothing.
+      if (buffer && (event.type === 'text_delta' || event.type === 'thinking_delta')) continue;
+      if (buffer && event.type === 'thinking_done') continue;
+      if (event.type === 'text_delta') streamed += event.text;
+      yield event;
     }
-    if (event.type === 'tool_call') {
-      usedTools = true;
-      toolCalls.push(event.name);
-    }
-    if (event.type === 'tool_result' && !event.ok) failedTools += 1;
-    // Withholding deltas is the whole point of `buffer`. Reasoning is withheld
-    // alongside the reply: a person in crisis should not watch the model work
-    // its way toward them, and if the reply is then replaced by the safety
-    // fallback, reasoning that argued for the discarded reply is worse than
-    // nothing.
-    if (buffer && (event.type === 'text_delta' || event.type === 'thinking_delta')) continue;
-    if (buffer && event.type === 'thinking_done') continue;
-    if (event.type === 'text_delta') streamed += event.text;
-    yield event;
-  }
 
-  if (interrupted) {
-    const partial = streamed.trim();
+    if (interrupted) {
+      const partial = streamed.trim();
+      let assistantMessageId: string | null = null;
+      if (persist) {
+        assistantMessageId = await persistTurn(deps.store, session, {
+          runId,
+          userId: request.userId,
+          conversationId,
+          message,
+          model: conversation.modelId ?? COMPANION_MODEL,
+          reply: partial,
+          interrupted: true,
+          finishReason: 'cancelled',
+          riskLevel,
+          usedTools,
+          toolCalls,
+          status: 'interrupted',
+          durationMs: Date.now() - startedAt,
+        });
+      }
+      log.info('turn.interrupted', {
+        duration_ms: Date.now() - startedAt,
+        reply_chars: partial.length,
+        used_tools: usedTools,
+        tool_calls: toolCalls.length,
+      });
+      yield {
+        type: 'interrupted',
+        text: partial,
+        conversationId: persist ? conversationId : null,
+        messageId: assistantMessageId,
+        finishReason: 'cancelled',
+      };
+      return;
+    }
+
+    if (failed !== null) {
+      if (persist) {
+        await deps.store
+          .recordRun({
+            id: runId,
+            userId: request.userId,
+            conversationId,
+            model: conversation.modelId ?? COMPANION_MODEL,
+            promptVersion: PROMPT_VERSION,
+            status: 'failed',
+            usedTools,
+            toolCalls,
+            inputFingerprint: contentFingerprint(message),
+            outputFingerprint: null,
+            riskLevel,
+            durationMs: Date.now() - startedAt,
+            finishReason: 'failed',
+            error: failed,
+          })
+          .catch((error: unknown) => log.warn('run.record_failed', { error: String(error) }));
+      }
+      return;
+    }
+
+    const outcome = applyOutputCheck(riskLevel, reply);
+    if (outcome.violations.length > 0) {
+      log.warn('safety.output_violation', {
+        level: maxRisk(riskLevel, 'elevated'),
+        violations: outcome.violations,
+        replaced: outcome.replaced,
+      });
+    }
+    if (outcome.replaced) {
+      yield { type: 'safety_notice', level: 'crisis', replaced: true };
+    }
+
+    // In buffered mode nothing has been sent yet, so the checked reply goes out as
+    // one delta followed by `completed` — the same shape a non-streaming client
+    // already handles (see events.ts).
+    if (buffer && outcome.reply.length > 0) {
+      yield { type: 'text_delta', text: outcome.reply };
+    }
+
+    // Two verdicts, computed independently: why it ended (above) and whether what
+    // arrived is accepted (ADR 029). A cut stream keeps its text and fails
+    // `finished`; a completed turn that called a failing tool keeps `finished` and
+    // fails `tools_ok`. Neither collapses into the other.
+    const verdict = evaluateTurnOutcome({
+      finishReason,
+      reply: outcome.reply,
+      failedTools,
+    });
+
     let assistantMessageId: string | null = null;
     if (persist) {
       assistantMessageId = await persistTurn(deps.store, session, {
@@ -528,112 +786,50 @@ async function* runTurnInner(
         userId: request.userId,
         conversationId,
         message,
-        reply: partial,
-        interrupted: true,
-        finishReason: 'cancelled',
+        model: conversation.modelId ?? COMPANION_MODEL,
+        reply: outcome.reply,
+        interrupted: false,
+        finishReason,
         riskLevel,
         usedTools,
         toolCalls,
-        status: 'interrupted',
+        status: outcome.replaced ? 'safety_replaced' : 'completed',
         durationMs: Date.now() - startedAt,
       });
     }
-    log.info('turn.interrupted', {
-      duration_ms: Date.now() - startedAt,
-      reply_chars: partial.length,
-      used_tools: usedTools,
-      tool_calls: toolCalls.length,
-    });
+
     yield {
-      type: 'interrupted',
-      text: partial,
+      type: 'completed',
+      text: outcome.reply,
       conversationId: persist ? conversationId : null,
       messageId: assistantMessageId,
-      finishReason: 'cancelled',
-    };
-    return;
-  }
-
-  if (failed !== null) {
-    if (persist) {
-      await deps.store
-        .recordRun({
-          id: runId,
-          userId: request.userId,
-          conversationId,
-          model: COMPANION_MODEL,
-          promptVersion: PROMPT_VERSION,
-          status: 'failed',
-          usedTools,
-          toolCalls,
-          inputFingerprint: contentFingerprint(message),
-          outputFingerprint: null,
-          riskLevel,
-          durationMs: Date.now() - startedAt,
-          finishReason: 'failed',
-          error: failed,
-        })
-        .catch((error: unknown) => log.warn('run.record_failed', { error: String(error) }));
-    }
-    return;
-  }
-
-  const outcome = applyOutputCheck(riskLevel, reply);
-  if (outcome.violations.length > 0) {
-    log.warn('safety.output_violation', {
-      level: maxRisk(riskLevel, 'elevated'),
-      violations: outcome.violations,
-      replaced: outcome.replaced,
-    });
-  }
-  if (outcome.replaced) {
-    yield { type: 'safety_notice', level: 'crisis', replaced: true };
-  }
-
-  // In buffered mode nothing has been sent yet, so the checked reply goes out as
-  // one delta followed by `completed` — the same shape a non-streaming client
-  // already handles (see events.ts).
-  if (buffer && outcome.reply.length > 0) {
-    yield { type: 'text_delta', text: outcome.reply };
-  }
-
-  // Two verdicts, computed independently: why it ended (above) and whether what
-  // arrived is accepted (ADR 029). A cut stream keeps its text and fails
-  // `finished`; a completed turn that called a failing tool keeps `finished` and
-  // fails `tools_ok`. Neither collapses into the other.
-  const verdict = evaluateTurnOutcome({
-    finishReason,
-    reply: outcome.reply,
-    failedTools,
-  });
-
-  let assistantMessageId: string | null = null;
-  if (persist) {
-    assistantMessageId = await persistTurn(deps.store, session, {
-      runId,
-      userId: request.userId,
-      conversationId,
-      message,
-      reply: outcome.reply,
-      interrupted: false,
       finishReason,
-      riskLevel,
-      usedTools,
-      toolCalls,
-      status: outcome.replaced ? 'safety_replaced' : 'completed',
-      durationMs: Date.now() - startedAt,
+      accepted: verdict.succeeded,
+      acceptance: verdict.acceptance,
+      ...(turnUsage ? { usage: turnUsage } : {}),
+    };
+  } catch (error) {
+    // Errors raised outside the runner (route preflight, asset resolution, a
+    // vanished file) still have to end the turn in the transport's language.
+    const described = describeTurnError(error);
+    log.warn('turn.preflight_failed', {
+      code: described.code,
+      error: described.message,
+      conversation_id: request.conversationId ?? null,
     });
+    yield {
+      type: 'error',
+      message: described.message,
+      retryable: described.retryable,
+      finishReason: 'failed',
+      ...(described.code ? { code: described.code } : {}),
+      ...(described.details ? { details: described.details } : {}),
+    };
+  } finally {
+    // A lease that outlives the turn would pin a draft until its expiry; a lease
+    // released on every path is the only version that is safe to forget.
+    if (releaseMedia) await releaseMedia();
   }
-
-  yield {
-    type: 'completed',
-    text: outcome.reply,
-    conversationId: persist ? conversationId : null,
-    messageId: assistantMessageId,
-    finishReason,
-    accepted: verdict.succeeded,
-    acceptance: verdict.acceptance,
-  };
 }
 
 /** Returns the stored assistant message id, or null if persistence failed. */
@@ -645,6 +841,8 @@ async function persistTurn(
     userId: string;
     conversationId: string;
     message: string;
+    /** The route that produced the reply; recorded, not inferred later. */
+    model: string;
     reply: string;
     /** True when `reply` is the part generated before the person pressed stop. */
     interrupted: boolean;
@@ -674,7 +872,7 @@ async function persistTurn(
       id: turn.runId,
       userId: turn.userId,
       conversationId: turn.conversationId,
-      model: COMPANION_MODEL,
+      model: turn.model,
       promptVersion: PROMPT_VERSION,
       status: turn.status,
       usedTools: turn.usedTools,
@@ -686,6 +884,8 @@ async function persistTurn(
       finishReason: turn.finishReason,
       error: null,
     });
+    // The turn record is the durable usage fact; `contextTokens` is the local
+    // estimate and they are deliberately separate columns.
     return stored?.id ?? null;
   } catch (error) {
     // The reply is already on the person's screen. Failing the turn now would
@@ -719,6 +919,52 @@ export async function collectTurn(
 
 
 /**
+ * The model-facing history, as ordered content values.
+ *
+ * Assistant turns become one text block; user turns keep their images and text.
+ * Nothing else is included: system rows and the current user message are
+ * excluded, exactly as in `history` above.
+ */
+export function modelHistoryContents(
+  messages: readonly Message[],
+  excludeMessageId: string | null,
+): UserContentV1[] {
+  return messages
+    .filter((message) => message.id !== excludeMessageId)
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .map((message) =>
+      message.role === 'user' ? messageContent(message) : textContent(message.content),
+    );
+}
+
+/** A typed error as the transport's event vocabulary, without leaking internals. */
+function describeTurnError(error: unknown): {
+  message: string;
+  code: string | null;
+  retryable: boolean;
+  details?: Record<string, unknown>;
+} {
+  if (error instanceof Error && 'code' in error && typeof (error as { code?: unknown }).code === 'string') {
+    const record = error as unknown as {
+      code: string;
+      retryable?: boolean;
+      details?: Record<string, unknown>;
+    };
+    return {
+      message: error.message,
+      code: record.code,
+      retryable: record.retryable ?? false,
+      ...(record.details ? { details: record.details } : {}),
+    };
+  }
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    code: null,
+    retryable: true,
+  };
+}
+
+/**
  * The per-turn list of attached files.
  *
  * It names paths rather than embedding content: the files are already in the
@@ -731,7 +977,8 @@ function renderAttachments(attachments: readonly TurnAttachment[]): string {
   const lines = [
     '# 用户上传的文件',
     '这些文件已经放进工作区，下面的路径相对于工作区根目录。需要时用 read、glob 或 bash 查看。',
-    '图片不会作为视觉输入送给你，只能当文件处理；不要假装看过图片里的内容。',
+    '图片不会作为视觉输入——这里列出的文件（包括旧上传入口的图片）只是工作区文件，不要假装看过图片里的内容。',
+    '真正的视觉图片会以图片内容块随消息发送，不在这份文件清单里。',
     '',
     ...attachments.map(
       (file) => `- ${file.path}（${file.mime || '未知类型'}，${formatBytes(file.bytes)}）`,

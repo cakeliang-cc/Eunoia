@@ -36,6 +36,8 @@
  */
 
 import { createHash } from 'node:crypto';
+import type { UserContentV1 } from '../agent/content.ts';
+import { canonicalContent } from '../agent/content.ts';
 import type { TurnStore } from '../session/turn-store.ts';
 import type {
   FinishReason,
@@ -121,6 +123,7 @@ export class TurnCoordinator {
       contextTokens: null,
       accepted: null,
       acceptance: [],
+      usage: null,
       startedAt: this.#now(),
       endedAt: null,
     };
@@ -176,6 +179,21 @@ export function turnRequestHash(input: {
   readonly message: string;
   readonly continue?: boolean;
   readonly attachments?: readonly string[];
+  /**
+   * Ordered blocks, when this request came from the structured field.
+   *
+   * Included only when present, so a legacy text request keeps the exact digest
+   * it had before multimodal support: a retry that started before an upgrade
+   * must still be answered from its record.
+   */
+  readonly content?: UserContentV1;
+  /**
+   * Immutable digests of the referenced originals, one per image occurrence.
+   *
+   * The asset id alone is not enough: a retry that swapped the bytes behind an
+   * id would otherwise look like the same request. The digest is the content.
+   */
+  readonly assetDigests?: readonly string[];
 }): string {
   const canonical = JSON.stringify([
     input.kind,
@@ -184,6 +202,9 @@ export function turnRequestHash(input: {
     input.message,
     input.continue === true,
     [...(input.attachments ?? [])],
+    ...(input.content
+      ? [canonicalContent(input.content), [...(input.assetDigests ?? [])]]
+      : []),
   ]);
   return createHash('sha256').update(canonical).digest('hex');
 }

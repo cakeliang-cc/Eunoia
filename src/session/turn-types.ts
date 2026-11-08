@@ -53,6 +53,23 @@ export interface AcceptanceCheck {
   readonly detail?: string;
 }
 
+/**
+ * Actual usage reported by the provider for the last request of a turn.
+ *
+ * `imageTokensUnknown` is deliberate: the provider does not split image tokens
+ * out of `input_tokens`, so subtracting a local estimate would manufacture a
+ * number nobody measured. `inputTokens` is the provider's total, not the local
+ * estimate plus a text guess.
+ */
+export interface TurnUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly cachedTokens: number;
+  readonly responseModel: string | null;
+  readonly imageTokensUnknown: boolean;
+}
+
 /** A request that has been accepted, is running, or has finished. */
 export interface TurnRecord {
   /** The client-supplied request id. Primary key. */
@@ -83,6 +100,8 @@ export interface TurnRecord {
   /** The acceptance verdict, independent of `finishReason`. */
   readonly accepted: boolean | null;
   readonly acceptance: readonly AcceptanceCheck[];
+  /** Real usage for the last request, or null when the provider reported none. */
+  readonly usage: TurnUsage | null;
   readonly startedAt: Date;
   readonly endedAt: Date | null;
 }
@@ -98,6 +117,7 @@ export interface TurnFinishPatch {
   readonly contextTokens?: number | null;
   readonly accepted?: boolean;
   readonly acceptance?: readonly AcceptanceCheck[];
+  readonly usage?: TurnUsage | null;
 }
 
 /**

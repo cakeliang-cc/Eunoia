@@ -40,6 +40,37 @@ describe('renderArchivedSummary', () => {
 });
 
 describe('renderSummaryPrompt', () => {
+  it('marks an image block without pretending the summary model saw pixels (A15)', () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const prompt = renderSummaryPrompt({
+      previousSummary: null,
+      messages: [
+        {
+          id: 'm1',
+          conversationId: 'c1',
+          userId: 'u1',
+          role: 'user',
+          content: '',
+          contentParts: {
+            version: 1,
+            parts: [
+              { type: 'text', text: '看这张' },
+              { type: 'image', assetId: id },
+            ],
+          },
+          interrupted: false,
+          createdAt: new Date(),
+          seq: 1,
+        },
+      ],
+      maxOutputTokens: 100,
+    });
+    expect(prompt).toContain('用户：看这张');
+    expect(prompt).toContain('图片附件');
+    expect(prompt).toContain(id);
+    expect(prompt).not.toContain('data:image');
+  });
+
   it('carries both the previous checkpoint and the new transcript', () => {
     const prompt = renderSummaryPrompt({
       previousSummary: '旧摘要',

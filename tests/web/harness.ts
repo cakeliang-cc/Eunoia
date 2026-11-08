@@ -32,6 +32,8 @@ export class El {
   scrollHeight = 0;
   clientHeight = 0;
   value = '' as string;
+  src = '';
+  alt = '';
   /** Set by the upload test; the real element's `files` is a FileList. */
   files: unknown = null;
   title = '';
@@ -173,6 +175,8 @@ export interface Route {
 
 export interface Harness {
   readonly transcript: El;
+  /** A body element, so overlays and menus have somewhere to mount. */
+  readonly body: El;
   readonly element: (id: string) => El;
   readonly store: Map<string, string>;
   readonly requests: CapturedRequest[];
@@ -250,12 +254,15 @@ export async function boot(options: {
   });
 
   const documentElement = new El('html');
+  const body = new El('body');
   (globalThis as { window?: unknown }).window = {
     innerWidth: 1280,
     innerHeight: 800,
     addEventListener: () => {},
   };
   (globalThis as { document?: unknown }).document = {
+    body,
+    activeElement: null,
     createElement: (tag: string) => new El(tag),
     getElementById: element,
     addEventListener: () => {},
@@ -376,6 +383,7 @@ export async function boot(options: {
 
   const harness: Harness = {
     transcript: element('transcript'),
+    body,
     element,
     store,
     requests,

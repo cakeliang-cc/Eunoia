@@ -10,6 +10,7 @@
  * `SessionService`, which is where lifecycle intent lives.
  */
 
+import type { UserContentV1 } from '../agent/content.ts';
 import type {
   Conversation,
   ConversationSummary,
@@ -86,6 +87,18 @@ export interface SessionStore {
     content: string;
     /** Marks a reply the person stopped mid-generation. Defaults to false. */
     interrupted?: boolean;
+    /**
+     * Ordered content blocks. When present, `content` is derived from its text
+     * blocks in the same write; a caller cannot persist a different projection.
+     */
+    contentParts?: UserContentV1 | null;
+    /**
+     * Image references to bind atomically with the message, in content order.
+     *
+     * The store verifies ownership, conversation scope and a non-released status,
+     * and inserts the reference rows in the same transaction as the message.
+     */
+    assetIds?: readonly string[];
   }): Promise<Message>;
 
   recentMessages(conversationId: string, limit: number): Promise<Message[]>;

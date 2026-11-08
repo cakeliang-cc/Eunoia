@@ -159,3 +159,11 @@ agent 的 `read` / `bash` 运行在只挂载任务工作区的容器里。把文
 - 朗读与分享是浏览器能力；不支持时给出提示或退回下载，不影响其它操作。
 - `.eunoia/uploads` 会成为工作区里的真实目录，但被仓库忽略，也不会被复制模式
   的初始快照排除（它是运行期数据，不是源文件）。
+
+
+> **2026-11-08 — superseded for images.** ADR 031 adds a separate, vision-aware
+> image path: a private immutable asset, ordered content blocks, and a model
+> adapter that receives pixels. The `/api/uploads` route described here remains
+> for ordinary non-visual files (and continues to make old image uploads workspace
+> files, never visual input). A visual image is uploaded through
+> `POST /api/media/images` and is not listed in the attachment block.

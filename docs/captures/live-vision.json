@@ -1,0 +1,58 @@
+[
+  {
+    "test": "S01",
+    "model": "deepseek-flash",
+    "code": "5390",
+    "color": "绿色",
+    "reply": "数字是 **5390**，背景是**绿色**。",
+    "usage": {
+      "inputTokens": 2501,
+      "outputTokens": 14,
+      "totalTokens": 2515,
+      "cachedTokens": 1920,
+      "imageTokensUnknown": true
+    }
+  },
+  {
+    "test": "S02",
+    "model": "deepseek-flash",
+    "forward": "2, 7",
+    "swapped": "7, 2",
+    "usageForward": {
+      "inputTokens": 2654,
+      "outputTokens": 5,
+      "totalTokens": 2659,
+      "cachedTokens": 2304,
+      "imageTokensUnknown": true
+    },
+    "usageSwapped": {
+      "inputTokens": 2638,
+      "outputTokens": 5,
+      "totalTokens": 2643,
+      "cachedTokens": 2304,
+      "imageTokensUnknown": true
+    }
+  },
+  {
+    "test": "S03",
+    "reply": "图里的数字是 **7**，绿色。",
+    "refusedStatus": 422,
+    "refusedBody": {
+      "error": {
+        "code": "MODEL_INPUT_UNSUPPORTED",
+        "message": "历史消息里有图片，但当前模型不能看图；可以切换到能看图的模型，或新建纯文字对话。",
+        "retryable": false,
+        "details": {
+          "modality": "image",
+          "scope": "history",
+          "blockIndex": 1,
+          "modelId": "deepseek-v4-pro",
+          "policyRevision": "deepseek-text@2026-11-08",
+          "availableModels": [
+            "deepseek-flash"
+          ]
+        }
+      }
+    }
+  }
+]

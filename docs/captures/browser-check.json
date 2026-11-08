@@ -1,0 +1,15 @@
+{
+  "url": "http://127.0.0.1:50727/",
+  "readyDrafts": 1,
+  "warningGone": 0,
+  "userImages": 1,
+  "previewOpen": true,
+  "mobileLayout": {
+    "viewport": 390,
+    "scrollWidth": 390,
+    "composerWidth": 362,
+    "mediaRight": 0,
+    "noHorizontalOverflow": true,
+    "composerInside": true
+  }
+}

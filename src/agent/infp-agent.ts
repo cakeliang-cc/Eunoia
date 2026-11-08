@@ -25,6 +25,9 @@ import { buildInstructions, PROMPT_VERSION } from './instructions.ts';
 import { DEFAULT_MAX_STEPS, runAgentLoop } from './loop.ts';
 import { createModelTurnResolver } from './model-turn.ts';
 import type { LoopInputItem, ModelTurn } from './model-port.ts';
+import type { UserContentV1 } from './content.ts';
+import { contentText } from './content.ts';
+import type { PreparedMediaPlan } from './request-plan.ts';
 import type { AgentEvent } from './events.ts';
 import type { ExecutionRecorder } from './execution-log.ts';
 import type { ContextBudget } from './context-budget.ts';
@@ -45,6 +48,8 @@ export const AGENT_NAME = 'INFPCompanion';
 export interface ConversationTurn {
   readonly role: 'user' | 'assistant';
   readonly content: string;
+  /** Ordered blocks for a user turn; absent means one text block. */
+  readonly contentParts?: UserContentV1;
 }
 
 /** One message item in the request. Function calls are added by the loop. */
@@ -151,20 +156,25 @@ export function createCompanionAgent(options: CompanionOptions = {}): CompanionR
  * path go through the array form.
  */
 export function buildRunInput(
-  message: string,
+  message: string | UserContentV1,
   history: readonly ConversationTurn[] = [],
   context?: string | null,
 ): string | RunInputItem[] {
   const trailing = context?.trim();
-  if (history.length === 0 && !trailing) return message;
+  if (typeof message === 'string' && history.length === 0 && !trailing) return message;
 
   const items: RunInputItem[] = history.map((turn) => ({
     type: 'message',
     role: turn.role,
-    content: turn.content,
+    content:
+      turn.role === 'user' && turn.contentParts ? turn.contentParts.parts : turn.content,
   }));
 
-  items.push({ type: 'message', role: 'user', content: message });
+  items.push({
+    type: 'message',
+    role: 'user',
+    content: typeof message === 'string' ? message : message.parts,
+  });
   if (trailing) {
     items.push({ type: 'message', role: 'system', content: trailing });
   }
@@ -187,6 +197,10 @@ export interface StreamReplyOptions {
   readonly context?: string | null;
   /** Explicit provider, for a composition root that has already built one. */
   readonly modelProvider?: ModelProvider;
+  /** Ordered text/image blocks for the current user message. */
+  readonly content?: UserContentV1;
+  /** Fixed media plan; the adapter may not re-read or re-scale its images. */
+  readonly media?: PreparedMediaPlan;
 }
 
 /** Resolvers are process-wide: the SDK model object is immutable config. */
@@ -201,12 +215,17 @@ let cachedResolver: ((modelId: string) => Promise<ModelTurn>) | null = null;
  */
 export async function* streamReply(
   agent: CompanionRun,
-  message: string,
+  message: string | UserContentV1,
   options: StreamReplyOptions = {},
 ): AsyncIterable<AgentEvent> {
-  const input = buildRunInput(message, options.history, options.context);
+  // A structured current message is the fact; `message` is its text projection.
+  const input = buildRunInput(options.content ?? message, options.history, options.context);
+  // A bare string remains a string on the common path; the loop needs the item
+  // form, so it is wrapped here once.
   const items: LoopInputItem[] =
-    typeof input === 'string' ? [{ type: 'message', role: 'user', content: input }] : input;
+    typeof input === 'string'
+      ? [{ type: 'message', role: 'user', content: input }]
+      : input;
 
   let modelTurn: ModelTurn;
   try {
@@ -240,6 +259,7 @@ export async function* streamReply(
     ...(options.signal ? { signal: options.signal } : {}),
     ...(agent.recorder ? { recorder: agent.recorder } : {}),
     ...(agent.contextBudget ? { contextBudget: agent.contextBudget } : {}),
+    ...(options.media ? { media: options.media } : {}),
   });
 }
 
@@ -262,3 +282,6 @@ export type { ReasoningChunk } from './stream-events.ts';
 
 /** Build per-turn context in the shape the run expects. */
 export { buildRuntimeContext };
+
+/** The plain-text projection, re-exported for the turn orchestrator. */
+export { contentText };

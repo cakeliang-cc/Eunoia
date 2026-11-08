@@ -178,6 +178,11 @@ export interface CompletedEvent {
    */
   readonly accepted?: boolean;
   readonly acceptance?: readonly AcceptanceCheck[];
+  /** Actual provider usage for this turn's last request, when reported. */
+  readonly usage?: import('./model-port.ts').ModelUsage & {
+    /** True when the provider did not split image tokens out of the total. */
+    readonly imageTokensUnknown?: boolean;
+  };
   /** Model/tool steps taken. Diagnostic, and useful for budget questions. */
   readonly steps?: number;
   /** Estimated size of the last model request, system prompt included. */
@@ -232,6 +237,16 @@ export interface ErrorEvent {
   readonly finishReason?: FinishReason;
   /** True when a stored failure is being replayed for a retried request. */
   readonly replayed?: boolean;
+  /**
+   * The typed reason, when the failure came from a preflight rather than from the
+   * provider (for example `MODEL_INPUT_UNSUPPORTED`).
+   *
+   * Optional because a provider error has no such code, and inventing one would
+   * make the client believe a retry could fix it.
+   */
+  readonly code?: string;
+  /** Bounded, non-secret detail: modality, scope, block index, budget numbers. */
+  readonly details?: Record<string, unknown>;
 }
 
 export type AgentEvent =

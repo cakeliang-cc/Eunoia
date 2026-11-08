@@ -57,6 +57,7 @@ function record(overrides: Partial<TurnRecord> = {}): TurnRecord {
     contextTokens: null,
     accepted: null,
     acceptance: [],
+    usage: null,
     startedAt: new Date(),
     endedAt: null,
     ...overrides,
@@ -347,7 +348,7 @@ describe('the version 7 to 8 migration', () => {
       const version = upgraded.database.prepare('PRAGMA user_version').get() as {
         user_version: number;
       };
-      expect(Number(version.user_version)).toBe(8);
+      expect(Number(version.user_version)).toBe(9);
 
       const tables = (
         upgraded.database

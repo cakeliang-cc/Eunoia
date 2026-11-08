@@ -8,6 +8,40 @@
 
 ## [Unreleased]
 
+### Added（多模态图片输入，ADR 031）
+
+- **一条真正的图片输入链路。** 私有不可变资源（原图 / 归一化 / 请求变体）、
+  有序内容块（`UserContentV1`）、消息与资源的引用表、上游能力检查、协议编码、
+  请求体与 Token 双预算、前端草稿状态机，全部贯通；只接前端上传或只让请求不报错
+  都不算完成。
+- **图片是消息的事实，不是工作区文件。** `POST /api/media/images` 返回不透明
+  `assetId`；`GET /api/media/images/:id` 按用户+会话授权预览，`nosniff`、私有不缓存。
+  `messages.content` 仍保留文本投影供旧客户端、搜索和导出使用，新行以结构化内容为
+  事实并在同一事务派生投影。SVG、GIF/动态图、多页图、伪 MIME、损坏图明确 415；
+  10 MiB/单图、20 MiB/消息、8192 单边、40M 像素与 2 路解码并发由服务端强制。
+- **不兼容在入场前拒绝。** 能力三态（supported/unsupported/unknown），
+  `MODEL_INPUT_UNSUPPORTED` 带 `scope: current|history`，`MODEL_CAPABILITY_UNKNOWN`
+  与容量不足严格分开；422 不写用户消息、不占会话锁、不调用模型。工具不会被为了
+  放行图片而静默丢弃。
+- **预算按实际发送变体。** 复现 DeepSeek Flash `v41` 图片计算器（7 个测试向量），
+  另加离线假路由 `fake-tile-v1`（不同公式/限制/协议）证明 planner 无供应商分支。
+  Base64 只在编码阶段产生；点估算超限、保护值超限、body 超限分别归因。
+  实际 usage 记在 turn 上，图片分项标记未知，绝不再加本地估算。
+- **前端闭环。** 选择/粘贴/拖放共用队列；每张图有 local/uploading/ready/failed
+  状态、缩略图、重试和移除；切换会话会取消或隔离迟到上传；服务端接受回合后才清空
+  草稿；重试复用 `requestId` 与同一份已接受 body。历史、即时消息、复制和 Markdown
+  导出都按内容块顺序展示；模型选择器来自 `/api/media/capabilities`，不兼容时阻止
+  发送但保留草稿。
+- **schema v9。** `messages.content_parts`、`media_assets`、`message_assets`、
+  `turn_requests.usage`；增量、幂等、可在中断后重跑。删除消息/会话/用户会释放资源，
+  清理只删除过期未绑定/已释放且不在租约中的资源。
+- **备份包含媒体。** `npm run backup` 复制数据库、原图/变体、SHA-256 清单和恢复说明；
+  `npm run backup:verify` 可逐项校验；`npm run cleanup:media` 清理过期草稿。
+- **验收。** A01–A26、B01–B12 的离线用例，S01–S03 真实端点 smoke（随机数字/大色块、
+  两张图换序、重启后重新生成并用文本模型拒绝历史图），以及 390px 窄屏的浏览器检查
+  记录在 `docs/multimodal-acceptance.md`。
+
+
 ### Added（打断与继续，ADR 025）
 
 - **生成可以中途停止，并从断点继续。** 流式期间发送按钮变成「停止」（`Esc` 也可），

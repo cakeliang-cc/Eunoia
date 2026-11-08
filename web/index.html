@@ -914,6 +914,153 @@
   }
   .attach-chip button:hover { color: var(--danger); background: var(--danger-soft); }
   .attach-chip[data-state="uploading"] { opacity: .7; }
+
+  /* Image drafts are previewed, not described: a person selecting a picture
+     needs to see which one, and a filename alone does not answer that. */
+  .media-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 2px 2px;
+  }
+  .media-row[hidden] { display: none; }
+  .media-card {
+    position: relative;
+    width: 92px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--surface-2);
+  }
+  .media-card img {
+    display: block;
+    width: 100%;
+    height: 68px;
+    object-fit: cover;
+    background: var(--surface-3);
+  }
+  .media-card .media-meta {
+    padding: 4px 6px 6px;
+    font-size: 10px;
+    color: var(--faint);
+    line-height: 1.35;
+  }
+  .media-card .media-name {
+    display: block;
+    color: var(--ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .media-card button {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 19px;
+    height: 19px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(20, 20, 18, .66);
+    color: #fff;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .media-card button:hover { background: var(--danger); }
+  .media-card[data-state="uploading"] { opacity: .72; }
+  .media-card[data-state="failed"] { border-color: var(--danger); }
+  .media-card .media-retry {
+    position: static;
+    width: auto;
+    height: auto;
+    margin-top: 4px;
+    border-radius: 6px;
+    padding: 1px 6px;
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-size: 10px;
+  }
+  .media-warning {
+    flex: 1 0 100%;
+    color: var(--danger);
+    font-size: 11px;
+  }
+  .composer.dragging { border-color: var(--accent); background: var(--surface-2); }
+
+  /* A preview is a modal reading surface, not a new page. */
+  .image-preview {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(18, 18, 16, .78);
+  }
+  .image-preview[hidden] { display: none; }
+  .image-preview img {
+    max-width: min(1100px, 92vw);
+    max-height: 82vh;
+    border-radius: 10px;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, .4);
+    background: #fff;
+  }
+  .image-preview .preview-bar {
+    margin-top: 10px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    color: #f3efe4;
+    font-size: 12px;
+  }
+  .image-preview .preview-close {
+    border: 1px solid rgba(255, 255, 255, .35);
+    border-radius: 999px;
+    padding: 4px 12px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+  .model-pill {
+    height: 30px;
+    max-width: 168px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0 8px;
+    background: var(--surface-2);
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 11px;
+  }
+  .model-pill[hidden] { display: none; }
+  .msg-media {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .msg-media button {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: zoom-in;
+    border-radius: 10px;
+  }
+  .msg-media img {
+    display: block;
+    max-width: 180px;
+    max-height: 140px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+  }
+  .msg-media .missing {
+    padding: 10px 12px;
+    border: 1px dashed var(--line-strong);
+    border-radius: 10px;
+    color: var(--faint);
+    font-size: 12px;
+  }
   /* One button, two jobs: the arrow sends, the square stops. The mode is set by
      the client for the duration of a turn, so the same click target never does
      both at once. */
@@ -1642,6 +1789,9 @@
     .text th:first-child, .text td:first-child { min-width: 4.8em; }
     .composer-hint .hint-sep,
     .composer-hint .hint-keys { display: none; }
+    .media-card { width: 78px; }
+    .media-card img { height: 58px; }
+    .model-pill { max-width: 112px; }
     .composer-foot { display: none; }
     .drawer-panel { width: 100vw; }
     .drawer-body { padding: 16px 16px calc(28px + env(safe-area-inset-bottom)); }
@@ -1902,6 +2052,7 @@
         <form class="composer" id="composer">
           <label class="sr" for="input">说点什么</label>
           <textarea id="input" rows="1" placeholder="和 Eunoia 说点什么…" autocomplete="off" spellcheck="false"></textarea>
+          <div class="media-row" id="media-row" hidden aria-live="polite"></div>
           <div class="attach-row" id="attach-row" hidden aria-live="polite"></div>
           <div class="composer-bar">
             <span class="composer-hint">
@@ -1913,12 +2064,21 @@
               <span class="hint-sep">·</span>
               <span class="hint-keys"><kbd>Enter</kbd> 发送</span>
             </span>
+            <button class="attach-button" id="image-pick" type="button" aria-label="添加图片" title="添加图片">
+              <svg class="icon" viewBox="0 0 24 24">
+                <rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/>
+                <circle cx="9" cy="10" r="1.6"/>
+                <path d="m5.5 17 4.2-4.2 3.1 3.1 2.2-2.2 3.5 3.5"/>
+              </svg>
+            </button>
+            <input id="image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
             <button class="attach-button" id="attach" type="button" aria-label="添加文件" title="添加文件">
               <svg class="icon" viewBox="0 0 24 24">
                 <path d="M20 11.5 12.7 18.8a4.5 4.5 0 0 1-6.4-6.4l7.4-7.4a3 3 0 0 1 4.2 4.2l-7.3 7.3a1.5 1.5 0 0 1-2.1-2.1l6.7-6.7"/>
               </svg>
             </button>
             <input id="attach-input" type="file" multiple hidden>
+            <select class="model-pill" id="model-select" aria-label="选择模型" hidden></select>
             <button class="perm-pill" id="perm-pill" type="button" hidden
                     aria-haspopup="dialog" aria-expanded="false" title="权限模式">
               <span class="dot"></span>

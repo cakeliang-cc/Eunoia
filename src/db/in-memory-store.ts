@@ -44,6 +44,10 @@ import type {
 } from '../session/turn-types.ts';
 import type { Conversation, ConversationSummary, HistoryStats, Message } from '../session/types.ts';
 import type { Store } from '../store.ts';
+import type { UserContentV1 } from '../agent/content.ts';
+import { contentText } from '../agent/content.ts';
+import type { ImageAsset } from '../media/types.ts';
+import type { MediaAssetStore } from '../media/store.ts';
 
 /**
  * Conversation rows are mutable here while `Conversation` is readonly — the
@@ -61,7 +65,7 @@ interface StoredConversation {
   messages: Message[];
 }
 
-export class InMemoryStore implements Store, TurnStore {
+export class InMemoryStore implements Store, TurnStore, MediaAssetStore {
   readonly #memories = new Map<string, Memory>();
   readonly #conversations = new Map<string, StoredConversation>();
   readonly #summaries = new Map<string, ConversationSummary>();
@@ -72,6 +76,9 @@ export class InMemoryStore implements Store, TurnStore {
   readonly #feedback: FeedbackRecord[] = [];
   readonly #turns = new Map<string, TurnRecord>();
   readonly #turnEvents: TurnEventRecord[] = [];
+  readonly #media = new Map<string, ImageAsset>();
+  /** Message id → asset ids in content order; the reference index. */
+  readonly #messageAssets = new Map<string, string[]>();
   #evaluationCases: readonly EvaluationCaseRecord[] = [];
 
   /**
@@ -117,6 +124,12 @@ export class InMemoryStore implements Store, TurnStore {
     for (const id of conversations) {
       this.#conversations.delete(id);
       this.#summaries.delete(id);
+    }
+    for (const [id, asset] of this.#media) {
+      if (asset.userId === userId) this.#media.delete(id);
+    }
+    for (const messageId of [...this.#messageAssets.keys()]) {
+      if (!this.#messageExists(messageId)) this.#messageAssets.delete(messageId);
     }
     this.#preferences.delete(userId);
 
@@ -299,6 +312,12 @@ export class InMemoryStore implements Store, TurnStore {
     if (!conversation || conversation.userId !== userId) return false;
     this.#conversations.delete(conversationId);
     this.#summaries.delete(conversationId);
+    for (const [id, asset] of this.#media) {
+      if (asset.conversationId === conversationId) this.#media.delete(id);
+    }
+    for (const messageId of [...this.#messageAssets.keys()]) {
+      if (!this.#messageExists(messageId)) this.#messageAssets.delete(messageId);
+    }
     for (const [id, turn] of this.#turns) {
       if (turn.conversationId === conversationId) this.#turns.delete(id);
     }
@@ -343,10 +362,28 @@ export class InMemoryStore implements Store, TurnStore {
     role: Message['role'];
     content: string;
     interrupted?: boolean;
+    contentParts?: UserContentV1 | null;
+    assetIds?: readonly string[];
   }): Promise<Message> {
     const conversation = this.#conversations.get(message.conversationId);
     if (!conversation || conversation.userId !== message.userId) {
       throw new Error(`unknown conversation ${message.conversationId} for this user`);
+    }
+    if (message.contentParts && message.contentParts.version !== 1) {
+      throw new Error(`unsupported content version ${String(message.contentParts.version)}`);
+    }
+    const projection = message.contentParts ? contentText(message.contentParts) : message.content;
+    const assetIds = message.role === 'user' ? (message.assetIds ?? []) : [];
+    for (const assetId of assetIds) {
+      const asset = this.#media.get(assetId);
+      if (
+        !asset ||
+        asset.userId !== message.userId ||
+        asset.conversationId !== message.conversationId ||
+        asset.status === 'released'
+      ) {
+        throw new Error(`media asset ${assetId} is not available to this conversation`);
+      }
     }
 
     const stored: Message = {
@@ -354,12 +391,20 @@ export class InMemoryStore implements Store, TurnStore {
       conversationId: message.conversationId,
       userId: message.userId,
       role: message.role,
-      content: message.content,
+      content: projection,
+      contentParts: message.contentParts ?? null,
       interrupted: message.interrupted ?? false,
       createdAt: new Date(),
       seq: (conversation.messages.at(-1)?.seq ?? 0) + 1,
     };
     conversation.messages.push(stored);
+    if (assetIds.length > 0) {
+      this.#messageAssets.set(stored.id, [...assetIds]);
+      for (const assetId of assetIds) {
+        const asset = this.#media.get(assetId);
+        if (asset) this.#media.set(assetId, { ...asset, status: 'bound' });
+      }
+    }
     if (message.role === 'user') conversation.turnCount += 1;
     conversation.lastTurnAt = stored.createdAt;
     // Same rule as Postgres: writing into an archived thread resumes it.
@@ -404,6 +449,12 @@ export class InMemoryStore implements Store, TurnStore {
       (message) => message.role === 'user',
     ).length;
     conversation.lastTurnAt = conversation.messages.at(-1)?.createdAt ?? null;
+    for (const [messageId] of this.#messageAssets) {
+      if (!conversation.messages.some((entry) => entry.id === messageId)) {
+        this.#messageAssets.delete(messageId);
+      }
+    }
+    this.#releaseUnreferencedAssets(conversationId);
     return before - conversation.messages.length;
   }
 
@@ -459,6 +510,115 @@ export class InMemoryStore implements Store, TurnStore {
   }
 
 
+  // --------------------------------------------------------------- media -----
+
+  async createMediaAsset(asset: ImageAsset): Promise<void> {
+    this.#media.set(asset.id, asset);
+  }
+
+  async getMediaAsset(userId: string, assetId: string): Promise<ImageAsset | null> {
+    const asset = this.#media.get(assetId);
+    return asset && asset.userId === userId ? asset : null;
+  }
+
+  async listMediaAssets(userId: string, assetIds: readonly string[]): Promise<ImageAsset[]> {
+    return assetIds
+      .map((id) => this.#media.get(id))
+      .filter((asset): asset is ImageAsset => asset !== undefined && asset.userId === userId);
+  }
+
+  async listConversationMedia(userId: string, conversationId: string): Promise<ImageAsset[]> {
+    return [...this.#media.values()]
+      .filter((asset) => asset.userId === userId && asset.conversationId === conversationId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  async listUserMedia(userId: string): Promise<ImageAsset[]> {
+    return [...this.#media.values()]
+      .filter((asset) => asset.userId === userId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  async messageAssetIds(messageId: string): Promise<string[]> {
+    return [...(this.#messageAssets.get(messageId) ?? [])];
+  }
+
+  async setMediaLease(
+    userId: string,
+    assetIds: readonly string[],
+    until: Date | null,
+  ): Promise<void> {
+    for (const id of assetIds) {
+      const asset = this.#media.get(id);
+      if (asset && asset.userId === userId) {
+        this.#media.set(id, { ...asset, leaseExpiresAt: until });
+      }
+    }
+  }
+
+  async deletePendingMediaAsset(
+    userId: string,
+    assetId: string,
+    now: Date = new Date(),
+  ): Promise<boolean> {
+    const asset = this.#media.get(assetId);
+    if (
+      !asset ||
+      asset.userId !== userId ||
+      asset.status !== 'pending' ||
+      (asset.leaseExpiresAt !== null && asset.leaseExpiresAt > now) ||
+      this.#assetReferenced(assetId)
+    ) {
+      return false;
+    }
+    this.#media.delete(assetId);
+    return true;
+  }
+
+  async deleteMediaAssets(assetIds: readonly string[]): Promise<void> {
+    for (const id of assetIds) this.#media.delete(id);
+  }
+
+  async listCollectableMedia(now: Date, graceMs: number): Promise<ImageAsset[]> {
+    const cutoff = now.getTime() - graceMs;
+    return [...this.#media.values()]
+      .filter((asset) => asset.createdAt.getTime() <= cutoff)
+      .filter((asset) => asset.leaseExpiresAt === null || asset.leaseExpiresAt <= now)
+      .filter(
+        (asset) =>
+          asset.status === 'released' ||
+          (asset.status === 'pending' && !this.#assetReferenced(asset.id)),
+      )
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  async releaseUnreferencedAssets(conversationId: string): Promise<void> {
+    this.#releaseUnreferencedAssets(conversationId);
+  }
+
+  #releaseUnreferencedAssets(conversationId: string): void {
+    for (const [id, asset] of this.#media) {
+      if (asset.conversationId !== conversationId || asset.status !== 'bound') continue;
+      if (!this.#assetReferenced(id)) {
+        this.#media.set(id, { ...asset, status: 'released', leaseExpiresAt: null });
+      }
+    }
+  }
+
+  #assetReferenced(assetId: string): boolean {
+    for (const ids of this.#messageAssets.values()) {
+      if (ids.includes(assetId)) return true;
+    }
+    return false;
+  }
+
+  #messageExists(messageId: string): boolean {
+    for (const conversation of this.#conversations.values()) {
+      if (conversation.messages.some((message) => message.id === messageId)) return true;
+    }
+    return false;
+  }
+
   // --------------------------------------------------------------- turns -----
 
   async createTurn(record: TurnRecord): Promise<CreateTurnResult> {
@@ -500,6 +660,7 @@ export class InMemoryStore implements Store, TurnStore {
       contextTokens: patch.contextTokens !== undefined ? patch.contextTokens : existing.contextTokens,
       accepted: patch.accepted ?? existing.accepted,
       acceptance: patch.acceptance ?? existing.acceptance,
+      usage: patch.usage !== undefined ? patch.usage : existing.usage,
       endedAt: new Date(),
     };
     this.#turns.set(id, updated);

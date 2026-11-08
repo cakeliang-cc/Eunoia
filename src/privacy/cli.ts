@@ -16,6 +16,10 @@
 
 import { selectStore } from '../db/select.ts';
 import { log } from '../observability/logging.ts';
+import { MemoryMediaBlobStore, FileMediaBlobStore } from '../media/blob-store.ts';
+import { mediaRoot } from '../media/config.ts';
+import { mediaLimits } from '../media/limits.ts';
+import { MediaService } from '../media/service.ts';
 import { RETENTION_WINDOW_HOURS, sweepEvaluationUsers } from './retention.ts';
 
 interface Args {
@@ -33,6 +37,11 @@ function parseArgs(argv: readonly string[]): Args {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const { store, kind, detail } = await selectStore();
+  const media = new MediaService({
+    store,
+    blobs: kind === 'memory' ? new MemoryMediaBlobStore() : new FileMediaBlobStore(mediaRoot()),
+    limits: mediaLimits(),
+  });
 
   try {
     process.stdout.write(`\nstore: ${kind} · ${detail}\n`);
@@ -41,6 +50,14 @@ async function main(): Promise<void> {
       // `--all` means the window is not applied: every marked user is past
       // whatever cutoff is supplied, so the cutoff is now.
       ...(args.all ? { olderThan: new Date() } : {}),
+      // A dry run must not unlink anything either.
+      ...(args.dryRun
+        ? {}
+        : {
+            beforeDelete: async (userId: string) => {
+              await media.removeAssetBytes(await media.userAssets(userId));
+            },
+          }),
     });
 
     const verb = args.dryRun ? 'would delete' : 'deleted';

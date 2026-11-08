@@ -12,6 +12,7 @@
 
 import type { SessionStore } from './session/store.ts';
 import type { TurnStore } from './session/turn-store.ts';
+import type { MediaAssetStore } from './media/store.ts';
 import type {
   FeedbackStore,
   IdentityStore,
@@ -26,6 +27,7 @@ export interface Store
     SessionStore,
     RunStore,
     TurnStore,
+    MediaAssetStore,
     PreferenceStore,
     FeedbackStore {
   /** Cheap liveness probe used by `GET /health`. */

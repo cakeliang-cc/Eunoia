@@ -14,12 +14,19 @@
  */
 
 import type { ToolSchema } from '../tools/types.ts';
+import type { ModelMessageContent } from './content.ts';
+import type { PreparedMediaPlan } from './request-plan.ts';
 
 export type LoopInputItem =
   | {
       readonly type: 'message';
       readonly role: 'user' | 'assistant' | 'system';
-      readonly content: string;
+      /**
+       * A user message may be an ordered block list; every other role stays a
+       * plain string because its content constraints are not an arbitrary media
+       * array.
+       */
+      readonly content: ModelMessageContent;
     }
   | {
       readonly type: 'function_call';
@@ -66,6 +73,8 @@ export interface ModelUsage {
   readonly outputTokens: number;
   readonly totalTokens: number;
   readonly cachedTokens: number;
+  /** The provider's response model, when it differs from the requested one. */
+  readonly responseModel?: string;
 }
 
 export type ModelTurnEvent =
@@ -98,6 +107,14 @@ export interface ModelTurnRequest {
   readonly input: readonly LoopInputItem[];
   readonly tools: readonly ToolSchema[];
   readonly signal?: AbortSignal;
+  /**
+   * The fixed media plan for this turn.
+   *
+   * The adapter encodes exactly these bytes and counts these variants; it may
+   * not re-read, re-scale or substitute an image at send time. Present whenever
+   * any input item contains an image part.
+   */
+  readonly media?: PreparedMediaPlan;
 }
 
 /**

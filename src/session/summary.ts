@@ -71,10 +71,27 @@ const ROLE_LABEL: Readonly<Record<Message['role'], string>> = {
   system: '系统',
 };
 
+/**
+ * What the summariser sees for one message.
+ *
+ * An image cannot be replayed to the summary model as pixels, and pretending it
+ * was never there would let a later text route silently "forget" a picture. The
+ * marker keeps the fact and the source id so a future route can decide to re-open
+ * the original; it is explicitly *not* a description of the image.
+ */
+function summaryText(message: Message): string {
+  if (message.role !== 'user' || !message.contentParts) return message.content;
+  return message.contentParts.parts
+    .map((part) =>
+      part.type === 'text' ? part.text : `[图片附件（原图仍保存在媒体库，其 id 为 ${part.assetId}）]`,
+    )
+    .join('\n');
+}
+
 export function renderSummaryPrompt(request: SummaryRequest): string {
   const previous = request.previousSummary?.trim();
   const transcript = request.messages
-    .map((message) => `${ROLE_LABEL[message.role]}：${message.content}`)
+    .map((message) => `${ROLE_LABEL[message.role]}：${summaryText(message)}`)
     .join('\n\n');
 
   return [

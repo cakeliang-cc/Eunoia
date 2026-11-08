@@ -30,6 +30,7 @@
 import { estimateTokens, type TokenEstimatorMode } from '../session/tokens.ts';
 import type { ToolSchema } from '../tools/types.ts';
 import type { LoopInputItem } from './model-port.ts';
+import type { PreparedMediaPlan } from './request-plan.ts';
 
 /** Per-item framing cost the estimator cannot see (role tags, tool envelope). */
 const ITEM_OVERHEAD_TOKENS = 4;
@@ -61,6 +62,12 @@ export interface FitContextInput {
   readonly tools: readonly ToolSchema[];
   readonly items: readonly LoopInputItem[];
   readonly budget: ContextBudget;
+  /**
+   * The fixed media plan. Image parts are counted by the token estimate their
+   * route's policy produced; an image part without a plan entry makes the
+   * request unsendable rather than free.
+   */
+  readonly media?: PreparedMediaPlan;
 }
 
 export interface FitContextResult {
@@ -76,6 +83,8 @@ export interface FitContextResult {
   readonly compressedResults: number;
   /** How many items were dropped (both halves of a pair count). */
   readonly droppedItems: number;
+  /** Image blocks whose planned cost is missing. Must be 0 to send. */
+  readonly unplannedImages: number;
   /**
    * True when even the protected work in progress does not fit.
    *
@@ -96,7 +105,11 @@ export function fitContext(input: FitContextInput): FitContextResult {
     systemTokens;
 
   const items: LoopInputItem[] = [...input.items];
-  let total = items.reduce((sum, item) => sum + estimateItemTokens(item, mode), 0);
+  const unplannedImages = countUnplannedImages(items, input.media);
+  let total = items.reduce(
+    (sum, item) => sum + estimateItemTokens(item, mode, input.media),
+    0,
+  );
 
   if (availableTokens < MIN_AVAILABLE_TOKENS) {
     return {
@@ -106,8 +119,22 @@ export function fitContext(input: FitContextInput): FitContextResult {
       systemTokens,
       compressedResults: 0,
       droppedItems: 0,
+      unplannedImages,
       exhausted: true,
       reason: `the prompt and tools alone need ${systemTokens} tokens`,
+    };
+  }
+  if (unplannedImages > 0) {
+    return {
+      items,
+      tokens: systemTokens + total,
+      availableTokens: Math.max(0, availableTokens),
+      systemTokens,
+      compressedResults: 0,
+      droppedItems: 0,
+      unplannedImages,
+      exhausted: true,
+      reason: `${unplannedImages} image block(s) have no planned token cost`,
     };
   }
 
@@ -169,6 +196,7 @@ export function fitContext(input: FitContextInput): FitContextResult {
     systemTokens,
     compressedResults,
     droppedItems,
+    unplannedImages,
     exhausted,
     ...(exhausted
       ? {
@@ -197,10 +225,25 @@ export function estimateSystemTokens(
 export function estimateItemTokens(
   item: LoopInputItem,
   mode: TokenEstimatorMode = 'mixed',
+  media?: PreparedMediaPlan,
 ): number {
   switch (item.type) {
-    case 'message':
-      return estimateTokens(item.content, mode) + ITEM_OVERHEAD_TOKENS;
+    case 'message': {
+      if (typeof item.content === 'string') {
+        return estimateTokens(item.content, mode) + ITEM_OVERHEAD_TOKENS;
+      }
+      let total = ITEM_OVERHEAD_TOKENS;
+      for (const part of item.content) {
+        if (part.type === 'text') {
+          total += estimateTokens(part.text, mode);
+        } else {
+          // Counted per occurrence, never once per storage row: the same image
+          // sent twice is two visual inputs.
+          total += media?.images.get(part.assetId)?.estimatedTokens ?? 0;
+        }
+      }
+      return total;
+    }
     case 'function_call':
       return estimateTokens(item.name, mode) + estimateTokens(item.arguments, mode) + ITEM_OVERHEAD_TOKENS;
     case 'function_call_result':
@@ -236,6 +279,21 @@ function sliceToTokens(text: string, maxTokens: number, mode: TokenEstimatorMode
     end = Math.floor(end * 0.9);
   }
   return text.slice(0, Math.max(0, end));
+}
+
+/** Image blocks that the plan did not price, which must block the request. */
+function countUnplannedImages(
+  items: readonly LoopInputItem[],
+  media: PreparedMediaPlan | undefined,
+): number {
+  let unplanned = 0;
+  for (const item of items) {
+    if (item.type !== 'message' || typeof item.content === 'string') continue;
+    for (const part of item.content) {
+      if (part.type === 'image' && !media?.images.has(part.assetId)) unplanned += 1;
+    }
+  }
+  return unplanned;
 }
 
 /** The index of the current turn's user message; everything after it is protected. */

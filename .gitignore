@@ -24,3 +24,8 @@ backups/
 # `git add .` stay usable.
 reference/
 docs/myfree
+
+.npm-cache/
+
+# Headless Chrome profile created by `npm run browser:check`.
+.chrome-check-*
