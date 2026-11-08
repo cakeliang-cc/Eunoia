@@ -1,27 +1,27 @@
 {
-  "verifiedAt": "2026-11-08T13:51:07Z",
+  "verifiedAt": "2026-11-08T14:48:00.984416Z",
   "branch": "fix/integration-acceptance",
-  "codeCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-  "servicePid": 72694,
+  "codeCommit": "06c41b674d16b9c6a6f9ebe940e81d74a654a553",
+  "servicePid": 31587,
   "port": 8788,
   "host": "127.0.0.1",
   "build": {
-    "commit": "8be1e467850b9be989fc7d2749ba4db34d4192c5",
+    "commit": "06c41b674d16b9c6a6f9ebe940e81d74a654a553",
     "dirty": false,
-    "builtAt": "2026-11-08T13:50:52.395Z",
+    "builtAt": "2026-11-08T14:46:27.061Z",
     "packageVersion": "0.1.0"
   },
   "schemaVersion": 15,
   "database": "/Users/Zhuanz/Projects/designFree/data/eunoia.sqlite",
-  "backup": "backups/eunoia-2026-11-08T13-29-50-178Z",
-  "backupManifest": "backups/eunoia-2026-11-08T13-29-50-178Z/manifest.json",
+  "backup": "backups/eunoia-2026-11-08T14-46-17-155Z",
+  "backupManifest": "backups/eunoia-2026-11-08T14-46-17-155Z/manifest.json",
   "health": {
     "status": "ok",
     "prompt_version": "ec490dad544f",
     "build": {
-      "commit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "dirty": true,
-      "builtAt": "2026-11-08T13:37:12.181Z",
+      "commit": "06c41b674d16b9c6a6f9ebe940e81d74a654a553",
+      "dirty": false,
+      "builtAt": "2026-11-08T14:46:27.061Z",
       "packageVersion": "0.1.0"
     },
     "store": "sqlite",
@@ -53,13 +53,13 @@
       ],
       "auto_review": true,
       "metrics": {
-        "uptime_ms": 38131,
-        "sandbox_created": 1,
+        "uptime_ms": 76202,
+        "sandbox_created": 0,
         "sandbox_create_failed": 0,
-        "sandbox_creation_success_rate": 1,
-        "sandbox_start_total_ms": 210,
-        "sandbox_start_latency_ms": 210,
-        "sandbox_destroyed": 1,
+        "sandbox_creation_success_rate": null,
+        "sandbox_start_total_ms": 0,
+        "sandbox_start_latency_ms": null,
+        "sandbox_destroyed": 0,
         "sandbox_recovered": 2,
         "sandbox_recovery_success_rate": 1,
         "execution_total": 8,
@@ -92,71 +92,69 @@
     }
   },
   "preview": {
-    "startResponse": {
-      "preview": {
-        "id": "prv_ee275e71-fbc3-4d5e-917b-533e7f363dfd",
-        "routeId": "d00d51ca3512411aaea5793f771c464e",
-        "jobId": "job_4978d0da-74a5-47cf-8ea9-63bfd48a50a2",
-        "userId": "39ae0773-f68c-4426-8203-1b0fbb791f0f",
-        "conversationId": "63e0a147-c508-40fb-97e8-8df91203d58f",
-        "memberId": null,
-        "runId": null,
-        "taskId": "63e0a147-c508-40fb-97e8-8df91203d58f",
-        "sandboxId": null,
-        "workspaceId": null,
-        "containerPort": 4401,
-        "status": "ready",
-        "generation": 1794145066348,
-        "userUrl": "http://d00d51ca3512411aaea5793f771c464e.preview.localhost:8790/",
-        "browserUrl": "http://d00d51ca3512411aaea5793f771c464e.preview.localhost:8790/",
-        "createdAt": "2026-11-08T13:37:46.348Z",
-        "readyAt": "2026-11-08T13:37:46.348Z",
-        "expiresAt": "2026-11-08T14:07:46.348Z",
-        "lastOpenedAt": null,
-        "error": null
-      },
-      "job": {
-        "id": "job_4978d0da-74a5-47cf-8ea9-63bfd48a50a2",
-        "userId": "39ae0773-f68c-4426-8203-1b0fbb791f0f",
-        "conversationId": "63e0a147-c508-40fb-97e8-8df91203d58f",
-        "turnId": null,
-        "memberId": null,
-        "taskId": "63e0a147-c508-40fb-97e8-8df91203d58f",
-        "toolCallId": "api-preview-624ad4a7-7b60-4170-a138-744be4439d50",
-        "command": "node -e \"require('http').createServer((q,s)=>s.end('final-preview-ok')).listen(4401,'127.0.0.1')\"",
-        "cwd": ".",
-        "marker": "c0b589c9-6aa6-436d-b813-2bcb30d4178f",
-        "pid": 22,
-        "status": "running",
-        "exitCode": null,
-        "stdoutPath": "/tmp/eunoia-jobs/job_4978d0da-74a5-47cf-8ea9-63bfd48a50a2/out",
-        "stderrPath": "/tmp/eunoia-jobs/job_4978d0da-74a5-47cf-8ea9-63bfd48a50a2/err",
-        "stdinFifo": null,
-        "startedAt": "2026-11-08T13:37:46.140Z",
-        "endedAt": null,
-        "expiresAt": "2026-11-08T14:37:46.140Z",
-        "error": null
-      },
-      "ready": true,
-      "detail": "容器内 HTTP 200",
-      "internalUrl": "http://127.0.0.1:4401/"
-    },
-    "userUrlBody": "final-preview-ok",
+    "ready": true,
+    "detail": "容器内 HTTP 200",
+    "userUrl": "http://76912231f4a84b0f8d9fa08f3f52b463.preview.localhost:8790/",
+    "originMismatchStatus": 403,
     "afterStopStatus": 404
   },
   "realChat": {
-    "conversationId": "63e0a147-c508-40fb-97e8-8df91203d58f",
-    "tool": "web_fetch",
-    "reply": "标题：Example Domain\n来源 URL：https://example.com/",
-    "turnUsage": {
-      "inputTokens": 23227,
-      "outputTokens": 93,
-      "totalTokens": 23320,
-      "cachedTokens": 14848,
-      "measuredSteps": 2,
-      "totalSteps": 2,
-      "incomplete": false
+    "tool": {
+      "type": "tool_result",
+      "callId": "call_00_zogmLqDp3MJCcZZ9IvTw5198",
+      "name": "web_fetch",
+      "ok": true,
+      "durationMs": 1198,
+      "summary": "https://example.com/",
+      "source": "builtin",
+      "sources": [
+        {
+          "title": "Example Domain",
+          "url": "https://example.com/",
+          "fetchedAt": "2026-11-08T14:47:49.695Z"
+        }
+      ]
+    },
+    "completed": {
+      "finishReason": "completed",
+      "acceptance": [
+        {
+          "id": "finished",
+          "ok": true
+        },
+        {
+          "id": "has_output",
+          "ok": true
+        },
+        {
+          "id": "tools_ok",
+          "ok": true
+        },
+        {
+          "id": "tools_resolved",
+          "ok": true
+        }
+      ],
+      "usage": {
+        "inputTokens": 7737,
+        "outputTokens": 14,
+        "totalTokens": 7751,
+        "cachedTokens": 7552,
+        "imageTokensUnknown": false
+      },
+      "turnUsage": {
+        "inputTokens": 15321,
+        "outputTokens": 85,
+        "totalTokens": 15406,
+        "cachedTokens": 10880,
+        "cacheWriteTokens": 0,
+        "measuredSteps": 2,
+        "totalSteps": 2,
+        "incomplete": false,
+        "missingUsageSteps": 0,
+        "missingCacheSteps": 0
+      },
+      "text": "标题：Example Domain\n来源 URL：https://example.com/"
     }
-  },
-  "mainCommit": "8be1e467850b9be989fc7d2749ba4db34d4192c5"
+  }
 }

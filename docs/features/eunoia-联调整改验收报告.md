@@ -16,8 +16,8 @@
 | --- | --- |
 | 集成基线 | `1a5c801`（`.worktrees/integration`，`feat/team-mcp-integration`） |
 | 整改分支 | `fix/integration-acceptance`（新 worktree `.worktrees/integration-acceptance`） |
-| 代码提交 | `7b6dc65718ba9e653fd078e67d04aeddf5d96197` |
-| 主线合并 | `origin/main@3bc8386` 已合入本分支（merge commit `c6cde4a`）；`main` 已快进到 `8be1e46` |
+| 代码提交 | `06c41b674d16b9c6a6f9ebe940e81d74a654a553`（第二轮；首轮 `7b6dc65`） |
+| 主线合并 | `origin/main@3bc8386` 已合入本分支（merge commit `c6cde4a`）；首轮已合并到 `main@c99931c`；本轮以最终提交再次合并 |
 | 文档/验收提交 | 本分支最后一次提交（manifest、报告、证据） |
 | Node | v24.7.0 |
 | Docker | 28.3.3，runtime `runc`（gVisor 缺失且已显式确认） |
@@ -137,20 +137,21 @@
 | 调用 | 次数 | 输入/输出 | 说明 |
 | --- | --- | --- | --- |
 | 视觉 S01–S03（deepseek-flash） | 4 请求（S03 含重放） | S01 2670/9，S02 2823/4，S03 2632/15 与 2632/21 | 真实端点；usage 在 `docs/captures/live-vision.json`；图片 token 厂商未拆分，标记 unknown |
-| 部署后 `web_fetch` 回合（deepseek-v4-pro） | 2 步 | 23227/93，cached 14848 | 真实工具调用成功，回复标题与来源 URL |
+| 首轮部署后 `web_fetch` 回合（deepseek-v4-pro） | 2 步 | 23227/93，cached 14848 | 真实工具调用成功，回复标题与来源 URL |
+| 第二轮部署后 `web_fetch` 回合（deepseek-v4-pro） | 2 步 | 7737/14，cached 7552 | 新构建 06c41b6 重启后真实调用，`tools_ok:true` |
 | 失败的历史部署回合 | 1 | 23164/381 | 旧构建 `Invalid IP address: undefined` 的失败开销保留；修复后未再出现 |
 | V08 产品闭环（deepseek-flash） | 1 回合 / 12 步 / 15 次工具 | 12795 输入 / 608 输出（cached 12544） | 设计图→预览→两次截图→改 CSS→再截图；像素断言通过 |
 | Tavily 搜索 | 0 | — | 无密钥，V04/D32 BLOCKED；费用 unknown，不显示 0 |
 
 ## 6 备份、构建、迁移、重启与运行身份
 
-1. 备份：`backups/eunoia-2026-11-08T13-29-50-178Z/`（SQLite + media manifest；`sha256 51a7bfe3a4ec…`，1 个媒体资产校验通过）。
+1. 备份：`backups/eunoia-2026-11-08T14-46-17-155Z/`（SQLite 1932.0 KB / 483 pages / `sha256 410578b111e5…`；1 个媒体资产校验通过）。
 2. 构建：`npm run build` 通过；`dist/build-info.json` 记录 commit/构建时间；本次运行版本 `8be1e46…`（实现提交 `7b6dc657…` + 最新 main 合并；`build-info.dirty=false`）。
 3. 迁移：`SQLITE_PATH=/Users/Zhuanz/Projects/designFree/data/eunoia.sqlite npm run migrate` → schema 15；未降低版本、未删除表。
-4. 重启：8788，PID 见 `r14-deploy.json`；日志 `data/server.log`；预览网关 8790（loopback）。
+4. 重启：8788，PID `31587`（见 `r14-deploy.json`）；日志 `data/server.log`；预览网关 8790（loopback）。
 5. `/health`：`status:ok`、`store:sqlite`、`build.commit=8be1e46…`、sandbox runtime ok、`network:none`。
-6. 真实预览：API 启动容器内 dev server → 租约 ready → `http://<route>.preview.localhost:8790/` 返回 `final-preview-ok` → 停止后 404。
-7. 真实工具：部署服务内 DeepSeek 调用 `web_fetch`，真实回复 `标题：Example Domain` / `来源 URL：https://example.com/`，acceptance `tools_ok:true`。
+6. 真实预览：API 启动容器内 dev server → 租约 ready → `http://76912231….preview.localhost:8790/` 返回 `final-preview-ok-2`；伪造 Origin 返回 403；停止后 404。
+7. 真实工具：重启后的部署服务内 DeepSeek 调用 `web_fetch`，真实回复 `标题：Example Domain` / `来源 URL：https://example.com/`，`tools_ok:true`，usage 7737/14（cached 7552）。
 8. 清理：预览已停止；故障测试子进程全部退出；未杀用户其他进程；原工作区/数据库/备份保留。
 
 部署验证还发现并修复了一个真实 bug：`http.request` 的 `lookup` 在 Node `autoSelectFamily` 下以 `{all:true}` 调用，旧实现返回字符串导致 `ERR_INVALID_IP_ADDRESS`；现在两种形状都返回，并有回归测试。
