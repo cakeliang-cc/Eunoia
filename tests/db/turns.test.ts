@@ -397,7 +397,7 @@ describe('the version 7 to 8 migration', () => {
       const version = upgraded.database.prepare('PRAGMA user_version').get() as {
         user_version: number;
       };
-      expect(Number(version.user_version)).toBe(14);
+      expect(Number(version.user_version)).toBe(15);
 
       const tables = (
         upgraded.database

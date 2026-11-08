@@ -1,0 +1,161 @@
+{
+  "run": {
+    "id": "run_42f18a9c-4f74-4d0c-a99d-e0f8e6d34dcd",
+    "status": "waiting_user",
+    "reason": "仍有必需任务未验收",
+    "createdAt": "2026-11-08T10:07:40.042Z"
+  },
+  "members": [
+    {
+      "id": "mem_2a72a3f8-1d73-48e0-968f-0ce3df76a3ac",
+      "name": "主成员",
+      "role": "root",
+      "status": "idle",
+      "modelId": "deepseek-flash",
+      "contextMode": "fresh",
+      "conversationId": "37942ea4-3d05-4676-88f3-a379a1c9657c"
+    },
+    {
+      "id": "mem_3882a31a-c53d-4e87-b011-a787737cef44",
+      "name": "甲",
+      "role": "worker",
+      "status": "idle",
+      "modelId": "deepseek-flash",
+      "contextMode": "fresh",
+      "conversationId": "6d321523-b01a-4f79-8c04-7eeaa87b3a17"
+    },
+    {
+      "id": "mem_edb13e98-f843-4c52-b767-beeaf33a08a2",
+      "name": "乙",
+      "role": "worker",
+      "status": "idle",
+      "modelId": "deepseek-flash",
+      "contextMode": "fresh",
+      "conversationId": "ed34c840-ed9a-4a4c-a1cb-d7870ec23fb7"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task_f7c74321-bcab-4e45-b3b7-a37e2077107c",
+      "title": "A README 只读检查",
+      "status": "accepted",
+      "required": true,
+      "dependencies": [],
+      "ownerId": "mem_3882a31a-c53d-4e87-b011-a787737cef44",
+      "revision": 4
+    },
+    {
+      "id": "task_e4c3385b-a5bd-4983-b5a0-ecb7205e7985",
+      "title": "B package 只读检查",
+      "status": "accepted",
+      "required": true,
+      "dependencies": [],
+      "ownerId": "mem_edb13e98-f843-4c52-b767-beeaf33a08a2",
+      "revision": 4
+    },
+    {
+      "id": "task_c0a4da1e-8656-4e15-a0d7-3bb7af6da49d",
+      "title": "C 交叉核对",
+      "status": "pending",
+      "required": true,
+      "dependencies": [
+        "task_f7c74321-bcab-4e45-b3b7-a37e2077107c",
+        "task_e4c3385b-a5bd-4983-b5a0-ecb7205e7985"
+      ],
+      "ownerId": "mem_3882a31a-c53d-4e87-b011-a787737cef44",
+      "revision": 1
+    }
+  ],
+  "messages": [
+    {
+      "id": "msg_e717b6d3-83f5-48fd-a5e9-79f4dd37892e",
+      "senderId": "mem_edb13e98-f843-4c52-b767-beeaf33a08a2",
+      "recipientId": "mem_3882a31a-c53d-4e87-b011-a787737cef44",
+      "state": "accepted",
+      "clientMessageId": "peer-1",
+      "body": "请核对任务A的证据"
+    }
+  ],
+  "budget": {
+    "limits": {
+      "maxInputTokens": 400000,
+      "maxOutputTokens": 32000,
+      "maxRequests": 24,
+      "maxEstimatedCostUsd": null
+    },
+    "reservedInputTokens": 0,
+    "reservedOutputTokens": 0,
+    "settledInputTokens": 181622,
+    "settledOutputTokens": 8152,
+    "reservedRequests": 0,
+    "settledRequests": 24,
+    "estimatedCostUsd": 0,
+    "incompleteEntries": 0,
+    "remainingInputTokens": 218378,
+    "remainingOutputTokens": 23848,
+    "remainingRequests": 0,
+    "exhausted": true
+  },
+  "usage": {
+    "inputTokens": 181622,
+    "outputTokens": 8152,
+    "cachedTokens": 140032,
+    "cacheWriteTokens": 0,
+    "requests": 24,
+    "measuredRequests": 24,
+    "incomplete": false
+  },
+  "completion": {
+    "complete": false,
+    "required": [
+      {
+        "id": "task_f7c74321-bcab-4e45-b3b7-a37e2077107c",
+        "status": "accepted"
+      },
+      {
+        "id": "task_e4c3385b-a5bd-4983-b5a0-ecb7205e7985",
+        "status": "accepted"
+      },
+      {
+        "id": "task_c0a4da1e-8656-4e15-a0d7-3bb7af6da49d",
+        "status": "pending"
+      }
+    ],
+    "outstanding": [
+      "task_c0a4da1e-8656-4e15-a0d7-3bb7af6da49d"
+    ],
+    "conflicts": 0,
+    "usage": {
+      "inputTokens": 181622,
+      "outputTokens": 8152,
+      "cachedTokens": 140032,
+      "cacheWriteTokens": 0,
+      "requests": 24,
+      "measuredRequests": 24,
+      "incomplete": false
+    },
+    "budget": {
+      "limits": {
+        "maxInputTokens": 400000,
+        "maxOutputTokens": 32000,
+        "maxRequests": 24,
+        "maxEstimatedCostUsd": null
+      },
+      "reservedInputTokens": 0,
+      "reservedOutputTokens": 0,
+      "settledInputTokens": 181622,
+      "settledOutputTokens": 8152,
+      "reservedRequests": 0,
+      "settledRequests": 24,
+      "estimatedCostUsd": 0,
+      "incompleteEntries": 0,
+      "remainingInputTokens": 218378,
+      "remainingOutputTokens": 23848,
+      "remainingRequests": 0,
+      "exhausted": true
+    },
+    "integrations": []
+  },
+  "eventCursor": 85,
+  "capturedAt": "2026-11-08T10:12:00Z"
+}

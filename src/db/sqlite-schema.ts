@@ -21,6 +21,7 @@ import { SANDBOX_SCHEMA } from '../sandbox/schema.ts';
 import { MCP_SCHEMA } from '../mcp/schema.ts';
 import { CHANGESET_SCHEMA } from '../session/changeset-schema.ts';
 import { TOOLKIT_SCHEMA } from '../session/toolkit-schema.ts';
+import { TEAM_SCHEMA } from '../teams/schema.ts';
 
 /**
  * Version 2 adds the sandbox platform's tables (ADR 017); version 3 records the
@@ -61,13 +62,17 @@ import { TOOLKIT_SCHEMA } from '../session/toolkit-schema.ts';
  * Version 13 adds user-operable turn undo: `workspace_changesets` (one per
  * durable turn, with the digests around it and an optional checkpoint) and
  * `workspace_changeset_files` (per-file before/after facts and whether the file
- * has been restored). Additive and idempotent. It is numbered 13 because a
- * parallel branch had already used 12 for its own tables; reusing the number
- * would make a database stamped by one build silently skip the other's DDL.
+ * has been restored). Version 14 adds the developer toolkit's durable facts.
+ * Version 15 adds the Agent Team/Subagent domain: teams, runs, members,
+ * activations, tasks, attempts, messages, artifacts, events, the whole-team
+ * budget ledger and image resource grants. It is numbered 15 because 12 was
+ * used by the parallel team branch before the branches were unified; reusing a
+ * version number would make a database stamped by one build silently skip the
+ * other DDL.
  * The base schema is idempotent, so a version-1 file gets the tables by executing
  * the full schema; later files get the new columns by `ALTER TABLE`.
  */
-export const SQLITE_SCHEMA_VERSION = 14;
+export const SQLITE_SCHEMA_VERSION = 15;
 
 export const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -497,6 +502,8 @@ ${MCP_SCHEMA}
 ${CHANGESET_SCHEMA}
 
 ${TOOLKIT_SCHEMA}
+
+${TEAM_SCHEMA}
 `;
 
 /** Applied to a version-2 database that already has the sandbox tables. */
@@ -823,3 +830,10 @@ export const SQLITE_MIGRATION_13 = CHANGESET_SCHEMA;
  * Additive and idempotent; the base schema carries the same DDL.
  */
 export const SQLITE_MIGRATION_14 = TOOLKIT_SCHEMA;
+
+/**
+ * Version 14 → 15: the Agent Team tables.
+ *
+ * Additive and idempotent; the base schema carries the same DDL.
+ */
+export const SQLITE_MIGRATION_15 = TEAM_SCHEMA;

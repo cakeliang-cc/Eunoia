@@ -86,6 +86,7 @@ import {
   SQLITE_MIGRATION_14,
   SQLITE_SCHEMA,
   SQLITE_SCHEMA_VERSION,
+  SQLITE_MIGRATION_15,
 } from './sqlite-schema.ts';
 import { CWD_SCHEMA, PERMISSION_SCHEMA } from '../sandbox/schema.ts';
 import { StatementCache } from './statements.ts';
@@ -2379,6 +2380,9 @@ export function openSqliteStore(path: string): SqliteStore {
     }
     if (version < 14) {
       db.exec(SQLITE_MIGRATION_14);
+    }
+    if (version < 15) {
+      db.exec(SQLITE_MIGRATION_15);
     }
   }
   if (version < SQLITE_SCHEMA_VERSION) {

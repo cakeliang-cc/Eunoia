@@ -1900,6 +1900,7 @@
     .mcp-row > * { flex-basis: 100%; }
   }
 </style>
+<link rel="stylesheet" href="/team.css">
 </head>
 <body>
 <svg class="mascot-defs" width="0" height="0" aria-hidden="true" focusable="false">
@@ -2082,6 +2083,16 @@
           <i></i>
           <span id="memory-status-label">长期记忆</span>
         </span>
+        <button id="team-open" class="soft-button team-open" type="button"
+                aria-pressed="false" aria-controls="team-drawer" title="Agent Team">
+          <svg class="icon" viewBox="0 0 24 24">
+            <circle cx="9" cy="8" r="3"/>
+            <circle cx="17" cy="10" r="2.4"/>
+            <path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6S14 16 14.6 19"/>
+            <path d="M15 14.6c2.2 0 4 1.2 4.6 3.6"/>
+          </svg>
+          <span>协作</span>
+        </button>
         <button id="workspace-toggle" class="soft-button wb-toggle" type="button"
                 aria-pressed="false" aria-controls="workbench" title="工作区 (⌘⇧E)">
           <svg class="icon" viewBox="0 0 24 24">
@@ -2342,6 +2353,69 @@
   </div>
 </div>
 
+
+<!-- Agent Team: members, task board, mailbox and event log. The panel is a
+     drawer so the conversation stays visible while a run is being watched. -->
+<div class="team-scrim" id="team-scrim" hidden></div>
+<aside class="team-drawer" id="team-drawer" role="dialog" aria-modal="true"
+       aria-label="Agent Team 协作" hidden>
+  <header class="team-head">
+    <div>
+      <span class="team-eyebrow">Eunoia · 协作</span>
+      <h2>Agent Team</h2>
+    </div>
+    <button id="team-close" class="icon-button" type="button" aria-label="关闭协作面板">
+      <svg class="icon" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+    </button>
+  </header>
+
+  <div class="team-body">
+    <section class="team-config" aria-label="Team 配置">
+      <div class="team-config-row">
+        <span class="team-config-label">Team 模式</span>
+        <button id="team-mode" class="team-switch" type="button" aria-pressed="true">开启</button>
+      </div>
+      <p class="team-hint" id="team-mode-hint">任务板、依赖与验收可用；关闭只影响后续调度，记录保留。</p>
+      <dl class="team-meta" id="team-meta"></dl>
+      <div class="team-run-controls">
+        <button id="team-pause" class="soft-button" type="button" hidden>暂停派发</button>
+        <button id="team-resume" class="soft-button" type="button" hidden>恢复</button>
+        <button id="team-stop" class="soft-button danger" type="button" hidden>停止整队</button>
+      </div>
+      <form class="team-steer" id="team-steer" hidden>
+        <label class="field-label" for="team-steer-input">追加指令（只给主成员，不打断当前步骤）</label>
+        <div class="team-inline">
+          <input id="team-steer-input" maxlength="8000" placeholder="例如：先验收任务 A，再派发 C" autocomplete="off">
+          <button type="submit">发送</button>
+        </div>
+        <p class="team-hint">忙碌时在下一次模型请求前注入；不会插进工具调用组中间。</p>
+      </form>
+    </section>
+
+    <form class="team-start" id="team-start">
+      <label class="field-label" for="team-start-message">发起一次 Team 运行</label>
+      <textarea id="team-start-message" rows="3" maxlength="8000"
+                placeholder="例如：把「给文件系统加 S3 适配」拆成三个任务，两个成员并行，第三个负责验收。" required></textarea>
+      <div class="team-start-actions">
+        <button type="submit" class="primary-button">开始协作</button>
+        <span class="team-hint" id="team-start-note"></span>
+      </div>
+    </form>
+
+    <nav class="team-tabs" role="tablist" aria-label="协作视图">
+      <button role="tab" type="button" data-team-tab="members" aria-selected="true">成员</button>
+      <button role="tab" type="button" data-team-tab="tasks">任务</button>
+      <button role="tab" type="button" data-team-tab="messages">消息</button>
+      <button role="tab" type="button" data-team-tab="events">事件</button>
+      <button role="tab" type="button" data-team-tab="artifacts">集成</button>
+    </nav>
+
+    <div class="team-view" id="team-view" role="tabpanel" aria-live="polite">
+      <p class="team-empty">还没有选中运行。先发一条消息，再开始协作。</p>
+    </div>
+  </div>
+</aside>
+
 <!-- The permission menu is fixed-positioned and lives outside the composer so
      the form's overflow can never clip it. It is filled by paintPermissionMenu. -->
 <div class="drawer" id="mcp-drawer" data-open="false">
@@ -2363,5 +2437,6 @@
 <div class="perm-menu" id="perm-menu" role="dialog" aria-label="权限模式" hidden></div>
 
 <script type="module" src="/app.js"></script>
+<script type="module" src="/team.js"></script>
 </body>
 </html>

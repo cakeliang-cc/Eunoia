@@ -115,6 +115,64 @@ export async function preflightMedia(
   return { plan: result.plan, assets };
 }
 
+/**
+ * Team variant: resolve assets by owner (the grant is checked by TeamService)
+ * and plan with the same route policy as a normal turn.
+ */
+export async function preflightTeamMedia(
+  deps: MediaTurnDeps,
+  input: {
+    readonly userId: string;
+    readonly profile: ModelProfile;
+    readonly content: UserContentV1;
+    readonly history: readonly UserContentV1[];
+    readonly requiresTools?: boolean;
+    readonly fixedTokens?: number;
+  },
+): Promise<PreflightResult> {
+  if (!deps.media) {
+    throw new MediaError('MEDIA_UNAVAILABLE', '这个进程没有配置图片存储，不能接收图片。', 422);
+  }
+  const occurrences = mediaOccurrences(input.content, input.history);
+  if (occurrences.length === 0) {
+    const result = planMediaRequest({
+      profile: input.profile,
+      policy: null,
+      current: input.content,
+      history: input.history,
+      assets: [],
+      limits: deps.limits,
+      ...(input.fixedTokens !== undefined ? { fixedTokens: input.fixedTokens } : {}),
+      ...(input.requiresTools !== undefined ? { requiresTools: input.requiresTools } : {}),
+      ...(deps.availableModels ? { availableModels: deps.availableModels } : {}),
+    });
+    if (!result.ok) throw result.error;
+    return { plan: result.plan, assets: [] };
+  }
+  const ids = [...new Set(occurrences.map((occurrence) => occurrence.assetId))];
+  const assets = await deps.media.resolveOwned(input.userId, ids);
+  const byId = new Map(assets.map((asset) => [asset.id, asset]));
+  const currentAssets: ImageAsset[] = [];
+  for (const id of contentImageIds(input.content)) {
+    const asset = byId.get(id);
+    if (asset) currentAssets.push(asset);
+  }
+  deps.media.assertMessageImages(currentAssets);
+  const result = planMediaRequest({
+    profile: input.profile,
+    policy: deps.policies.forRoute(input.profile.capabilities),
+    current: input.content,
+    history: input.history,
+    assets,
+    limits: deps.limits,
+    ...(input.fixedTokens !== undefined ? { fixedTokens: input.fixedTokens } : {}),
+    ...(input.requiresTools !== undefined ? { requiresTools: input.requiresTools } : {}),
+    ...(deps.availableModels ? { availableModels: deps.availableModels } : {}),
+  });
+  if (!result.ok) throw result.error;
+  return { plan: result.plan, assets };
+}
+
 export interface LoadedMediaPlan {
   readonly plan: PreparedMediaPlan;
   /** Release the lease; safe to call more than once. */
