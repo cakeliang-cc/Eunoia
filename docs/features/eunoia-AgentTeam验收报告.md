@@ -209,10 +209,10 @@ curl -s http://127.0.0.1:8790/api/teams/runs/<runId>/report
 - **备份**：迁移前把 `data/eunoia.sqlite` 复制到 `backups/eunoia-before-team-20261108-181456.sqlite`。
 - **构建**：`npm run build` 成功；`dist/api/server.js` 可启动。
 - **迁移**：本分支 `SQLITE_SCHEMA_VERSION = 12`，`npm run migrate` 曾把主库升到 12 并创建 11 张 `team_*` 表。随后并行的 `.worktrees/mcp` 开发线把同一个主库迁移到了 **13**；本分支启动时会按守卫拒绝打开更新版本的库（避免旧代码写新库），因此没有回滚/改写用户的 13 版主库。
-- **重启验证使用隔离库**：`SQLITE_PATH=/tmp/eunoia-team-service.sqlite`（schema 12）、`TEAM_WORKSPACE_ROOT=/tmp/eunoia-team-workspaces`、`PORT=8788 npm start`，PID 43147。
+- **重启验证使用隔离库**：`SQLITE_PATH=/tmp/eunoia-team-service.sqlite`（schema 12）、`TEAM_WORKSPACE_ROOT=/tmp/eunoia-team-workspaces`、`PORT=8788 npm start`，PID 68580（审批/steering/E06 修复后的构建）。
 - **健康**：`GET /health` → `status=ok, store=sqlite, team={enabled:true,persistence:store,recovery:on-start}`。
 - **静态资源**：`/team.js` 200、`/team.css` 200、`/` 200；畸形 `//` 返回 400 且进程继续。
-- **功能入口**：创建会话后 `GET /api/teams?conversationId=…` 返回默认 Team（4 成员 / 3 并发 / 24 请求 / 400k 输入 / 32k 输出）；不存在 run 的 `POST /steering` 返回 404。
+- **功能入口**：创建会话后 `GET /api/teams?conversationId=…` 返回默认 Team（4 成员 / 3 并发 / 24 请求 / 400k 输入 / 32k 输出）；不存在 run 的 `POST /steering` 返回 404；`GET /runs/:id/approvals` 返回 `{approvals:[]}`；`/` 200。健康检查启动的真实 run 已通过 stop 收束，未留下运行中的后台模型请求。
 - **并行进程**：`127.0.0.1:8787` 仍由 `.worktrees/mcp` 的进程占用；本报告未终止并行开发进程。主库已是 v13，本分支的 12 版服务不能直接复用，需要等该开发线合入后再统一迁移版本。
 - **修复的启动/健壮性问题**：Team 工作区根默认移到源目录外（`~/.eunoia/team-workspaces`，可用 `TEAM_WORKSPACE_ROOT` 覆盖；本机 DSH 沙箱下 home 不可写，验证用 /tmp）；畸形请求目标 `//` 返回 400 而非崩溃；关闭成员与激活收尾的竞争用 `closedAt` 修复；预算预留移到模型并发槽之后，避免排队请求提前占满输出预算；Team 工具使用 `workspace_state` 副作用类别，不再因“禁止命令”而被误拒。
 
