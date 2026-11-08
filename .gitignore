@@ -34,3 +34,6 @@ docs/myfree
 /portrait_30KB.jpg
 /证件照_30K.jpg
 /resource/*.png
+
+# Diagnostic request captures can contain conversation text; keep them local.
+/docs/captures/model-request-*.json
