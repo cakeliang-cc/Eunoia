@@ -17,6 +17,7 @@
 | 集成基线 | `1a5c801`（`.worktrees/integration`，`feat/team-mcp-integration`） |
 | 整改分支 | `fix/integration-acceptance`（新 worktree `.worktrees/integration-acceptance`） |
 | 代码提交 | `7b6dc65718ba9e653fd078e67d04aeddf5d96197` |
+| 主线合并 | `origin/main@3bc8386` 已合入本分支（merge commit `c6cde4a`） |
 | 文档/验收提交 | 本分支最后一次提交（manifest、报告、证据） |
 | Node | v24.7.0 |
 | Docker | 28.3.3，runtime `runc`（gVisor 缺失且已显式确认） |
