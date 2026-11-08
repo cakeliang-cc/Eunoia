@@ -376,6 +376,48 @@ function renderMembers() {
     view.append(card);
   }
 
+  const approvals = snapshot.approvals || [];
+  for (const approval of approvals) {
+    const card = el('div', 'team-card');
+    card.append(
+      el('div', 'team-card-head',
+        el('span', 'team-card-title', `待审批：${approval.tool || approval.action || '工具调用'}`),
+        badge('pending')),
+      el('div', 'team-card-id',
+        `${approval.memberName}（${shortId(approval.memberId)}）· ${approval.resource || ''}`),
+    );
+    const body = el('div', 'team-card-body');
+    body.append(
+      el('p', null, `风险：${approval.riskLevel || 'unknown'} · 策略：${approval.policyVersion || '-'}`),
+      el('p', null, `请求摘要：${approval.requestKey}`),
+      el('p', null, `代次：${approval.generation ?? '-'} · 执行：${shortId(approval.activationId || '-')}`),
+      el('p', null, approval.reason),
+    );
+    const actions = el('div', 'team-actions');
+    const reason = document.createElement('input');
+    reason.placeholder = '审批理由（可选）';
+    reason.setAttribute('aria-label', '审批理由');
+    const approve = el('button', null, '批准本次');
+    approve.type = 'button';
+    approve.addEventListener('click', () =>
+      void post(`/api/teams/runs/${snapshot.run.id}/approvals/${approval.approvalRequestId}`, {
+        decision: 'approved',
+        reason: reason.value || '用户批准',
+      }),
+    );
+    const deny = el('button', 'danger', '拒绝');
+    deny.type = 'button';
+    deny.addEventListener('click', () =>
+      void post(`/api/teams/runs/${snapshot.run.id}/approvals/${approval.approvalRequestId}`, {
+        decision: 'denied',
+        reason: reason.value || '用户拒绝',
+      }),
+    );
+    actions.append(reason, approve, deny);
+    card.append(body, actions);
+    view.append(card);
+  }
+
   if (root && !TERMINAL.has(snapshot.run.status)) {
     const form = el('form', 'team-form team-card');
     form.append(el('div', 'field-label', '新建成员（默认在主成员下）'));

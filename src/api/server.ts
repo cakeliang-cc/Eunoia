@@ -117,6 +117,7 @@ import { MemoryTeamStore } from '../teams/store-memory.ts';
 import { openSqliteTeamStore } from '../teams/store-sqlite.ts';
 import { TeamWorkspaceService } from '../teams/workspaces.ts';
 import { teamCeiling, teamFeatureEnabled } from '../teams/config.ts';
+import { createSandboxApprovalPort } from '../teams/approvals.ts';
 
 /**
  * Reject absurd bodies rather than buffering them.
@@ -2703,6 +2704,9 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
       toolPolicy,
       maxSteps,
       transcriptMode: transcriptMode(),
+      ...(sandboxPlatform
+        ? { approvals: createSandboxApprovalPort(sandboxPlatform) }
+        : {}),
     });
     const teamRecovery = await teamService.recover();
     if (teamRecovery.interrupted > 0 || teamRecovery.unknown > 0) {

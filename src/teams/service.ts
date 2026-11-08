@@ -59,6 +59,7 @@ import type { ActivationHost, AuthorizeModelCallInput, MailboxDelivery, ModelCal
 import { renderCollaborationMessage, renderMemberContext } from '../agents/prompt.ts';
 import { newId } from '../agents/members.ts';
 import { transcriptMode } from '../session/model-transcript.ts';
+import type { TeamApprovalPort, TeamApprovalView } from './approvals.ts';
 
 // ----------------------------------------------------------- workspace port ---
 
@@ -109,6 +110,8 @@ export interface TeamServiceDeps {
   /** Test seam. Production resolves through the provider registry. */
   readonly resolveModelTurn?: (member: Member) => Promise<ModelTurn>;
   readonly modelProfileFor?: (id: string) => import('../models/types.ts').ModelProfile;
+  /** Sandbox approval binding, when a sandbox is configured. */
+  readonly approvals?: TeamApprovalPort;
 }
 
 export interface CreateRunInput {
@@ -418,10 +421,12 @@ export class TeamService implements ActivationHost, TeamToolHost {
       this.teamStore.budgetSnapshot(run.id),
       this.teamStore.listEvents(run.id, 0, 200),
     ]);
+    const approvals = await this.listApprovals(ownerId, runId).catch(() => []);
     return {
       team,
       run,
       members,
+      approvals,
       tasks: tasks.items,
       taskTotal: tasks.total,
       messages: messages.items,
@@ -1300,6 +1305,72 @@ export class TeamService implements ActivationHost, TeamToolHost {
   async listArtifacts(ownerId: string, runId: string): Promise<Artifact[]> {
     await this.getRun(ownerId, runId);
     return this.teamStore.listArtifacts({ runId, limit: 200 });
+  }
+
+  // -------------------------------------------------------------- approvals ---
+
+  /**
+   * Pending sandbox approvals bound to this run's members.
+   *
+   * The view carries the member, activation/generation, request digest and
+   * policy version. It never carries credentials or raw tool parameters.
+   */
+  async listApprovals(ownerId: string, runId: string): Promise<TeamApprovalView[]> {
+    if (!this.#deps.approvals) return [];
+    const run = await this.getRun(ownerId, runId);
+    const members = await this.teamStore.listMembers(run.teamId);
+    const views: TeamApprovalView[] = [];
+    for (const member of members) {
+      if (member.status === 'closed' || member.status === 'failed') continue;
+      const activations = await this.teamStore.listActivations(runId, member.id);
+      const current = activations.at(-1) ?? null;
+      const pending = await this.#deps.approvals.list({
+        ownerId,
+        runId,
+        member,
+        activationId: current?.id ?? null,
+        generation: current?.generation ?? null,
+      });
+      views.push(...pending);
+    }
+    return views;
+  }
+
+  async decideApproval(input: {
+    readonly ownerId: string;
+    readonly runId: string;
+    readonly approvalRequestId: string;
+    readonly decision: 'approved' | 'denied';
+    readonly reason: string;
+  }): Promise<TeamApprovalView> {
+    if (!this.#deps.approvals) {
+      throw new TeamError('TEAM_FORBIDDEN', '这个部署没有配置沙箱审批。', 409);
+    }
+    const run = await this.getRun(input.ownerId, input.runId);
+    const members = await this.teamStore.listMembers(run.teamId);
+    for (const member of members) {
+      const pending = await this.#deps.approvals
+        .list({
+          ownerId: input.ownerId,
+          runId: run.id,
+          member,
+          activationId: null,
+          generation: null,
+        })
+        .catch(() => []);
+      if (!pending.some((entry) => entry.approvalRequestId === input.approvalRequestId)) {
+        continue;
+      }
+      return this.#deps.approvals.decide({
+        ownerId: input.ownerId,
+        runId: run.id,
+        member,
+        approvalRequestId: input.approvalRequestId,
+        decision: input.decision,
+        reason: input.reason,
+      });
+    }
+    throw new TeamError('TEAM_TASK_NOT_FOUND', '这个审批不属于当前运行，或已失效。', 404);
   }
 
   // ------------------------------------------------------------- activation ---

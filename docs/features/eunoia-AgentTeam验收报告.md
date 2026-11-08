@@ -43,6 +43,7 @@
 | 工作区/快照/差异 | `tests/teams/workspaces.test.ts` | 12 |
 | 候选集成/发布 journal | `tests/teams/integration.test.ts` | 22 |
 | T 项补充验收 | `tests/teams/acceptance.test.ts` | 21 |
+| 审批绑定 | `tests/teams/approvals.test.ts` | 2 |
 | steering / 忙时派发 | `tests/teams/steering.test.ts` | 3 |
 | E01/E02 API+SQLite | `tests/api/teams-e2e.test.ts` | 2 |
 | HTTP API + SSE | `tests/api/teams.test.ts` | 8 |
@@ -94,7 +95,7 @@
 | T38 | ✅ | `integration.test.ts`：同幂等键只应用一次，不同候选同键冲突。 |
 | T39 | ✅ | `acceptance.test.ts` T39：候选哈希变化后旧证据不能验收。 |
 | T40 | ⚠️ | 成员权限取父级交集（T40 用例）；MCP 未接入，MCP 路径/命令/网络权限交集无证据。 |
-| T41 | ⛔ | Team 审批没有把成员、参数哈希、账号与代次绑定到 UI/服务；沙箱审批与 Team 未串联。 |
+| T41 | ✅ | `approvals.test.ts` + `src/teams/approvals.ts`：审批视图绑定成员、activation/generation、requestKey（摘要）、policyVersion；同一批准只能应用一次；跨 owner 拒绝；UI 成员页显示待审批卡片与批准/拒绝。 |
 | T42 | ⛔ | `src/mcp/` 是另一条未提交开发线；成员未获得 MCP 工具句柄，stdio/elicitation/Tasks 取消未验收。 |
 | T43 | ⛔ | 图片授权（按 owner/资源/成员/期限）未实现；成员图片输入只做能力预检。 |
 | T44 | ⛔ | 同图分成员计费、图片预留未接入；`PreparedMediaPlan` 未在成员执行路径使用。 |
@@ -115,7 +116,7 @@
 | T59 | ⚠️ | 新库 schema 12 与 Team 表已测；旧库升级到 12 的完整备份/恢复演练未执行。 |
 | T60 | ✅ | `acceptance.test.ts` T60 + E06：required 未验收时 run 为 `waiting_user`，不成功。 |
 
-统计：✅ 34，⚠️ 17，⛔ 9，❌ 0（T 维度）。**未全部通过。**
+统计：✅ 35，⚠️ 17，⛔ 8，❌ 0（T 维度）。**未全部通过。**
 
 ## 6. E01–E06 端到端结果
 
@@ -155,6 +156,7 @@
 2. **E03–E05 未执行**：E01/E02 已走真实 API+SQLite；E03 候选发布、E04 冲突 UI、E05 杀进程对账仍未串成端到端脚本。
 3. **MCP（T42、T41 部分）**：MCP 宿主仍在另一条未提交开发线；本次没有把 MCP 工具授权、审批、Tasks/elicitation 接入成员。
 4. **图片（T43/T44）**：成员执行路径没有 `PreparedMediaPlan`，仅能力预检；图片授权和图片预算未实现。
+5. **MCP（T42）**：MCP 宿主仍在另一条未提交开发线；成员未获得 MCP 工具句柄，stdio/elicitation/Tasks 取消未验收。
 5. **UI 自动化（T54–T57）**：抽屉与响应式样式已实现，但没有浏览器自动化点击/键盘/390px 断言。
 6. **候选发布编排**：`workspaces.ts`/`integration.ts` 有完整模块测试，但 Team API/服务没有把"物化候选 → 验证 → 发布 journal → UI 冲突编辑"串成一条可用链路。
 7. **容器层**：Docker/runc 可用，但没有执行 Team 成员隔离的容器级用例（T31/T33），按计划不能以宿主测试替代。

@@ -283,6 +283,28 @@ export function createTeamApi(deps: { service: TeamService; adapters: TeamApiAda
         });
         return true;
       }
+      if (suffix === 'approvals' && method === 'GET') {
+        adapters.sendJson(res, 200, {
+          approvals: await service.listApprovals(ownerId, runId),
+        });
+        return true;
+      }
+      const approvalMatch = /^approvals\/([^/]+)$/.exec(suffix);
+      if (approvalMatch && method === 'POST') {
+        const body = asObject(await adapters.readJson(req));
+        if (body.decision !== 'approved' && body.decision !== 'denied') {
+          throw new TeamError('TEAM_TASK_INVALID', 'decision 必须是 approved 或 denied。', 400);
+        }
+        const approval = await service.decideApproval({
+          ownerId,
+          runId,
+          approvalRequestId: decodeURIComponent(approvalMatch[1] ?? ''),
+          decision: body.decision,
+          reason: typeof body.reason === 'string' ? body.reason : '',
+        });
+        adapters.sendJson(res, 200, { approval });
+        return true;
+      }
       if (suffix === 'integrations' && method === 'GET') {
         adapters.sendJson(res, 200, {
           integrations: await service.teamStore.listIntegrations(runId),
