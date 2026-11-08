@@ -548,9 +548,13 @@ export class TeamService implements ActivationHost, TeamToolHost {
       openConflict.length === 0 &&
       running.length === 0
     ) {
+      const rootSummary = run.rootMemberId
+        ? ((await this.teamStore.listActivations(runId, run.rootMemberId)).at(-1)?.result?.summary ??
+          null)
+        : null;
       const succeeded = await this.teamStore.transitionRun(runId, ['running', 'waiting_user', 'paused'], {
         status: 'succeeded',
-        reason,
+        reason: reason ?? rootSummary,
         finishedAt: this.#now().toISOString(),
       }, { kind: 'run.status', payload: { status: 'succeeded' } });
       return succeeded ?? run;
@@ -1627,8 +1631,14 @@ export class TeamService implements ActivationHost, TeamToolHost {
     }
     if (input.member.role === 'root') {
       await this.#evaluateRun(run.id, input.summary || null);
-    } else if (input.outcome === 'succeeded') {
-      await this.dispatchReady(run.id).catch(() => undefined);
+    } else {
+      if (input.outcome === 'succeeded') {
+        await this.dispatchReady(run.id).catch(() => undefined);
+      }
+      // Any member finishing can be the event that completes the run: the root
+      // may already have answered while a worker was still running. The run
+      // summary stays the root's, never a worker's.
+      await this.#evaluateRun(run.id, null).catch(() => undefined);
     }
   }
 

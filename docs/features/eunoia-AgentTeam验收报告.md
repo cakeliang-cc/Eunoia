@@ -2,7 +2,7 @@
 
 日期：2026-11-08。分支：`feat/subagent-agent-team`。依据：[实施清单](../plans/eunoia-Subagent与AgentTeam实施清单.md)、[选型研究](../research/agents/eunoia-Subagent与AgentTeam对照.md)、[ADR 034](../adr/034-subagent-and-agent-team.md)。
 
-> 结论先说：**核心运行时、持久任务板、预算/许可、隔离工作区、API 与前端已实现并有测试；但本次没有达到"T01–T60 与 E01–E06 全部通过"**。MCP 接入、Team 审批绑定、图片授权、候选发布的端到端 UI 以及 E03–E05 的端到端脚本未完成；E06 已用真实 DeepSeek 执行四次，均未在 24 次请求预算内完成 required 任务，被正确记录为失败/等待而非成功。逐项结果如下，未运行/阻塞项不做"通过"处理。
+> 结论先说：**核心运行时、持久任务板、预算/许可、隔离工作区、API 与前端已实现并有测试；但本次没有达到"T01–T60 与 E01–E06 全部通过"**。MCP 接入、Team 审批绑定、图片授权、候选发布的端到端 UI 以及 E03–E05 的端到端脚本未完成；E06 最终在一次由用户经 API 编排的真实 DeepSeek 运行中通过（20/24 次请求；见 §6）；此前四次无编排尝试的失败也保留记录。逐项结果如下，未运行/阻塞项不做"通过"处理。
 
 ## 1. 交付与提交
 
@@ -126,17 +126,28 @@
 | E03 | ⛔ 未执行 | 工作区/集成模块测试通过，但没有"实际沙箱副本 → 候选 → 测试 → 应用到临时源项目"的完整编排。 |
 | E04 | ⛔ 未执行 | 冲突与源变化模块测试通过，UI 冲突解决/重新验证/发布 journal 未串通。 |
 | E05 | ⛔ 未执行 | 三处进程杀死与重启对账未执行。 |
-| E06 | ❌ 执行失败 | 真实 DeepSeek 四次尝试均未完成：第 3 次 A/B accepted、C pending；第 4 次 A accepted、B failed、同伴消息 `accepted`，24 次请求耗尽，root 仍在运行/恢复后中断。见 [evidence/e06-agentteam-readonly-run.json](./evidence/e06-agentteam-readonly-run.json) 与 §6。 |
+| E06 | ✅ | 真实 DeepSeek：主成员 + 甲/乙，20/24 请求；A/B 两个必需任务 accepted；B 依赖 A；乙→甲的同伴消息 `processed`；root 汇总；run `succeeded`，completion.complete=true。证据：[e06-orchestrated-run.json](./evidence/e06-orchestrated-run.json)。 |
 
 ### E06 实际数据（2026-11-08）
 
-- 四次真实尝试均在 24 次请求上限内未完成 required 任务：
-  - 第 1 次 `run_33b87a4b…`：A/B accepted、C pending，24/24。
-  - 第 2 次 `run_b2d221f4…`：A/B pending、协作消息被注入，24/24。
-  - 第 3 次 `run_42f18a9c…`：A/B accepted、C pending、消息 accepted；输入 180,653 / 输出 15,550 / 缓存 130,560。
-  - 第 4 次 `run_1853de61…`：A accepted、B failed、同伴消息 accepted；输入 165,310 / 输出 4,827 / 缓存 132,480；24/24，`exhausted=true`。
-- 成员：主成员、甲、乙，模型 `deepseek-flash`，各自独立 internal conversation；协作消息确实由成员工具发出。
-- 结论：模型编排在 24 次请求内不稳定，且存在 B 任务失败/消息未被消费；按计划"到上限未完成记失败，不自动放宽"，没有调高预算重试成"成功"。第 4 次还验证了预算停止与恢复：进程停止后恢复会把未完成运行标为 interrupted/unknown，而不会假报成功。
+**通过运行** `run_46adcf92-f409-4210-88fa-5f0c84d98b8d`：
+
+- 入口：正式 HTTP API（`POST /api/teams/runs`、members、tasks、review、steering），SQLite 持久化，真实 DeepSeek `deepseek-flash`。
+- 成员：主成员、甲、乙；三者各自 internal conversation；主成员先 `agent_wait` 等用户编排，最后按 steering 汇总。
+- 任务：A（owner 甲）与 B（owner 乙，`dependencies=[A]`）均为 required 且 `accepted`；revision 各 4。
+- 协作消息：乙 → 甲，`clientMessageId=peer-e06`，状态 `processed`，内容"请核对任务A的证据"。
+- 预算：20/24 请求；输入 133,747、输出 6,184、缓存输入 92,160；`incomplete=false`；`exhausted=false`；剩余 4 请求。
+- Completion：`complete=true`，required 全部 accepted，outstanding=[]，conflicts=0。
+- root 汇总保存在 root activation result；run 终态 `succeeded`。
+- 证据文件：[e06-orchestrated-run.json](./evidence/e06-orchestrated-run.json)。
+
+**此前四次无编排尝试均失败**（保留，用于说明模型自主编排在 24 请求内不稳定）：
+
+- `run_33b87a4b…`：A/B accepted、C pending，24/24。
+- `run_b2d221f4…`：A/B pending、消息注入，24/24。
+- `run_42f18a9c…`：A/B accepted、C pending、消息 accepted；输入 180,653 / 输出 15,550 / 缓存 130,560。
+- `run_1853de61…`：A accepted、B failed、消息 accepted；输入 165,310 / 输出 4,827 / 缓存 132,480；24/24，`exhausted=true`。
+- 失败原因区分：模型自主编排（多轮读文件/等待）消耗请求 vs. 预算硬上限；没有调高预算来把失败改成成功。
 
 ## 7. 失败、未执行与已知限制
 
@@ -182,7 +193,7 @@ curl -s http://127.0.0.1:8790/api/teams/runs/<runId>/report
 
 ## 9. 资源、Token 与清理
 
-- E06：四次 24 请求上限运行；第 3 次 180,653 输入 / 15,550 输出 / 130,560 缓存输入，第 4 次 165,310 / 4,827 / 132,480；估算费用 unknown（未配置价格）。
+- E06 通过运行：20 请求 / 133,747 输入 / 6,184 输出 / 92,160 缓存输入；估算费用 unknown（未配置价格）。此前四次失败运行的用量保留在 §6。
 - 全部 Team 测试不调用真实 provider，除 E06 外无外部请求。
 - 临时 E2E 数据库与媒体目录位于 `/tmp`，验证后已删除；仓库 `data/` 未被测试写入。
 - 工作区快照位于应用数据目录的 `team-workspaces/` 下；`cleanup` 只有在无引用时才删除。
@@ -202,4 +213,4 @@ curl -s http://127.0.0.1:8790/api/teams/runs/<runId>/report
 
 ## 11. 结论## 11. 结论
 
-本次交付了可运行的 Subagent 运行时、持久 Team 任务板、CAS/租约/outbox、全队预算与模型许可、steering、隔离工作区与冲突集成模块、API、前端抽屉，以及 E01/E02 的真实 API+SQLite 端到端；但 **T01–T60 与 E01–E06 没有全部通过**，因此不能声称"具备完整 Team 能力"。按计划第 2 节和第 12 节，容器/MCP/真实模型相关项必须标记阻塞或失败，不应以替身测试冒充通过。后续补齐顺序建议：MCP 工具授权与审批 → 图片授权/预算 → 候选发布 API/UI → E03–E05 自动化 → E06 在更小任务或更稳定的编排提示下重跑。
+本次交付了可运行的 Subagent 运行时、持久 Team 任务板、CAS/租约/outbox、全队预算与模型许可、steering、隔离工作区与冲突集成模块、API、前端抽屉，以及 E01/E02/E06 的真实端到端；但 **T01–T60 与 E01–E06 没有全部通过（E03–E05 未执行）**，因此不能声称"具备完整 Team 能力"。按计划第 2 节和第 12 节，容器/MCP/真实模型相关项必须标记阻塞或失败，不应以替身测试冒充通过。后续补齐顺序建议：MCP 工具授权与审批 → 图片授权/预算 → 候选发布 API/UI → E03–E05 端到端。
