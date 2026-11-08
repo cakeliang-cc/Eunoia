@@ -217,6 +217,7 @@ export function createTeamApi(deps: { service: TeamService; adapters: TeamApiAda
           ...(body.workspaceMode === 'copy' || body.workspaceMode === 'readonly'
             ? { workspaceMode: body.workspaceMode }
             : {}),
+          images: stringArray(body.imageAssetIds),
         });
         adapters.sendJson(res, 201, {
           member: spawned.member,
@@ -264,6 +265,16 @@ export function createTeamApi(deps: { service: TeamService; adapters: TeamApiAda
           body: requiredString(body, 'body'),
         });
         adapters.sendJson(res, message.duplicate ? 200 : 201, message);
+        return true;
+      }
+      if (suffix === 'resources' && method === 'GET') {
+        const resources = [];
+        for (const member of await service.listMembers(ownerId, runId)) {
+          for (const grant of await service.activeImageGrants(runId, member.id)) {
+            resources.push({ ...grant, memberName: member.name });
+          }
+        }
+        adapters.sendJson(res, 200, { resources });
         return true;
       }
       if (suffix === 'budget' && method === 'GET') {
@@ -375,8 +386,33 @@ export function createTeamApi(deps: { service: TeamService; adapters: TeamApiAda
           requiredString(body, 'runId'),
           memberId,
           requiredString(body, 'message'),
+          stringArray(body.imageAssetIds),
         );
         adapters.sendJson(res, 201, { activation });
+        return true;
+      }
+      if (suffix === 'resources' && method === 'POST') {
+        const body = asObject(await adapters.readJson(req));
+        const grant = await service.grantImage({
+          ownerId,
+          runId: requiredString(body, 'runId'),
+          memberId,
+          assetId: requiredString(body, 'assetId'),
+          purpose: typeof body.purpose === 'string' ? body.purpose : 'user-grant',
+          ...(typeof body.ttlSeconds === 'number' ? { ttlSeconds: body.ttlSeconds } : {}),
+        });
+        adapters.sendJson(res, 201, { grant });
+        return true;
+      }
+      if (suffix === 'resources/revoke' && method === 'POST') {
+        const body = asObject(await adapters.readJson(req));
+        await service.revokeImage({
+          ownerId,
+          runId: requiredString(body, 'runId'),
+          memberId,
+          assetId: requiredString(body, 'assetId'),
+        });
+        adapters.sendJson(res, 200, { revoked: true });
         return true;
       }
       if (suffix === 'interrupt' && method === 'POST') {

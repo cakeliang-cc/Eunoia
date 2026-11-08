@@ -30,7 +30,9 @@ import { runAgentLoop } from '../agent/loop.ts';
 import type { LoopInputItem, ModelTurn, ModelUsage } from '../agent/model-port.ts';
 import { buildRunInput } from '../agent/infp-agent.ts';
 import type { ContextBudget } from '../agent/context-budget.ts';
-import { legacyContent } from '../agent/content.ts';
+import { contentImageIds, legacyContent, messageContent } from '../agent/content.ts';
+import type { UserContentV1 } from '../agent/content.ts';
+import { preflightTeamMedia, loadMediaPlan } from '../service/media-turn.ts';
 import type { ToolDefinition, ToolPolicy } from '../tools/types.ts';
 import { TurnReadLedger } from '../tools/ledger.ts';
 import { ToolRegistry } from '../tools/registry.ts';
@@ -149,6 +151,11 @@ export interface SubagentRuntimeDeps {
   /** Resolve a model turn for a member. Injected by tests. */
   readonly resolveModelTurn: (member: Member) => Promise<ModelTurn>;
   readonly transcriptMode?: TranscriptMode;
+  readonly media?: import('../media/service.ts').MediaService | null;
+  readonly imagePolicies?: import('../provider/image-policy.ts').ImagePolicyRegistry;
+  readonly mediaLimits?: import('../media/types.ts').MediaLimits;
+  readonly sessionConfig?: import('../session/config.ts').SessionConfig;
+  readonly availableImageModels?: readonly string[];
 }
 
 export interface SpawnInput {
@@ -653,6 +660,7 @@ export class SubagentRuntime {
     let outcome: 'succeeded' | 'failed' | 'interrupted' | 'unknown' = 'failed';
     let usage: UsageTotals | undefined;
     const taskId = activation.input.taskId ?? null;
+    let releaseMedia: (() => Promise<void>) | null = null;
     const deliveries: MailboxDelivery[] = [];
 
     try {
@@ -681,11 +689,66 @@ export class SubagentRuntime {
         narrativeBlock: memberContext.block,
       });
 
-      const userMessage = await this.#ensureUserMessage(team.ownerId, member, activation);
+      const images = activation.input.images ?? [];
+      const userContent: UserContentV1 =
+        images.length > 0
+          ? {
+              version: 1,
+              parts: [
+                { type: 'text', text: activation.input.text },
+                ...images.map((assetId) => ({ type: 'image' as const, assetId })),
+              ],
+            }
+          : legacyContent(activation.input.text);
+      if (images.length > 0 && (!this.#deps.media || !this.#deps.imagePolicies)) {
+        throw new TeamError(
+          'TEAM_CAPABILITY',
+          '这个部署没有配置图片存储或图片策略，不能把图片派发给成员。',
+          409,
+        );
+      }
+      const userMessage = await this.#ensureUserMessage(team.ownerId, member, activation, userContent);
       const replay = await this.#deps.sessions.prepare(team.ownerId, conversation.id, {
         protectSeq: userMessage.seq,
         ...(abort.signal ? { signal: abort.signal } : {}),
       });
+      let mediaPlan: import('../agent/request-plan.ts').PreparedMediaPlan | undefined;
+      if (images.length > 0) {
+        const history = replay.messages
+          .filter((entry) => entry.id !== userMessage.id)
+          .filter((entry) => entry.role === 'user' || entry.role === 'assistant')
+          .map((entry) => messageContent(entry));
+        const preflight = await preflightTeamMedia(
+          {
+            media: this.#deps.media ?? null,
+            policies: this.#deps.imagePolicies!,
+            limits: this.#deps.mediaLimits ?? (await import('../media/limits.ts')).mediaLimits(),
+            ...(this.#deps.sessionConfig
+              ? { inputBudgetTokens: this.#deps.sessionConfig.inputBudgetTokens }
+              : {}),
+            ...(this.#deps.availableImageModels
+              ? { availableModels: this.#deps.availableImageModels }
+              : {}),
+          },
+          {
+            userId: team.ownerId,
+            profile,
+            content: userContent,
+            history,
+            requiresTools: true,
+            ...(this.#deps.sessionConfig
+              ? { fixedTokens: this.#deps.sessionConfig.promptReserveTokens }
+              : {}),
+          },
+        );
+        const loaded = await loadMediaPlan(
+          { media: this.#deps.media ?? null },
+          team.ownerId,
+          preflight.plan,
+        );
+        mediaPlan = loaded.plan;
+        releaseMedia = loaded.release;
+      }
 
       const durable = this.#mode === 'durable';
       let input: readonly LoopInputItem[];
@@ -703,7 +766,7 @@ export class SubagentRuntime {
           profile,
           replay,
           user: {
-            content: legacyContent(userMessage.content),
+            content: userContent,
             messageId: userMessage.id,
             seq: userMessage.seq,
           },
@@ -727,7 +790,11 @@ export class SubagentRuntime {
             entry.role === 'user' || entry.role === 'assistant',
           )
           .map((entry) => ({ role: entry.role, content: entry.content }));
-        const built = buildRunInput(userMessage.content, history, runtimeContext);
+        const built = buildRunInput(
+          images.length > 0 ? userContent : userMessage.content,
+          history,
+          runtimeContext,
+        );
         input =
           typeof built === 'string'
             ? [{ type: 'message', role: 'user', content: built }]
@@ -790,6 +857,7 @@ export class SubagentRuntime {
         signal: abort.signal,
         recorder,
         contextBudget,
+        ...(mediaPlan ? { media: mediaPlan } : {}),
         ...(transcript ? { transcript } : {}),
         beforeStep,
         afterStep,
@@ -887,6 +955,7 @@ export class SubagentRuntime {
         errorText = error instanceof Error ? error.message : String(error);
       }
     } finally {
+      if (releaseMedia) await releaseMedia().catch(() => undefined);
       this.#aborts.delete(activation.id);
       const patch: TurnFinishPatch = {
         status:
@@ -1082,6 +1151,7 @@ export class SubagentRuntime {
     userId: string,
     member: Member,
     activation: Activation,
+    content: UserContentV1,
   ): Promise<{ id: string; seq: number; content: string }> {
     const checkpoint = activation.checkpoint as { userMessageId?: string; userSeq?: number };
     if (typeof checkpoint.userMessageId === 'string' && typeof checkpoint.userSeq === 'number') {
@@ -1091,11 +1161,17 @@ export class SubagentRuntime {
         content: activation.input.text,
       };
     }
+    const imageIds = contentImageIds(content);
     const message = await this.#deps.sessions.append({
       conversationId: member.internalConversationId,
       userId,
       role: 'user',
       content: activation.input.text,
+      // The asset belongs to the user's original conversation. The member's
+      // conversation must not become a second owner of it; the explicit Team
+      // grant is what authorizes this request, so only the block reference is
+      // stored here.
+      ...(imageIds.length > 0 ? { contentParts: content } : {}),
     });
     await this.#deps.teamStore.updateActivation(activation.id, ['running'], {
       checkpoint: { ...activation.checkpoint, userMessageId: message.id, userSeq: message.seq },
@@ -1137,6 +1213,18 @@ export class SubagentRuntime {
     for (const message of committed) {
       if (message.seq > cutoffSeq) break;
       if (message.interrupted) continue;
+      if (message.contentParts) {
+        const images = contentImageIds(message.contentParts);
+        const missing = images.filter((id) => !child.permissions.imageAssetIds.includes(id));
+        if (missing.length > 0) {
+          throw new TeamError(
+            'TEAM_FORBIDDEN',
+            '父轨迹包含未授权给子成员的图片；请改用 fresh 或先授予资源。',
+            403,
+            { missing },
+          );
+        }
+      }
       await this.#deps.sessions.append({
         conversationId: child.internalConversationId,
         userId: team.ownerId,
@@ -1184,14 +1272,24 @@ function toUsageTotals(
 }
 
 function estimateRequestTokens(
-  request: { readonly instructions: string; readonly input: readonly unknown[]; readonly tools: readonly unknown[] },
+  request: {
+    readonly instructions: string;
+    readonly input: readonly unknown[];
+    readonly tools: readonly unknown[];
+    readonly media?: { readonly estimatedInputTokens: number } | undefined;
+  },
   profile: TeamMemberProfile,
 ): number {
+  void profile;
   const chars =
     request.instructions.length +
     JSON.stringify(request.input).length +
     JSON.stringify(request.tools).length;
-  const base = profile.contextWindowTokens > 0 ? Math.ceil(chars / 4) : Math.ceil(chars / 4);
+  const textEstimate = Math.ceil(chars / 4);
+  const mediaEstimate = request.media?.estimatedInputTokens ?? 0;
+  // The media plan already carries an upper-bound-aware estimate; never price
+  // text only when an image is in the request.
+  const base = Math.max(textEstimate, mediaEstimate);
   // A conservative ceiling: the estimator is not a promise, and under-reserving
   // is the failure that lets two members overdraw one budget.
   return Math.ceil(base * 1.15) + 256;

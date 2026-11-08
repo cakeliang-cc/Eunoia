@@ -2695,6 +2695,9 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
           join(homedir(), '.eunoia', 'team-workspaces'),
       },
     });
+    const availableImageModels = Object.values(MODEL_CATALOG)
+      .filter((profile) => profile.capabilities.input.image === 'supported')
+      .map((profile) => profile.id);
     teamService = new TeamService({
       teamStore,
       store,
@@ -2704,6 +2707,11 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
       toolPolicy,
       maxSteps,
       transcriptMode: transcriptMode(),
+      media: mediaService,
+      imagePolicies: defaultImagePolicies(),
+      mediaLimits: mediaLimitConfig,
+      sessionConfig: config,
+      availableImageModels,
       ...(sandboxPlatform
         ? { approvals: createSandboxApprovalPort(sandboxPlatform) }
         : {}),

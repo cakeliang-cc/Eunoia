@@ -183,6 +183,32 @@ export class MediaService {
     return resolved;
   }
 
+  /**
+   * Resolve assets by owner without a conversation check.
+   *
+   * Team members run in their own internal conversation, but a grant may point
+   * at a resource the owner uploaded elsewhere. The caller must have checked an
+   * explicit, unexpired Team grant before asking for these bytes; this method
+   * deliberately does not widen the normal conversation-scoped `resolve`.
+   */
+  async resolveOwned(userId: string, assetIds: readonly string[]): Promise<ImageAsset[]> {
+    const unique = [...new Set(assetIds)];
+    if (unique.length === 0) return [];
+    const rows = await this.#store.listMediaAssets(userId, unique);
+    const byId = new Map(rows.map((asset) => [asset.id, asset]));
+    const resolved: ImageAsset[] = [];
+    for (const id of unique) {
+      const asset = byId.get(id);
+      if (!asset || asset.userId !== userId || asset.status === 'released') {
+        throw new MediaError('MEDIA_NOT_FOUND', '图片不存在或不可访问', 404, {
+          details: { assetId: id },
+        });
+      }
+      resolved.push(asset);
+    }
+    return resolved;
+  }
+
   /** Enforce the product limits that span a whole message. */
   assertMessageImages(assets: readonly ImageAsset[]): void {
     if (assets.length > this.#limits.maxImagesPerMessage) {

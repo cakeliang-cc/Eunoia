@@ -526,6 +526,8 @@ export type TeamEventKind =
   | 'message.processed'
   | 'artifact.created'
   | 'integration.created'
+  | 'resource.granted'
+  | 'resource.revoked'
   | 'integration.conflict'
   | 'integration.published'
   | 'budget.reserved'

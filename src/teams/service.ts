@@ -122,6 +122,12 @@ export interface TeamServiceDeps {
   readonly modelProfileFor?: (id: string) => import('../models/types.ts').ModelProfile;
   /** Sandbox approval binding, when a sandbox is configured. */
   readonly approvals?: TeamApprovalPort;
+  /** Private media, for explicitly granted member images. */
+  readonly media?: import('../media/service.ts').MediaService | null;
+  readonly imagePolicies?: import('../provider/image-policy.ts').ImagePolicyRegistry;
+  readonly mediaLimits?: import('../media/types.ts').MediaLimits;
+  readonly sessionConfig?: import('../session/config.ts').SessionConfig;
+  readonly availableImageModels?: readonly string[];
 }
 
 export interface CreateRunInput {
@@ -190,6 +196,11 @@ export class TeamService implements ActivationHost, TeamToolHost {
           return resolved;
         }),
       transcriptMode: deps.transcriptMode ?? transcriptMode(),
+      ...(deps.media !== undefined ? { media: deps.media } : {}),
+      ...(deps.imagePolicies ? { imagePolicies: deps.imagePolicies } : {}),
+      ...(deps.mediaLimits ? { mediaLimits: deps.mediaLimits } : {}),
+      ...(deps.sessionConfig ? { sessionConfig: deps.sessionConfig } : {}),
+      ...(deps.availableImageModels ? { availableImageModels: deps.availableImageModels } : {}),
     });
   }
 
@@ -646,7 +657,12 @@ export class TeamService implements ActivationHost, TeamToolHost {
       throw new TeamError('TEAM_MODE_DISABLED', 'Team 任务板已关闭。', 409);
     }
     const parent = await this.getMember(input.ownerId, input.parentMemberId);
-    return this.runtime.spawn({
+    const images = input.images ?? [];
+    const permissions: Partial<MemberPermissions> | undefined =
+      images.length > 0
+        ? { ...input.permissions, imageAssetIds: images }
+        : input.permissions;
+    const spawned = await this.runtime.spawn({
       team,
       run,
       parent,
@@ -655,15 +671,28 @@ export class TeamService implements ActivationHost, TeamToolHost {
       ...(input.contextMode ? { contextMode: input.contextMode } : {}),
       ...(input.forkSeq !== undefined ? { forkSeq: input.forkSeq } : {}),
       ...(input.modelId ? { profile: { modelId: input.modelId } } : {}),
+      ...(permissions ? { permissions } : {}),
       ...(input.workspaceMode ? { workspaceMode: input.workspaceMode } : {}),
-      ...(input.permissions ? { permissions: input.permissions } : {}),
       input: {
         kind: 'spawn',
         text: input.message,
-        ...(input.images && input.images.length > 0 ? { images: input.images } : {}),
+        ...(images.length > 0 ? { images } : {}),
       },
       ...(input.requestId ? { requestId: input.requestId } : {}),
     });
+    // Grants are recorded against the child's stable id, after creation but
+    // before any later activation can use them.
+    for (const assetId of images) {
+      await this.grantImage({
+        ownerId: input.ownerId,
+        runId: run.id,
+        memberId: spawned.member.id,
+        assetId,
+        purpose: 'spawn-input',
+        ttlSeconds: 900,
+      });
+    }
+    return spawned;
   }
 
   async followupMember(input: {
@@ -686,13 +715,19 @@ export class TeamService implements ActivationHost, TeamToolHost {
     runId: string,
     memberId: string,
     message: string,
+    images: readonly string[] = [],
   ): Promise<Activation> {
     await this.getRun(ownerId, runId);
     const member = await this.getMember(ownerId, memberId);
     if (member.status === 'closed' || member.status === 'closing') {
       throw new TeamError('TEAM_MEMBER_CLOSED', '成员已关闭。', 409);
     }
-    return this.runtime.followup(memberId, { kind: 'followup', text: message });
+    if (images.length > 0) await this.#requireImageGrants(runId, memberId, images);
+    return this.runtime.followup(memberId, {
+      kind: 'followup',
+      text: message,
+      ...(images.length > 0 ? { images } : {}),
+    });
   }
 
   async followupFromTool(
@@ -1329,6 +1364,98 @@ export class TeamService implements ActivationHost, TeamToolHost {
   async listArtifacts(ownerId: string, runId: string): Promise<Artifact[]> {
     await this.getRun(ownerId, runId);
     return this.teamStore.listArtifacts({ runId, limit: 200 });
+  }
+
+  // --------------------------------------------------------------- resources ---
+
+  /**
+   * Explicit, expiring, revocable image grant for one member.
+   *
+   * The grant is journalled as an event (owner, asset, member, purpose, expiry)
+   * so it can be audited and revoked; the bytes still come from private media
+   * storage and never from a URL. The asset must belong to the owner.
+   */
+  async grantImage(input: {
+    readonly ownerId: string;
+    readonly runId: string;
+    readonly memberId: string;
+    readonly assetId: string;
+    readonly purpose: string;
+    readonly ttlSeconds?: number;
+  }): Promise<Record<string, unknown>> {
+    const run = await this.getRun(input.ownerId, input.runId);
+    await this.getMember(input.ownerId, input.memberId);
+    const asset = await this.#deps.store.getMediaAsset(input.ownerId, input.assetId);
+    if (!asset || asset.status === 'released') {
+      throw new TeamError('TEAM_CAPABILITY', '图片不存在或不属于当前用户。', 404);
+    }
+    const ttl = Math.min(3600, Math.max(30, input.ttlSeconds ?? 900));
+    const grant = {
+      grantId: newId('grant'),
+      memberId: input.memberId,
+      assetId: input.assetId,
+      purpose: input.purpose,
+      grantedBy: input.ownerId,
+      expiresAt: new Date(this.#now().getTime() + ttl * 1_000).toISOString(),
+    };
+    await this.teamStore.appendEvent(run.teamId, run.id, {
+      kind: 'resource.granted',
+      payload: grant,
+    });
+    return { ...grant, runId: run.id };
+  }
+
+  async revokeImage(input: {
+    readonly ownerId: string;
+    readonly runId: string;
+    readonly memberId: string;
+    readonly assetId: string;
+  }): Promise<void> {
+    const run = await this.getRun(input.ownerId, input.runId);
+    await this.getMember(input.ownerId, input.memberId);
+    await this.teamStore.appendEvent(run.teamId, run.id, {
+      kind: 'resource.revoked',
+      payload: { memberId: input.memberId, assetId: input.assetId, revokedBy: input.ownerId },
+    });
+  }
+
+  /** Active (unexpired, unrevoked) image asset ids for one member. */
+  async activeImageGrants(runId: string, memberId: string): Promise<Record<string, unknown>[]> {
+    const events = await this.teamStore.listEvents(runId, 0, 2_000);
+    const granted = new Map<string, Record<string, unknown>>();
+    for (const event of events) {
+      if (event.kind === 'resource.granted' && event.payload['memberId'] === memberId) {
+        const assetId = event.payload['assetId'];
+        if (typeof assetId === 'string') granted.set(assetId, event.payload);
+      } else if (event.kind === 'resource.revoked' && event.payload['memberId'] === memberId) {
+        const assetId = event.payload['assetId'];
+        if (typeof assetId === 'string') granted.delete(assetId);
+      }
+    }
+    const now = this.#now().getTime();
+    return [...granted.values()].filter((grant) => {
+      const expiresAt = grant['expiresAt'];
+      return typeof expiresAt === 'string' && Date.parse(expiresAt) > now;
+    });
+  }
+
+  async #requireImageGrants(
+    runId: string,
+    memberId: string,
+    assetIds: readonly string[],
+  ): Promise<void> {
+    const active = new Set(
+      (await this.activeImageGrants(runId, memberId)).map((grant) => grant['assetId']),
+    );
+    const missing = assetIds.filter((assetId) => !active.has(assetId));
+    if (missing.length > 0) {
+      throw new TeamError(
+        'TEAM_FORBIDDEN',
+        '成员没有这些图片的有效授权（或授权已过期/撤销）。',
+        403,
+        { missing },
+      );
+    }
   }
 
   // -------------------------------------------------------------- approvals ---
