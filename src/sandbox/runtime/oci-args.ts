@@ -16,7 +16,7 @@
  *   - all Linux capabilities dropped, `no-new-privileges`;
  *   - cgroups limits for CPU, memory and PIDs;
  *   - a tmpfs for `/tmp` (the rootfs is read-only);
- *   - network `none` unless an operator configured an egress network.
+ *   - network `none`; proxy_only uses a scoped reverse control pipe.
  *
  * The image is always a digest. `--pull=never` is part of the baseline: recovery
  * must never fetch an unverified "latest" because a tag moved.
@@ -141,18 +141,7 @@ export function buildCreateArgs(
   );
 
   // Network -----------------------------------------------------------------
-  if (config.network.mode === 'none') {
-    args.push('--network', 'none');
-  } else {
-    const network = cli.egressNetwork;
-    if (!network) {
-      throw new SandboxPolicyError(
-        'network mode proxy_only requires an operator-configured egress network (SANDBOX_EGRESS_NETWORK)',
-      );
-    }
-    assertSafeName('egress network', network);
-    args.push('--network', network);
-  }
+  args.push('--network', 'none');
 
   // The only mount. One bind, one target, and no mount supplied by a caller.
   args.push(

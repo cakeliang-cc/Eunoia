@@ -244,6 +244,10 @@ export class McpService {
    * skipped with a diagnostic. Both outcomes are visible to the caller — a
    * server that is not connected is never described as available.
    */
+  async releaseBrowser(userId: string, conversationId: string): Promise<void> {
+    await this.#manager.closeBrowserSessions({ userId, conversationId });
+  }
+
   async toolsForTurn(input: {
     readonly userId: string;
     readonly conversationId: string;

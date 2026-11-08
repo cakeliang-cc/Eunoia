@@ -13,7 +13,6 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { diagnoseBrowserEnvironment } from '../src/browser/environment.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const json = process.argv.includes('--json');
@@ -56,24 +55,13 @@ add(
   playwrightVersion ? `${playwrightVersion} at ${playwright}` : 'npm install --save-dev @playwright/mcp@0.0.80',
 );
 
-const environment = await diagnoseBrowserEnvironment({ repoRoot: root });
-for (const check of environment.checks) {
-  const detail = [
-    check.detail,
-    check.realpath && check.realpath !== check.detail ? `realpath=${check.realpath}` : null,
-    check.uid !== undefined ? `uid=${check.uid} gid=${check.gid} mode=${(check.mode ?? 0).toString(8)}` : null,
-    check.writable !== undefined ? `writable=${check.writable}` : null,
-    check.error ? `error=${check.error}` : null,
-  ]
-    .filter(Boolean)
-    .join(' ');
-  add(check.id, check.status, detail);
+const browserImage = process.env.EUNOIA_BROWSER_IMAGE_DIGEST?.trim();
+if (!browserImage || !/^(?:sha256:[a-f0-9]{64}|[^\s]+@sha256:[a-f0-9]{64})$/.test(browserImage)) {
+  add('isolated-browser', 'blocked', 'Set EUNOIA_BROWSER_IMAGE_DIGEST after building scripts/browser-image/Dockerfile; no host fallback');
+} else {
+  const image = commandVersion('docker', ['image', 'inspect', '--format', '{{.Id}}', browserImage]);
+  add('isolated-browser', image ? 'ok' : 'blocked', image ? `image=${image}; network:none; per-conversation/member pipe proxy` : 'configured browser image is not installed');
 }
-add(
-  'browser-user',
-  environment.process.uid >= 0 ? 'ok' : 'blocked',
-  `uid=${environment.process.uid} gid=${environment.process.gid} platform=${environment.process.platform}`,
-);
 
 const lsp = join(root, 'node_modules', '.bin', 'typescript-language-server');
 add(
@@ -102,7 +90,7 @@ const coreMissing = checks.some(
   (check) => check.status === 'missing' && ['node', 'docker', 'docker-runtime'].includes(check.id),
 );
 if (json) {
-  process.stdout.write(`${JSON.stringify({ checks, environment }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ checks }, null, 2)}\n`);
 } else {
   process.stdout.write(
     `${checks.map((check) => `${check.status.padEnd(7)} ${check.id}: ${check.detail}`).join('\n')}\n`,

@@ -187,6 +187,7 @@ export class SandboxController {
         if (sandbox.status === 'RUNNING') {
           await this.store.updateSandbox(sandbox.sandboxId, { status: 'READY' });
         }
+        await this.runtime.configureNetwork?.(handle, config);
         return handle;
       }
     }
@@ -238,6 +239,7 @@ export class SandboxController {
         // current policy is not a valid recovery target.
         await this.runtime.destroy(existing).catch(() => undefined);
       } else {
+        await this.runtime.configureNetwork?.(existing, config);
         const updated = await this.store.updateSandbox(sandbox.sandboxId, {
           status: 'READY',
           configDigest: config.configDigest,

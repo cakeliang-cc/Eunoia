@@ -109,14 +109,9 @@ describe('create argv', () => {
     expect(pairs(args, '--mount')[0]).toContain('readonly');
   });
 
-  it('refuses proxy_only without an operator network', () => {
-    expect(() =>
-      buildCreateArgs(
-        { ...config, network: { mode: 'proxy_only', allowedDomains: ['example.com'], allowedPorts: [443] } },
-        { binary: 'docker', kind: 'docker', globalArgs: [] },
-        null,
-      ),
-    ).toThrow(SandboxPolicyError);
+  it('keeps proxy_only on network:none; the control pipe is its only exit', () => {
+    const args = buildCreateArgs({ ...config, network: { mode: 'proxy_only', allowedDomains: ['example.com'], allowedPorts: [443] } }, { binary: 'docker', kind: 'docker', globalArgs: [] }, null);
+    expect(pairs(args, '--network')).toEqual(['none']);
   });
 
   it('adds a read-only mask mount for credential files', () => {
@@ -149,13 +144,13 @@ describe('create argv', () => {
     ).toThrow(SandboxPolicyError);
   });
 
-  it('uses the operator network in proxy_only mode', () => {
+  it('cannot attach proxy_only to an old shared bridge', () => {
     const args = buildCreateArgs(
       { ...config, network: { mode: 'proxy_only', allowedDomains: ['example.com'], allowedPorts: [443] } },
       { binary: 'docker', kind: 'docker', globalArgs: [], egressNetwork: 'eunoia-egress' },
       null,
     );
-    expect(pairs(args, '--network')).toEqual(['eunoia-egress']);
+    expect(pairs(args, '--network')).toEqual(['none']);
   });
 
   it('rejects a workspace path the mount syntax cannot quote', () => {

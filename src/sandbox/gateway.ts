@@ -1567,6 +1567,11 @@ export class SandboxGateway {
     if (this.settings.network.proxyUrl) {
       env.HTTP_PROXY = this.settings.network.proxyUrl;
       env.HTTPS_PROXY = this.settings.network.proxyUrl;
+      env.http_proxy = this.settings.network.proxyUrl;
+      env.https_proxy = this.settings.network.proxyUrl;
+      env.NO_PROXY = '';
+      env.no_proxy = '';
+      env.NODE_USE_ENV_PROXY = '1';
     }
     Object.assign(env, await this.credentials.resolveForTask(sandbox.taskId));
     const task = await this.store.getTask(sandbox.taskId);
@@ -1626,6 +1631,11 @@ export class SandboxGateway {
     if (this.settings.network.proxyUrl) {
       env.HTTP_PROXY = this.settings.network.proxyUrl;
       env.HTTPS_PROXY = this.settings.network.proxyUrl;
+      env.http_proxy = this.settings.network.proxyUrl;
+      env.https_proxy = this.settings.network.proxyUrl;
+      env.NO_PROXY = '';
+      env.no_proxy = '';
+      env.NODE_USE_ENV_PROXY = '1';
       env.NO_PROXY = '127.0.0.1,localhost';
     }
     Object.assign(env, await this.credentials.resolveForTask(taskId));

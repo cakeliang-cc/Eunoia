@@ -136,6 +136,7 @@ function buildOne(deps: McpToolBuildDeps, entry: McpToolEntry): ToolDefinition {
           actionId,
           conversationId: context.conversationId,
           identity: deps.catalog.identity,
+          ...(context.scope ? { scope: context.scope } : {}),
           ...(context.signal ? { signal: context.signal } : {}),
           ...(media
             ? {
@@ -239,6 +240,9 @@ export function mcpInstructions(
   servers: readonly { readonly config: McpServerConfig; readonly catalog: McpCatalog }[],
 ): string {
   const blocks: string[] = [];
+  if (servers.some((server) => server.config.stdio?.runLocation === 'browser')) {
+    blocks.push('隔离浏览器的文件保存在容器里，不能用宿主 read_file 读取。操作后若只有快照链接，请调用 browser_snapshot 获取页面结构；截图请调用 browser_take_screenshot，图片会进入当前会话的媒体库。每个成员只能打开自己的预览地址。');
+  }
   for (const server of servers) {
     const text = server.catalog.instructions?.trim();
     if (!text) continue;

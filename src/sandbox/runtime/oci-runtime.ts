@@ -18,6 +18,7 @@
  * every sandbox and shown by `/health`.
  */
 
+import { startManagedEgress, type ManagedEgress } from '../network/managed-egress.ts';
 import { Duplex } from 'node:stream';
 import {
   type RuntimeExecutionRequest,
@@ -44,6 +45,7 @@ import {
 } from './oci-args.ts';
 
 export interface OciRuntimeOptions extends ContainerCliOptions {
+  readonly auditEgress?: (config: RuntimeSandboxConfig, event: import('../network/egress-proxy.ts').EgressAuditEvent) => void;
   readonly cli?: ContainerCli;
 }
 
@@ -57,8 +59,9 @@ interface DockerState {
 
 export class OciRuntime implements SandboxRuntime {
   readonly type: string;
+  readonly #egress = new Map<string, { signature: string; proxy: ManagedEgress }>();
   private readonly cli: ContainerCli;
-  private readonly options: ContainerCliOptions;
+  private readonly options: OciRuntimeOptions;
 
   constructor(options: OciRuntimeOptions) {
     this.options = options;
@@ -218,6 +221,8 @@ export class OciRuntime implements SandboxRuntime {
       if (!probe.ok) throw new SandboxRuntimeUnavailableError(probe.detail);
     }
     const containerName = sandboxContainerName(config.sandboxId);
+    await this.#egress.get(containerName)?.proxy.close();
+    this.#egress.delete(containerName);
     assertSafeName('sandbox id', config.sandboxId);
 
     // A stopped container from a previous incarnation holds the name. Removing it
@@ -250,7 +255,26 @@ export class OciRuntime implements SandboxRuntime {
       }
     });
 
-    return { sandboxId: config.sandboxId, runtimeId: containerName, runtimeType: this.type };
+    const handle = { sandboxId: config.sandboxId, runtimeId: containerName, runtimeType: this.type };
+    try { await this.configureNetwork(handle, config); }
+    catch (error) { await this.destroy(handle); throw error; }
+    return handle;
+  }
+
+  async configureNetwork(handle: SandboxHandle, config: RuntimeSandboxConfig): Promise<void> {
+    const signature = JSON.stringify(config.network);
+    const existing = this.#egress.get(handle.runtimeId);
+    if (existing?.signature === signature && !existing.proxy.closed) return;
+    await existing?.proxy.close();
+    this.#egress.delete(handle.runtimeId);
+    if (config.network.mode !== 'proxy_only') return;
+    const proxy = await startManagedEgress({ cli: this.cli, container: handle.runtimeId, policy: { ...config.network, maxRequestsPerMinute: 600 }, audit: (event) => this.options.auditEgress?.(config, event) });
+    this.#egress.set(handle.runtimeId, { signature, proxy });
+  }
+
+  async shutdown(): Promise<void> {
+    await Promise.all([...this.#egress.values()].map(({ proxy }) => proxy.close()));
+    this.#egress.clear();
   }
 
   async start(handle: SandboxHandle): Promise<void> {
@@ -416,6 +440,8 @@ export class OciRuntime implements SandboxRuntime {
   }
 
   async destroy(handle: SandboxHandle): Promise<void> {
+    await this.#egress.get(handle.runtimeId)?.proxy.close();
+    this.#egress.delete(handle.runtimeId);
     await this.cli
       .run(buildDestroyArgs(handle.runtimeId), { timeoutMs: 30_000 })
       .catch(() => undefined);

@@ -61,20 +61,21 @@ describe('sandbox settings', () => {
     expect(readOnly?.allowCommands).toBe(false);
   });
 
-  it('refuses proxy_only without an egress network', () => {
-    expect(() => sandboxSettings(env({ SANDBOX_NETWORK_MODE: 'proxy_only' }))).toThrow(/EGRESS_NETWORK/);
-    expect(() =>
-      sandboxSettings(env({ SANDBOX_NETWORK_MODE: 'proxy_only', SANDBOX_EGRESS_NETWORK: 'eunoia-egress' })),
-    ).toThrow(/PROXY_URL/);
-    const settings = sandboxSettings(
-      env({
-        SANDBOX_NETWORK_MODE: 'proxy_only',
-        SANDBOX_EGRESS_NETWORK: 'eunoia-egress',
-        SANDBOX_PROXY_URL: 'http://host.docker.internal:8788',
-      }),
-    );
-    expect(settings?.network.mode).toBe('proxy_only');
-    expect(settings?.network.proxyUrl).toBe('http://host.docker.internal:8788');
+  it('uses a private loopback pipe proxy and refuses legacy bridge/proxy overrides', () => {
+    const settings = sandboxSettings(env({ SANDBOX_NETWORK_MODE: 'proxy_only' }));
+    expect(settings?.network.proxyUrl).toBe('http://127.0.0.1:3128');
+    expect(settings?.runtime.egressNetwork).toBeNull();
+    for (const override of [{ SANDBOX_EGRESS_NETWORK: 'shared' }, { SANDBOX_PROXY_URL: 'http://host.docker.internal:8788' }]) {
+      expect(() => sandboxSettings(env({ SANDBOX_NETWORK_MODE: 'proxy_only', ...override }))).toThrow(/remove SANDBOX/);
+    }
+  });
+
+  it('dev_preview allows dependency registries over HTTPS without opening an external bridge', () => {
+    const settings = sandboxSettings(env({ SANDBOX_NETWORK_PROFILE: 'dev_preview' }));
+    expect(settings?.network).toMatchObject({ profile: 'dev_preview', mode: 'proxy_only', allowedPorts: [443], allowedDomains: ['registry.npmjs.org', 'pypi.org', 'files.pythonhosted.org'] });
+    expect(settings?.runtime.egressNetwork).toBeNull();
+    expect(() => sandboxSettings(env({ SANDBOX_NETWORK_PROFILE: 'typo' }))).toThrow(/PROFILE/);
+    expect(() => sandboxSettings(env({ SANDBOX_NETWORK_PROFILE: 'offline', SANDBOX_NETWORK_MODE: 'proxy_only' }))).toThrow(/conflicts/);
   });
 
   it('clamps resource values to the hard ceiling', () => {

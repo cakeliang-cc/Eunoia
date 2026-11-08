@@ -19,7 +19,7 @@ export type McpTransportKind = 'stdio' | 'http';
  * `host` is a trusted-process mode that only an explicit deployment setting can
  * enable. It is never described as sandboxed.
  */
-export type McpRunLocation = 'host' | 'sandbox';
+export type McpRunLocation = 'host' | 'sandbox' | 'browser';
 
 export type McpAuthMode = 'none' | 'bearer' | 'header' | 'oauth';
 

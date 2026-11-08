@@ -19,6 +19,8 @@
 
 ## 当前执行入口
 
+- [托管浏览器与开发任务网络隔离](./sandbox/browser-network-isolation.md)
+
 - [MCP 完整接入清单与验收](./plans/eunoia-MCP接入实施清单.md)（已实施，状态见
   [验收报告](./mcp/acceptance.md)）
 - [模型轨迹与前缀缓存实施清单](./plans/eunoia-模型轨迹与前缀缓存实施清单.md)

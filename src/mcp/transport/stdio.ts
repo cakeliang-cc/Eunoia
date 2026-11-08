@@ -43,7 +43,10 @@ export interface BuiltStdioTransport {
   stderrTail(): readonly string[];
   /** The process id once started, for diagnostics and cleanup evidence. */
   pid(): number | null;
-  readonly location: 'host' | 'sandbox';
+  readonly location: 'host' | 'sandbox' | 'browser';
+  readonly cleanup?: () => Promise<void>;
+  readonly afterConnect?: () => Promise<void>;
+  readonly browserOutput?: { readonly config: import('../types.ts').McpServerConfig; readonly fs: import('../browser-output.ts').BrowserOutputFileSystem };
 }
 
 /**
@@ -89,7 +92,7 @@ export function buildDockerRunArgs(config: McpStdioConfig, envNames: readonly st
   return args;
 }
 
-function attachStderr(transport: StdioClientTransport): () => readonly string[] {
+export function attachStderr(transport: StdioClientTransport): () => readonly string[] {
   const lines: string[] = [];
   const stream = transport.stderr;
   if (!stream) return () => lines;

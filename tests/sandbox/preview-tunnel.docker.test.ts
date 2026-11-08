@@ -9,6 +9,12 @@
  * path to the HTTP server is the gateway's stdio tunnel.
  */
 
+import sharp from 'sharp';
+import { BrowserRuntime } from '../../src/browser/runtime.ts';
+import { McpConnection } from '../../src/mcp/client.ts';
+import { DEFAULT_CONFIG_PARSE_OPTIONS, parseServerInput } from '../../src/mcp/config.ts';
+import { readBrowserScreenshot } from '../../src/mcp/browser-output.ts';
+import { rootExecutionScope } from '../../src/tools/scope.ts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -228,6 +234,27 @@ describe.skipIf(!enabled)('R04 — preview tunnel in a real container', () => {
       });
       expect(response.status).toBe(200);
       expect(response.body).toBe('real-preview');
+      if (process.env.BROWSER_INTEGRATION === '1') {
+        const config = parseServerInput({ name: 'Real preview browser', transport: 'stdio', stdio: { command: 'eunoia-browser', args: [], runLocation: 'browser' } }, { ...DEFAULT_CONFIG_PARSE_OPTIONS, userId: h.task.userId }).config;
+        const runtime = new BrowserRuntime({ env: { ...process.env, SANDBOX_RUNTIME_CLASS: RUNTIME_CLASS, SANDBOX_ALLOW_NON_GVISOR: '1' }, previewRoute: (scope, url) => service.browserRoute(scope, url) });
+        const scope = rootExecutionScope({ userId: h.task.userId, conversationId: h.task.taskId });
+        const connection = await McpConnection.open({ config, identity: 'preview-integration', generation: 1, stdioFactory: () => runtime.create(config, scope) });
+        try {
+          const navigated = await connection.callTool({ name: 'browser_navigate', arguments: { url: started.lease.browserUrl } });
+          expect(navigated.isError).toBe(false);
+          const snapshot = await connection.callTool({ name: 'browser_snapshot', arguments: {} });
+          expect(JSON.stringify(snapshot.content)).toContain('real-preview');
+          const shot = await connection.callTool({ name: 'browser_take_screenshot', arguments: { type: 'png', filename: 'container-preview.png' } });
+          const output = connection.browserOutput!;
+          const image = await readBrowserScreenshot({ config: output.config, toolName: 'browser_take_screenshot', result: shot, fs: output.fs, importImage: async (input) => {
+            const bytes = Buffer.from(input.bytes); const meta = await sharp(bytes).metadata();
+            expect(bytes.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+            return { assetId: 'real-container-preview', name: input.name, mediaType: input.mediaType, bytes: bytes.length, width: meta.width!, height: meta.height! };
+          } });
+          expect(image.state, JSON.stringify(image)).toBe('imported');
+        } finally { await connection.close(); }
+      }
+
       await service.stop(
         {
           executor,

@@ -10,6 +10,7 @@ import type { SandboxRuntime } from '../types.ts';
 import { createOciRuntime } from './oci-runtime.ts';
 
 export interface RuntimeSelectionOptions {
+  readonly auditEgress?: import('./oci-runtime.ts').OciRuntimeOptions['auditEgress'];
   readonly kind: 'docker' | 'nerdctl';
   readonly binary?: string;
   readonly globalArgs?: readonly string[];
@@ -21,6 +22,7 @@ export interface RuntimeSelectionOptions {
 export function createRuntime(options: RuntimeSelectionOptions): SandboxRuntime {
   return createOciRuntime({
     kind: options.kind,
+    ...(options.auditEgress ? { auditEgress: options.auditEgress } : {}),
     binary: options.binary ?? options.kind,
     globalArgs: options.globalArgs ?? [],
     seccompProfile: options.seccompProfile ?? null,

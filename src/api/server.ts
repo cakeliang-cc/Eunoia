@@ -116,6 +116,7 @@ import { clearIdentity, readIdentity, resolveIdentity, singleUserId } from './id
 import { handleMcpRoutes } from './mcp-routes.ts';
 import type { McpService } from '../mcp/service.ts';
 import type { McpRuntime } from '../mcp/runtime.ts';
+import { BrowserRuntime } from '../browser/runtime.ts';
 import { createMcpRuntime } from '../mcp/runtime.ts';
 import {
   PERMISSION_MODE_DEFAULT_KEY,
@@ -2886,6 +2887,7 @@ export function createApp(deps: AppDependencies) {
         sendJson(res, 404, { error: 'conversation not found' });
         return true;
       }
+      await mcpRuntime?.manager.closeBrowserSessions({ userId, conversationId: id });
       if (media) await media.removeAssetBytes(assets);
       sendJson(res, 200, { deleted: id });
       return true;
@@ -3386,6 +3388,7 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
    * private asset as an upload).
    */
   const mcpRuntime = createMcpRuntime({
+    browserRuntime: new BrowserRuntime({ ...(previewService ? { previewRoute: (scope, url) => previewService!.browserRoute(scope, url) } : {}) }),
     store,
     media: mediaService,
     blobs: blobStore,

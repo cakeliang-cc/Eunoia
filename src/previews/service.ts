@@ -9,6 +9,7 @@
  * by a live lease, over a stdio tunnel. Nothing is published on the host.
  */
 
+import type { ExecutionScope } from '../tools/scope.ts';
 import { randomUUID } from 'node:crypto';
 import type { ToolSandboxSession } from '../tools/types.ts';
 import type { ProcessRunContext, ProcessService } from '../processes/service.ts';
@@ -63,6 +64,19 @@ export class PreviewService {
     this.#limits = { ...DEFAULT_PREVIEW_LIMITS, ...deps.limits };
     this.#now = deps.now ?? (() => new Date());
     this.#sessionFor = deps.sessionFor ?? null;
+  }
+
+  /** A browser proxy may forward only this execution's exact live lease origin. */
+  async browserRoute(scope: ExecutionScope, url: URL): Promise<{ address: string; port: number } | null> {
+    if (url.protocol !== 'http:' || url.username || url.password) return null;
+    const routeId = url.hostname.split('.')[0] ?? '';
+    if (!/^[a-f0-9]{8,64}$/.test(routeId)) return null;
+    const lease = await this.#store.findByRoute(routeId);
+    const identity = scope.identity;
+    if (!lease || lease.status !== 'ready' || !lease.browserUrl || lease.expiresAt <= this.#now().toISOString() || lease.userId !== identity.userId || lease.conversationId !== identity.conversationId || lease.memberId !== (identity.memberId ?? null)) return null;
+    if (new URL(lease.browserUrl).origin !== url.origin) return null;
+    const address = this.#gateway.address;
+    return address ? { address: address.host, port: address.port } : null;
   }
 
   get limits(): PreviewLimits {

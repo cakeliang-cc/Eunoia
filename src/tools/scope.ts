@@ -344,7 +344,7 @@ export function guardToolForScope(
           return toolError(check.reason, { code: check.code });
         }
       }
-      return tool.execute(args, context);
+      return tool.execute(args, { ...context, scope });
     },
   };
 }

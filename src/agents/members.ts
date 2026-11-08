@@ -1055,6 +1055,7 @@ export class SubagentRuntime {
         errorText = error instanceof Error ? error.message : String(error);
       }
     } finally {
+      await this.#deps.mcp?.releaseBrowser(team.ownerId, member.internalConversationId).catch(() => undefined);
       if (releaseMedia) await releaseMedia().catch(() => undefined);
       this.#aborts.delete(activation.id);
       const patch: TurnFinishPatch = {

@@ -73,6 +73,8 @@ class FakeMcp {
     return task;
   }
 
+  async releaseBrowser(): Promise<void> { /* No containers in this protocol fixture. */ }
+
   async toolsForTurn(): Promise<{
     tools: [];
     guidelines: string;

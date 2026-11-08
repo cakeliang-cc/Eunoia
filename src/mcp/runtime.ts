@@ -10,6 +10,7 @@
  * See docs/adr/033-mcp-host.md §4 and §13.
  */
 
+import { BrowserRuntime } from '../browser/runtime.ts';
 import type { Store } from '../store.ts';
 import type { MediaService } from '../media/service.ts';
 import type { MediaBlobStore } from '../media/blob-store.ts';
@@ -25,6 +26,7 @@ import type { ConfigParseOptions } from './config.ts';
 import type { ElicitationRequest } from './client.ts';
 
 export interface McpRuntimeOptions {
+  readonly browserRuntime?: BrowserRuntime;
   readonly store: Store;
   readonly media: MediaService | null;
   readonly blobs: MediaBlobStore;
@@ -71,6 +73,7 @@ export function createMcpRuntime(options: McpRuntimeOptions): McpRuntime {
     store,
     vault,
     now,
+    browserRuntime: options.browserRuntime ?? new BrowserRuntime({ env }),
     ...(options.onStatus ? { onStatus: options.onStatus } : {}),
     // A browser screenshot file is bounded by the same byte limit the media
     // service enforces after decoding, so a too-large file is refused before it

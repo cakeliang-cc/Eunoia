@@ -354,8 +354,8 @@ function parseStdio(value: unknown, options: ConfigParseOptions): McpStdioConfig
   const args = stringList(record.args, 'stdio.args', 64);
   const cwd = record.cwd === undefined ? undefined : stringField(record.cwd, 'stdio.cwd', 1024);
   const runLocation = (record.runLocation ?? 'sandbox') as unknown;
-  if (runLocation !== 'sandbox' && runLocation !== 'host') {
-    throw invalid('stdio.runLocation must be "sandbox" or "host"');
+  if (runLocation !== 'sandbox' && runLocation !== 'host' && runLocation !== 'browser') {
+    throw invalid('stdio.runLocation must be "sandbox", "host" or "browser"');
   }
   if (runLocation === 'host' && !options.allowHostProcess) {
     throw invalid(
@@ -374,6 +374,9 @@ function parseStdio(value: unknown, options: ConfigParseOptions): McpStdioConfig
     }
   }
   const image = record.image === undefined ? undefined : stringField(record.image, 'stdio.image', 256);
+  if (runLocation === 'browser' && (command !== 'eunoia-browser' || args.length !== 0 || cwd || image || Object.keys(envRefs ?? {}).length > 0)) {
+    throw invalid('managed browser requires command eunoia-browser, empty args, no cwd/image/envRefs; deployment owns its image, flags and network');
+  }
   if (runLocation === 'sandbox' && image !== undefined && !/^[^\s]+@sha256:[0-9a-f]{64}$/.test(image)) {
     throw invalid('stdio.image must be pinned by digest (name@sha256:<64 hex>)');
   }
@@ -528,7 +531,7 @@ export interface ImportedServerPreview {
   readonly name: string;
   readonly transport: McpTransportKind;
   readonly endpoint: string | null;
-  readonly runLocation: 'host' | 'sandbox' | null;
+  readonly runLocation: 'host' | 'sandbox' | 'browser' | null;
   readonly envNames: readonly string[];
   readonly headerNames: readonly string[];
   readonly warnings: readonly string[];
@@ -610,7 +613,7 @@ export function previewMcpServersImport(
       for (const [key, value] of Object.entries(env)) {
         envRefs[key] = referenceFromImport(String(value), key, envRefs, warnings);
       }
-      const runLocation = (entry.runLocation ?? 'sandbox') as 'host' | 'sandbox';
+      const runLocation = (entry.runLocation ?? 'sandbox') as 'host' | 'sandbox' | 'browser';
       const input: ServerInput = {
         name,
         transport: 'stdio',

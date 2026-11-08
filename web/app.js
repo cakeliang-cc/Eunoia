@@ -4501,7 +4501,7 @@ function renderServerCard(server) {
   dot.dataset.state = server.status?.state || 'disabled';
   const title = el('div', 'mcp-card-title');
   title.append(el('strong', null, server.name));
-  const place = server.transport === 'http' ? server.endpoint : `${server.endpoint}（${server.runLocation === 'host' ? '宿主进程' : '沙箱'}）`;
+  const place = server.transport === 'http' ? server.endpoint : `${server.endpoint}（${server.runLocation === 'host' ? '宿主进程' : server.runLocation === 'browser' ? '隔离浏览器（会话/成员独立）' : '沙箱'}）`;
   title.append(el('span', null, `${server.transport.toUpperCase()} · ${place || '未配置'}`));
   title.append(
     el(
@@ -4699,18 +4699,25 @@ function renderMcpEditor(server) {
     args.oninput = () => (draft.args = args.value);
     addField('参数（每行一个）', args);
     const location = el('select');
-    for (const value of ['sandbox', 'host']) {
+    for (const value of ['browser', 'sandbox', 'host']) {
       const option = document.createElement('option');
       option.value = value;
-      option.textContent = value === 'sandbox' ? '沙箱容器（默认）' : '宿主进程（需要部署允许）';
+      option.textContent = value === 'browser' ? '隔离浏览器（按会话和成员分开）' : value === 'sandbox' ? '沙箱容器（默认）' : '宿主进程（需要部署允许）';
       location.append(option);
     }
     location.value = draft.runLocation;
-    location.onchange = () => (draft.runLocation = location.value);
+    location.onchange = () => {
+      draft.runLocation = location.value;
+      const managed = location.value === 'browser';
+      if (managed) { draft.command = command.value = 'eunoia-browser'; draft.args = args.value = ''; draft.env = env.value = ''; draft.cwd = ''; draft.image = ''; }
+      command.disabled = args.disabled = env.disabled = managed;
+    };
+    command.disabled = args.disabled = draft.runLocation === 'browser';
     addField('运行位置', location);
     const env = el('textarea');
     env.placeholder = 'TOKEN=env:MCP_TOKEN';
     env.value = draft.env;
+    env.disabled = draft.runLocation === 'browser';
     env.oninput = () => (draft.env = env.value);
     addField('环境变量引用', env, '每行一个 KEY=env:NAME；父进程其它变量不会传入。');
   }

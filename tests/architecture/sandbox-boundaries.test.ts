@@ -31,6 +31,9 @@ const CHILD_PROCESS_ALLOWED = [
 const NETWORK_ALLOWED = [
   'src/sandbox/network/egress-policy.ts',
   'src/sandbox/network/egress-proxy.ts',
+  // The reverse pipe may connect only to its fixed loopback policy proxy.
+  'src/sandbox/network/pipe-proxy.ts',
+  'src/sandbox/network/managed-egress.ts',
 ];
 const GATEWAY_ONLY = ['src/sandbox/gateway.ts', 'src/sandbox/index.ts'];
 

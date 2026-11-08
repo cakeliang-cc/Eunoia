@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { connect as netConnect } from 'node:net';
+import { connect as netConnect, createServer as reservePort } from 'node:net';
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -39,6 +39,7 @@ import { createToolMediaPort } from '../../src/media/tool-media.ts';
 import { planToolImages } from '../../src/service/media-turn.ts';
 import { defaultImagePolicies } from '../../src/provider/image-policy-registry.ts';
 import { modelProfile } from '../../src/models/registry.ts';
+import { BrowserRuntime } from '../../src/browser/runtime.ts';
 import { McpClientManager } from '../../src/mcp/manager.ts';
 import { MemoryMcpStore } from '../../src/mcp/store-memory.ts';
 import { loadSecretBox, McpCredentialVault } from '../../src/mcp/credentials.ts';
@@ -121,6 +122,12 @@ describe.skipIf(!enabled)('V08 — real model design/preview/screenshot loop', (
       installTracing();
       const root = await mkdtemp(join(tmpdir(), 'eunoia-v08-'));
       cleanups.push(async () => rm(root, { recursive: true, force: true }));
+      const reservation = reservePort();
+      await new Promise<void>((resolve) => reservation.listen(0, '127.0.0.1', resolve));
+      const reserved = reservation.address();
+      if (!reserved || typeof reserved === 'string') throw new Error('no test port');
+      const previewPort = reserved.port;
+      await new Promise<void>((resolve) => reservation.close(() => resolve()));
       const project = join(root, 'project');
       const output = join(root, 'browser-output');
       await mkdir(project, { recursive: true });
@@ -152,9 +159,10 @@ describe.skipIf(!enabled)('V08 — real model design/preview/screenshot loop', (
 
       const store = new InMemoryStore();
       await store.ensureUser('v08-user');
+      const blobs = new MemoryMediaBlobStore();
       const media = new MediaService({
         store,
-        blobs: new MemoryMediaBlobStore(),
+        blobs,
         limits: DEFAULT_MEDIA_LIMITS,
         gate: new DecodeGate(2),
       });
@@ -173,6 +181,7 @@ describe.skipIf(!enabled)('V08 — real model design/preview/screenshot loop', (
         gateway,
         baseDomain: 'preview.localhost',
         gatewayPort: address.port,
+        sessionFor: async () => ({ executor } as never),
         limits: { readyTimeoutMs: 20_000, ttlMs: 10 * 60_000, maxPerConversation: 1 },
       });
 
@@ -183,7 +192,7 @@ describe.skipIf(!enabled)('V08 — real model design/preview/screenshot loop', (
           name: 'PlaywrightV08',
           enabled: true,
           transport: 'stdio',
-          stdio: {
+          stdio: process.env.EUNOIA_BROWSER_IMAGE_DIGEST ? { command: 'eunoia-browser', args: [], runLocation: 'browser' } : {
             command: process.execPath,
             args: [
               cli,
@@ -209,6 +218,7 @@ describe.skipIf(!enabled)('V08 — real model design/preview/screenshot loop', (
       await mkdir(browserCache, { recursive: true });
       const mcpStore = new MemoryMcpStore();
       const manager = new McpClientManager({
+        browserRuntime: new BrowserRuntime({ previewRoute: (scope, url) => previews.browserRoute(scope, url) }),
         store: mcpStore,
         vault: new McpCredentialVault(mcpStore, loadSecretBox({})),
         now: () => new Date(),
@@ -256,7 +266,7 @@ describe.skipIf(!enabled)('V08 — real model design/preview/screenshot loop', (
         '你是产品验收操作员。项目在 /workspace，里面已有 design.png、index.html、style.css。',
         '请严格按顺序完成：',
         '1. 用 read_image 读取 design.png，观察目标布局（蓝色 #1e6fd9 方块，约 200×200，页面居中）。路径必须是相对工作区根的 `design.png`，不要用 /workspace/design.png。',
-        '2. 用 preview_start 启动 `python3 -m http.server 4410 --bind 127.0.0.1`，port=4410；拿到 userUrl。',
+        `2. 用 preview_start 启动 python3 -m http.server ${previewPort} --bind 127.0.0.1，port=${previewPort}，不要传 cwd，使用默认工作目录；拿到 userUrl。`,
         '3. 用浏览器 MCP 导航到 userUrl，并用 browser_take_screenshot 截图。',
         '4. 对比截图与 design.png，用 edit 修改 style.css，使 .box 为 200×200、背景 #1e6fd9、页面居中。',
         '5. 再次导航/刷新页面并截图，确认布局匹配。',
@@ -322,13 +332,24 @@ describe.skipIf(!enabled)('V08 — real model design/preview/screenshot loop', (
       // The browser writes the screenshot file; its bytes are the same bytes
       // imported into media by the R06 adapter. Assert the centre pixel is the
       // target blue, not the original red.
+      let bytes: Buffer;
+      if (process.env.EUNOIA_BROWSER_IMAGE_DIGEST) {
+        const assets = await media.conversationAssets('v08-user', 'v08-conversation');
+        const screenshots = assets.filter((asset) => asset.name !== 'design.png');
+        expect(screenshots.length).toBeGreaterThanOrEqual(2);
+        screenshots.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        const latest = screenshots.at(-1);
+        if (!latest) throw new Error('no screenshot in the actual media store');
+        bytes = await blobs.read(latest.storageKey);
+      } else {
       const files = (await readdir(output)).filter((name) => name.endsWith('.png'));
       const withTimes = await Promise.all(
         files.map(async (name) => ({ name, mtime: (await stat(join(output, name))).mtimeMs })),
       );
       withTimes.sort((a, b) => b.mtime - a.mtime);
       if (!withTimes[0]) throw new Error('no screenshot file');
-      const bytes = await readFile(join(output, withTimes[0].name));
+      bytes = await readFile(join(output, withTimes[0].name));
+      }
       const { data, info } = await sharp(bytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
       const x = Math.floor(info.width / 2);
       const y = Math.floor(info.height / 2);

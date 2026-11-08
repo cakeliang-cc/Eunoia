@@ -16,6 +16,8 @@
  * See docs/adr/033-mcp-host.md §6.3 and §7.
  */
 
+import { BrowserRuntime } from '../browser/runtime.ts';
+import { rootExecutionScope, scopeFingerprint, type ExecutionScope } from '../tools/scope.ts';
 import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
@@ -71,6 +73,7 @@ interface PendingAuth {
 }
 
 export interface ManagerDeps {
+  readonly browserRuntime?: BrowserRuntime;
   readonly store: McpStore;
   readonly vault: McpCredentialVault;
   readonly now?: () => Date;
@@ -101,6 +104,10 @@ const RETRY_BASE_MS = 1_000;
 const RETRY_MAX_MS = 30_000;
 
 export class McpClientManager {
+  #browserGeneration = 1;
+  readonly #browser: BrowserRuntime;
+  readonly #browserSessions = new Map<string, { promise: Promise<McpConnection>; fingerprint: string; userId: string; serverId: string; conversationId: string; usedAt: number }>();
+  readonly #browserTimer: NodeJS.Timeout;
   readonly #store: McpStore;
   readonly #vault: McpCredentialVault;
   readonly #now: () => Date;
@@ -130,6 +137,9 @@ export class McpClientManager {
   }>();
 
   constructor(deps: ManagerDeps) {
+    this.#browser = deps.browserRuntime ?? new BrowserRuntime();
+    this.#browserTimer = setInterval(() => { void this.#expireBrowserSessions(); }, 60_000);
+    this.#browserTimer.unref();
     this.#store = deps.store;
     this.#vault = deps.vault;
     this.#now = deps.now ?? (() => new Date());
@@ -279,6 +289,7 @@ export class McpClientManager {
    * config revision and identity is reused, not duplicated.
    */
   async connect(userId: string, serverId: string): Promise<McpServerStatus> {
+    if (this.#shuttingDown) throw new McpError('MCP_DISABLED', 'MCP is shutting down');
     const record = await this.#store.getMcpServer(userId, serverId);
     if (!record) throw new McpError('MCP_NOT_FOUND', '没有这个 MCP 服务', 404);
     const { config } = record;
@@ -316,6 +327,7 @@ export class McpClientManager {
         config,
         generation,
         identity,
+        ...(config.stdio?.runLocation === 'browser' ? { stdioFactory: () => this.#browser.create(config) } : {}),
         ...(authProvider ? { authProvider } : {}),
         ...(this.#fetch ? { fetch: this.#fetch } : {}),
         onElicit: async (request) => {
@@ -459,6 +471,7 @@ export class McpClientManager {
   }
 
   async #closeLive(userId: string, serverId: string, reason: string): Promise<void> {
+    await this.closeBrowserSessions({ userId, serverId });
     const live = this.#live.get(this.#key(userId, serverId));
     if (!live) return;
     this.#live.delete(this.#key(userId, serverId));
@@ -623,6 +636,7 @@ export class McpClientManager {
     readonly userId: string;
     readonly serverId: string;
     readonly originalName: string;
+    readonly scope?: ExecutionScope;
     readonly arguments: Record<string, unknown>;
     readonly catalogRevision: string;
     readonly contractHash: string;
@@ -648,7 +662,9 @@ export class McpClientManager {
     if (!record) throw new McpError('MCP_NOT_FOUND', '没有这个 MCP 服务', 404);
     if (!record.config.enabled) throw new McpError('MCP_DISABLED', '这个服务没有启用', 409);
 
-    const { connection, catalog } = await this.lease(input.userId, input.serverId);
+    const leased = await this.lease(input.userId, input.serverId);
+    const { catalog } = leased;
+    let connection = leased.connection;
     if (catalog.revision !== input.catalogRevision) {
       throw new McpError(
         'MCP_CATALOG_STALE',
@@ -663,6 +679,11 @@ export class McpClientManager {
     }
     if (entry.contractHash !== input.contractHash) {
       throw new McpError('MCP_CATALOG_STALE', '工具的 schema 与授权时不一致，已拒绝执行。', 409);
+    }
+
+    if (record.config.stdio?.runLocation === 'browser') {
+      if (input.scope && (input.scope.identity.userId !== input.userId || input.scope.identity.conversationId !== input.conversationId)) throw new McpError('MCP_CONFIG_INVALID', 'browser execution identity mismatch');
+      connection = await this.#browserConnection(record.config, input.scope ?? rootExecutionScope(input));
     }
 
     // The action row exists before the request leaves this process. A crash
@@ -731,18 +752,18 @@ export class McpClientManager {
     const hasImage = (mapped.result.content ?? []).some((block) => block.type === 'image');
     if (!hasImage) {
       const browser = await readBrowserScreenshot({
-        config: record.config,
+        config: connection.browserOutput?.config ?? record.config,
         toolName: entry.originalName,
         result: raw,
         arguments: input.arguments,
         ...(input.importImage ? { importImage: input.importImage } : {}),
         actionId: input.actionId,
-        connectionGeneration: this.#live.get(this.#key(input.userId, input.serverId))?.generation ?? null,
+        connectionGeneration: connection.generation,
         ...(this.#browserOutput.maxBytes !== undefined
           ? { maxBytes: this.#browserOutput.maxBytes }
           : {}),
         ...(this.#browserOutput.cwd !== undefined ? { cwd: this.#browserOutput.cwd } : {}),
-        ...(this.#browserOutput.fs !== undefined ? { fs: this.#browserOutput.fs } : {}),
+        ...(connection.browserOutput?.fs ? { fs: connection.browserOutput.fs } : this.#browserOutput.fs ? { fs: this.#browserOutput.fs } : {}),
       });
       if (browser.state !== 'not_applicable') result = applyBrowserOutput(mapped, browser);
     }
@@ -1121,7 +1142,52 @@ export class McpClientManager {
     );
   }
 
+  async #browserConnection(config: McpServerConfig, scope: ExecutionScope): Promise<McpConnection> {
+    if (this.#shuttingDown) throw new McpError('MCP_DISABLED', 'MCP is shutting down');
+    if (scope.identity.userId !== config.userId) throw new McpError('MCP_PERMISSION_DENIED', 'browser identity mismatch');
+    const key = JSON.stringify([config.userId, config.id, scope.identity.conversationId, scope.identity.memberId ?? null]);
+    const fingerprint = `${config.configRevision}:${scopeFingerprint(scope)}`;
+    const previous = this.#browserSessions.get(key);
+    if (previous?.fingerprint === fingerprint) {
+      previous.usedAt = Date.now();
+      const connection = await previous.promise;
+      if (!connection.closed) return connection;
+    }
+    if (previous) { this.#browserSessions.delete(key); await (await previous.promise.catch(() => null))?.close('scope-changed'); }
+    if (this.#browserSessions.size >= 8 || [...this.#browserSessions.values()].filter((session) => session.userId === config.userId).length >= 4) throw new McpError('MCP_CONNECT_FAILED', '浏览器并发会话达到上限，请关闭空闲会话', 429);
+    const promise = this.#open({ config, identity: this.#identityOf(config), generation: ++this.#browserGeneration, stdioFactory: () => this.#browser.create(config, scope) });
+    const session = { promise, fingerprint, userId: config.userId, serverId: config.id, conversationId: scope.identity.conversationId, usedAt: Date.now() };
+    this.#browserSessions.set(key, session);
+    try {
+      const connection = await promise;
+      if (this.#shuttingDown || this.#browserSessions.get(key) !== session) { await connection.close('revoked-during-connect'); throw new McpError('MCP_DISABLED', 'browser connection revoked'); }
+      return connection;
+    } catch (error) { if (this.#browserSessions.get(key) === session) this.#browserSessions.delete(key); throw error; }
+  }
+
+  async closeBrowserSessions(filter: { userId: string; serverId?: string; conversationId?: string }): Promise<void> {
+    const closing: Promise<void>[] = [];
+    for (const [key, session] of this.#browserSessions) {
+      if (session.userId !== filter.userId || (filter.serverId && session.serverId !== filter.serverId) || (filter.conversationId && session.conversationId !== filter.conversationId)) continue;
+      this.#browserSessions.delete(key);
+      closing.push(session.promise.then((connection) => connection.close('scope-closed')).catch(() => undefined));
+    }
+    await Promise.all(closing);
+  }
+
+  async #expireBrowserSessions(): Promise<void> {
+    for (const [key, session] of this.#browserSessions) if (session.usedAt < Date.now() - 15 * 60_000) {
+      this.#browserSessions.delete(key);
+      await session.promise.then((connection) => connection.close('idle')).catch(() => undefined);
+    }
+  }
+
   async shutdown(): Promise<void> {
+    this.#shuttingDown = true;
+    clearInterval(this.#browserTimer);
+    const closing = [...this.#browserSessions.values()].map((session) => session.promise.then((connection) => connection.close('shutdown')).catch(() => undefined));
+    this.#browserSessions.clear();
+    await Promise.all(closing);
     this.#shuttingDown = true;
     for (const key of [...this.#retry.keys()]) {
       const [userId, serverId] = key.split('\u0000') as [string, string];

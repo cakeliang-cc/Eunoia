@@ -89,6 +89,7 @@ export async function createSandboxPlatform(
   const runtime =
     input.runtime ??
     createRuntime({
+      auditEgress: (config, event) => { void audit.record({ taskId: config.taskId, sandboxId: config.sandboxId, action: 'sandbox.network.request', outcome: event.allowed ? 'allowed' : 'denied', detail: event }); },
       kind: input.settings.runtime.kind,
       binary: input.settings.runtime.binary,
       globalArgs: input.settings.runtime.globalArgs,
@@ -237,6 +238,7 @@ export async function createSandboxPlatform(
     stop(): void {
       if (heartbeat) clearInterval(heartbeat);
       heartbeat = null;
+      void runtime.shutdown?.();
     },
     health(): Record<string, unknown> {
       return {
@@ -250,6 +252,7 @@ export async function createSandboxPlatform(
         image: input.settings.imageDigest,
         workspace_mode: input.settings.workspace.mode,
         network_mode: input.settings.network.mode,
+        network_profile: input.settings.network.profile ?? null,
         writes: input.settings.allowWrites,
         commands: input.settings.allowCommands,
         permission_mode: input.settings.permission.mode,

@@ -7,6 +7,7 @@
  * logic without pretending a fake process manager is a container.
  */
 
+import { rootExecutionScope } from '../../src/tools/scope.ts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { connect as netConnect } from 'node:net';
@@ -148,6 +149,15 @@ describe('R04 — preview service', () => {
       readyTimeoutMs: 8_000,
     });
     expect(started.ready).toBe(true);
+    const scope = rootExecutionScope({ userId: 'user-1', conversationId: 'conv-1' });
+    const preview = new URL(started.lease.browserUrl!);
+    expect(await h.service.browserRoute(scope, preview)).toEqual({ address: '127.0.0.1', port: h.gatewayPort });
+    expect(await h.service.browserRoute(rootExecutionScope({ userId: 'other', conversationId: 'conv-1' }), preview)).toBeNull();
+    expect(await h.service.browserRoute(rootExecutionScope({ userId: 'user-1', conversationId: 'other' }), preview)).toBeNull();
+    expect(await h.service.browserRoute({ ...scope, identity: { ...scope.identity, role: 'member', memberId: 'other-member' } }, preview)).toBeNull();
+    const wrongPort = new URL(preview); wrongPort.port = String(Number(preview.port) + 1);
+    expect(await h.service.browserRoute(scope, wrongPort)).toBeNull();
+
     expect(started.lease.status).toBe('ready');
     expect(started.lease.userUrl).toContain(started.lease.routeId);
     const routeHost = new URL(started.lease.userUrl!).host;

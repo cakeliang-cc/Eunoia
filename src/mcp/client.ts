@@ -72,6 +72,7 @@ export interface McpConnectionOptions {
   readonly generation: number;
   readonly identity: string;
   readonly env?: NodeJS.ProcessEnv;
+  readonly stdioFactory?: () => Promise<BuiltStdioTransport>;
   /** OAuth provider, when the server uses OAuth. */
   readonly authProvider?: OAuthClientProvider;
   /** Called for a server-initiated form/URL interaction. */
@@ -180,7 +181,7 @@ export class McpConnection {
     let transport;
     if (config.transport === 'stdio') {
       if (!config.stdio) throw new McpError('MCP_CONFIG_INVALID', 'stdio configuration missing');
-      stdio = createStdioTransport(config.stdio, {
+      stdio = options.stdioFactory ? await options.stdioFactory() : createStdioTransport(config.stdio, {
         ...(options.env ? { env: options.env } : {}),
         maxBufferSize: config.limits.maxResultBytes,
       });
@@ -210,7 +211,10 @@ export class McpConnection {
         capabilities: { elicitation: {} } as ClientCapabilities,
         // Modern-era negotiation, with a legacy fallback. The negotiated
         // revision is recorded and reported; nothing above branches on it.
-        versionNegotiation: { mode: 'auto' },
+        // The pinned Playwright MCP is a 2025 server. Auto mode launches a
+        // disposable probe process with identical argv; docker start -ai must
+        // have exactly one owner and cannot be consumed by that sibling.
+        versionNegotiation: { mode: config.stdio?.runLocation === 'browser' ? 'legacy' : 'auto' },
         listMaxPages: 64,
         listChanged: {
           tools: {
@@ -256,8 +260,13 @@ export class McpConnection {
         undefined,
         '连接 MCP 服务超时',
       );
+      client.onclose = () => { connection.#closed = true; void stdio?.cleanup?.().catch(() => undefined); };
+      await stdio?.afterConnect?.();
+      if (connection.closed) throw new McpError('MCP_CONNECT_FAILED', '连接在初始化过程中关闭');
     } catch (error) {
       await client.close().catch(() => undefined);
+      await stdio?.cleanup?.();
+      if (stdio?.location === 'browser' && stdio.stderrTail().length) throw new McpError('MCP_CONNECT_FAILED', '隔离浏览器启动失败', 502, { detail: { stderr: stdio.stderrTail() } });
       throw error;
     }
 
@@ -313,7 +322,7 @@ export class McpConnection {
   }
 
   /** Diagnostics: the container/host process id and the bounded stderr tail. */
-  processEvidence(): { readonly location: 'host' | 'sandbox' | 'http'; readonly pid: number | null; readonly stderr: readonly string[] } {
+  processEvidence(): { readonly location: 'host' | 'sandbox' | 'http' | 'browser'; readonly pid: number | null; readonly stderr: readonly string[] } {
     return {
       location: this.#stdio?.location ?? 'http',
       pid: this.#stdio?.pid() ?? null,
@@ -566,8 +575,10 @@ export class McpConnection {
 
   // ---------------------------------------------------------------- close ---
 
+  get browserOutput(): BuiltStdioTransport['browserOutput'] { return this.#stdio?.browserOutput; }
+
   async close(reason = 'closed'): Promise<void> {
-    if (this.#closed) return;
+    if (this.#closed) { await this.#stdio?.cleanup?.(); return; }
     this.#closed = true;
     // Close first, then bound the wait: a hung server must not delay shutdown
     // past the configured grace, and the process tree is killed by the SDK's
@@ -580,6 +591,7 @@ export class McpConnection {
         timer.unref?.();
       }),
     ]);
+    await this.#stdio?.cleanup?.();
     void reason;
   }
 }

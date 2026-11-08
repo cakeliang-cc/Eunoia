@@ -53,6 +53,7 @@ export interface SandboxWorkspaceSettings {
 }
 
 export interface SandboxNetworkSettings {
+  readonly profile?: 'offline' | 'dev_preview' | 'custom';
   readonly mode: 'none' | 'proxy_only';
   readonly allowedDomains: readonly string[];
   readonly allowedPorts: readonly number[];
@@ -218,21 +219,18 @@ export function sandboxSettings(env: NodeJS.ProcessEnv = process.env): SandboxSe
     idleTimeoutMs: intEnv(env, 'SANDBOX_IDLE_TIMEOUT_MS', profile.limits.idleTimeoutMs, 60_000, 24 * 60 * 60_000),
   };
 
-  const mode = parseNetworkMode(env.SANDBOX_NETWORK_MODE);
-  const egressNetwork = env.SANDBOX_EGRESS_NETWORK?.trim() || null;
-  if (mode === 'proxy_only' && !egressNetwork) {
-    throw new SandboxError(
-      'invalid_input',
-      'SANDBOX_NETWORK_MODE=proxy_only requires SANDBOX_EGRESS_NETWORK to name the operator-created egress network',
-    );
+  const requestedProfile = env.SANDBOX_NETWORK_PROFILE?.trim();
+  if (requestedProfile && !['offline', 'dev_preview', 'custom'].includes(requestedProfile)) throw new SandboxError('invalid_input', 'unknown SANDBOX_NETWORK_PROFILE');
+  const networkProfile = (requestedProfile ?? (parseNetworkMode(env.SANDBOX_NETWORK_MODE) === 'proxy_only' ? 'custom' : 'offline')) as 'offline' | 'dev_preview' | 'custom';
+  const mode = networkProfile === 'dev_preview' ? 'proxy_only' : networkProfile === 'offline' ? 'none' : parseNetworkMode(env.SANDBOX_NETWORK_MODE);
+  if (requestedProfile && env.SANDBOX_NETWORK_MODE && parseNetworkMode(env.SANDBOX_NETWORK_MODE) !== mode) throw new SandboxError('invalid_input', 'SANDBOX_NETWORK_MODE conflicts with SANDBOX_NETWORK_PROFILE');
+  // Managed proxy traffic crosses a control pipe, not a bridge network.
+  // Legacy external proxies are refused rather than silently weakening this.
+  if (mode === 'proxy_only' && (env.SANDBOX_EGRESS_NETWORK?.trim() || env.SANDBOX_PROXY_URL?.trim())) {
+    throw new SandboxError('invalid_input', 'proxy_only now uses a per-container pipe proxy; remove SANDBOX_EGRESS_NETWORK and SANDBOX_PROXY_URL');
   }
-  const proxyUrl = env.SANDBOX_PROXY_URL?.trim() || null;
-  if (mode === 'proxy_only' && !proxyUrl) {
-    throw new SandboxError(
-      'invalid_input',
-      'SANDBOX_NETWORK_MODE=proxy_only requires SANDBOX_PROXY_URL (run `npm run sandbox:proxy` and point it at the host address the sandbox network can reach)',
-    );
-  }
+  const egressNetwork = null;
+  const proxyUrl = mode === 'proxy_only' ? 'http://127.0.0.1:3128' : null;
 
   const workspaceMode = (env.SANDBOX_WORKSPACE_MODE?.trim().toLowerCase() ?? 'bind') as 'bind' | 'copy';
   if (workspaceMode !== 'bind' && workspaceMode !== 'copy') {
@@ -267,9 +265,10 @@ export function sandboxSettings(env: NodeJS.ProcessEnv = process.env): SandboxSe
       maxFileBytes: intEnv(env, 'SANDBOX_MAX_FILE_BYTES', 2 * 1024 * 1024, 1_024, 64 * 1024 * 1024),
     },
     network: {
+      profile: networkProfile,
       mode,
-      allowedDomains: listEnv(env.SANDBOX_ALLOWED_DOMAINS),
-      allowedPorts: listEnv(env.SANDBOX_ALLOWED_PORTS).map((entry) => Number.parseInt(entry, 10)).filter(
+      allowedDomains: listEnv(env.SANDBOX_ALLOWED_DOMAINS ?? (networkProfile === 'dev_preview' ? 'registry.npmjs.org,pypi.org,files.pythonhosted.org' : undefined)),
+      allowedPorts: listEnv(env.SANDBOX_ALLOWED_PORTS ?? (mode === 'proxy_only' ? '443' : undefined)).map((entry) => Number.parseInt(entry, 10)).filter(
         (port) => Number.isFinite(port) && port > 0 && port <= 65_535,
       ),
       proxyUrl,

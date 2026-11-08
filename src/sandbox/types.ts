@@ -535,6 +535,8 @@ export interface SandboxRuntime {
   probe(): Promise<{ readonly ok: boolean; readonly detail: string }>;
   create(config: RuntimeSandboxConfig): Promise<SandboxHandle>;
   start(handle: SandboxHandle): Promise<void>;
+  configureNetwork?(handle: SandboxHandle, config: RuntimeSandboxConfig): Promise<void>;
+  shutdown?(): Promise<void>;
   execute(handle: SandboxHandle, request: RuntimeExecutionRequest): Promise<RuntimeExecutionResult>;
   inspect(handle: SandboxHandle): Promise<RuntimeStatus>;
   interrupt(handle: SandboxHandle, executionId: string): Promise<void>;
