@@ -21,6 +21,8 @@ import { SessionService } from '../../src/session/service.ts';
 import { CRISIS_FALLBACK } from '../../src/safety/response.ts';
 import { collectTurn, runTurn, type TurnRunner } from '../../src/service/chat.ts';
 import type { AgentEvent } from '../../src/agent/events.ts';
+import { randomUUID } from 'node:crypto';
+import { TurnCoordinator, turnRequestHash } from '../../src/service/turns.ts';
 
 const USER = 'user-1';
 
@@ -786,5 +788,146 @@ describe('regeneration and attachments', () => {
     expect(context).toContain('2.0 KB');
     // This model cannot see images; the prompt must not let it pretend it can.
     expect(context).toContain('图片不会作为视觉输入');
+  });
+});
+
+
+/**
+ * Finish reason and acceptance (ADR 029).
+ *
+ * These are the two verdicts the chat page and the run table read. They are
+ * asserted together here because the interesting cases are the ones where they
+ * disagree: output without completion, completion without success.
+ */
+describe('outcome reporting', () => {
+  it('keeps the text of a cut stream and marks it incomplete', async () => {
+    const cut: TurnRunner = async function* () {
+      yield { type: 'text_delta', text: '说到一半' };
+      yield { type: 'completed', text: '说到一半', finishReason: 'incomplete_stream' };
+    };
+
+    const events = await drain({ store, runner: cut }, { userId: USER, message: '说点' });
+    const last = events.at(-1);
+    expect(last).toMatchObject({
+      type: 'completed',
+      text: '说到一半',
+      finishReason: 'incomplete_stream',
+      accepted: false,
+    });
+    const checks = last?.type === 'completed' ? last.acceptance ?? [] : [];
+    expect(checks.find((entry) => entry.id === 'finished')?.ok).toBe(false);
+    expect(checks.find((entry) => entry.id === 'has_output')?.ok).toBe(true);
+  });
+
+  it('accepts a normal answer', async () => {
+    const events = await drain({ store, runner: fakeRunner('嗯。') }, {
+      userId: USER,
+      message: '在吗',
+    });
+    expect(events.at(-1)).toMatchObject({
+      finishReason: 'completed',
+      accepted: true,
+    });
+  });
+
+  it('does not accept a turn whose tool call failed', async () => {
+    const withFailure: TurnRunner = async function* () {
+      yield {
+        type: 'tool_call',
+        callId: 'c1',
+        name: 'write_file',
+        displayable: true,
+      };
+      yield {
+        type: 'tool_result',
+        callId: 'c1',
+        name: 'write_file',
+        ok: false,
+        error: 'permission denied',
+      };
+      yield { type: 'completed', text: '没改成。' };
+    };
+
+    const events = await drain({ store, runner: withFailure }, {
+      userId: USER,
+      message: '改一下',
+    });
+    const last = events.at(-1);
+    expect(last).toMatchObject({
+      type: 'completed',
+      finishReason: 'completed',
+      accepted: false,
+    });
+    const checks = last?.type === 'completed' ? last.acceptance ?? [] : [];
+    expect(checks.find((entry) => entry.id === 'tools_ok')?.ok).toBe(false);
+  });
+
+  it('settles the turn record with the finish reason and the verdict', async () => {
+    const sessions = new SessionService(store);
+    const conversation = await sessions.create(USER);
+    const coordinator = new TurnCoordinator(store);
+    const requestId = randomUUID();
+    const admission = await coordinator.begin({
+      requestId,
+      userId: USER,
+      conversationId: conversation.id,
+      requestHash: turnRequestHash({
+        kind: 'chat',
+        userId: USER,
+        conversationId: conversation.id,
+        message: '在吗',
+      }),
+    });
+    expect(admission.kind).toBe('started');
+
+    await drain(
+      { store, turns: coordinator, runner: fakeRunner('嗯。') },
+      { userId: USER, conversationId: conversation.id, message: '在吗', requestId },
+    );
+
+    expect(await coordinator.get(requestId)).toMatchObject({
+      status: 'completed',
+      finishReason: 'completed',
+      reply: '嗯。',
+      accepted: true,
+    });
+    // The run row carries the same reason: statistics and the turn record must
+    // not disagree about how a turn ended.
+    expect(store.runs.at(-1)?.finishReason).toBe('completed');
+  });
+
+  it('settles an incomplete turn as not accepted', async () => {
+    const sessions = new SessionService(store);
+    const conversation = await sessions.create(USER);
+    const coordinator = new TurnCoordinator(store);
+    const requestId = randomUUID();
+    await coordinator.begin({
+      requestId,
+      userId: USER,
+      conversationId: conversation.id,
+      requestHash: turnRequestHash({
+        kind: 'chat',
+        userId: USER,
+        conversationId: conversation.id,
+        message: '说点',
+      }),
+    });
+
+    const cut: TurnRunner = async function* () {
+      yield { type: 'text_delta', text: '断在这里' };
+      yield { type: 'completed', text: '断在这里', finishReason: 'incomplete_stream' };
+    };
+    await drain(
+      { store, turns: coordinator, runner: cut },
+      { userId: USER, conversationId: conversation.id, message: '说点', requestId },
+    );
+
+    expect(await coordinator.get(requestId)).toMatchObject({
+      status: 'completed',
+      finishReason: 'incomplete_stream',
+      reply: '断在这里',
+      accepted: false,
+    });
+    expect(store.runs.at(-1)?.finishReason).toBe('incomplete_stream');
   });
 });

@@ -315,3 +315,48 @@ describe('conversation ownership', () => {
     expect(attempt.status).toBe(404);
   });
 });
+
+/**
+ * The terminal verdict on the wire (ADR 029).
+ *
+ * A retry must replay the verdict as well as the text: otherwise the client
+ * would show the same answer twice, once marked complete and once marked cut.
+ */
+describe('finish reason and acceptance', () => {
+  it('carries them on the live turn and on the replay', async () => {
+    const cut: TurnRunner = async function* () {
+      yield { type: 'text_delta', text: '说到一半' };
+      yield { type: 'completed', text: '说到一半', finishReason: 'incomplete_stream' };
+    };
+    await start(cut);
+    const cookie = await identity();
+    const { id: conversationId } = await newConversation(cookie);
+    const requestId = randomUUID();
+
+    const first = await chat('说点', { cookie, conversationId, requestId });
+    const live = first.frames.at(-1);
+    expect(live?.data.finishReason).toBe('incomplete_stream');
+    expect(live?.data.accepted).toBe(false);
+    expect(live?.data.acceptance).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'finished', ok: false })]),
+    );
+
+    const retry = await chat('说点', { cookie, conversationId, requestId });
+    expect(retry.frames.at(-1)?.data).toMatchObject({
+      finishReason: 'incomplete_stream',
+      accepted: false,
+      replayed: true,
+    });
+  });
+
+  it('reports a normal answer as accepted', async () => {
+    const cookie = await identity();
+    const { id: conversationId } = await newConversation(cookie);
+    const result = await chat('你好', { cookie, conversationId, requestId: randomUUID() });
+
+    expect(result.frames.at(-1)?.data).toMatchObject({
+      finishReason: 'completed',
+      accepted: true,
+    });
+  });
+});

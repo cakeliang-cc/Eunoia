@@ -126,9 +126,10 @@ describe('the SDK model adapter', () => {
     expect(events[0]).toEqual({ type: 'reasoning_done' });
   });
 
-  it('falls back to the streamed text if a response never arrives', async () => {
+  it('keeps the streamed text but reports a stream that never completed', async () => {
     // Some proxies close the stream without a terminal event. Losing a reply
-    // that was already shown is worse than reporting it as a completed turn.
+    // that was already shown is worse than keeping it — but calling it `done`
+    // made a truncated answer indistinguishable from a finished one.
     const model = fakeModel([{ type: 'output_text_delta', delta: 'partial' } as StreamEvent]);
     const events = await collect(
       createSdkModelTurn(model)({
@@ -138,9 +139,10 @@ describe('the SDK model adapter', () => {
       }),
     );
 
-    expect(events.at(-1)).toEqual({
-      type: 'done',
+    expect(events.at(-1)).toMatchObject({
+      type: 'incomplete',
       output: [{ type: 'message', role: 'assistant', content: 'partial' }],
+      reason: expect.any(String),
     });
   });
 });

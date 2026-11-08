@@ -95,9 +95,13 @@ export function createSdkModelTurn(model: Model): ModelTurn {
 
     if (!sawDone) {
       if (text.length > 0) {
+        // The text is kept — it was already shown — but the event says the
+        // stream ended without its completion signal. Reporting this as `done`
+        // is what made a truncated answer indistinguishable from a finished one.
         yield {
-          type: 'done',
+          type: 'incomplete',
           output: [{ type: 'message', role: 'assistant', content: text }],
+          reason: 'model stream ended without a response completion event',
         };
         return;
       }

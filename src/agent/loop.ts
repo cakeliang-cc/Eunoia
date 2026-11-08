@@ -120,6 +120,13 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
   let toolCount = 0;
   let toolChars = 0;
   let lastUsage: ModelUsage | undefined;
+  /**
+   * The provider ended a step without its completion event.
+   *
+   * Sticky for the turn: once any step is incomplete, the reply as a whole is
+   * not something the model finished, even if a later step returns cleanly.
+   */
+  let streamIncomplete = false;
 
   /**
    * Close the reasoning block, once.
@@ -174,6 +181,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
           continue;
         }
 
+        if (event.type === 'incomplete') streamIncomplete = true;
         output.push(...event.output);
         if (event.usage) lastUsage = event.usage;
         done = true;
@@ -227,7 +235,11 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
           steps: step,
           ...cacheLog(lastUsage),
         });
-        yield { type: 'completed', text: reply };
+        yield {
+          type: 'completed',
+          text: reply,
+          finishReason: streamIncomplete ? 'incomplete_stream' : 'completed',
+        };
         return;
       }
 
@@ -243,7 +255,11 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       `说"继续"可以让我接着做。]`;
     const text = reply.trim().length > 0 ? `${reply}\n\n${note}` : note;
     yield { type: 'loop_exhausted', steps: maxSteps };
-    yield { type: 'completed', text };
+    yield {
+      type: 'completed',
+      text,
+      finishReason: streamIncomplete ? 'incomplete_stream' : 'loop_exhausted',
+    };
   } catch (error) {
     const closed = closeThinking();
     if (closed) yield closed;
@@ -255,7 +271,12 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       error: message,
       aborted,
     });
-    yield { type: 'error', message: aborted ? 'cancelled' : message, retryable: !aborted };
+    yield {
+      type: 'error',
+      message: aborted ? 'cancelled' : message,
+      retryable: !aborted,
+      finishReason: 'failed',
+    };
   }
 
   /**

@@ -1755,6 +1755,14 @@ async function send(text, options = {}) {
           if (untitled) void refreshHistory();
         }
         messageId = event.messageId ?? null;
+        // The text is kept either way; this line only says whether the model
+        // actually finished. Without it, a cut stream looked like a full answer
+        // until the person reached the half sentence at the end.
+        if (event.finishReason === 'incomplete_stream') {
+          note.textContent = '回复可能未完整：连接在结束信号之前断开了';
+        } else if (event.finishReason === 'budget_exhausted') {
+          note.textContent = '上下文预算用尽，这一轮先停在这里';
+        }
       } else if (event.type === 'interrupted') {
         terminal = true;
         finishInterrupted(event);

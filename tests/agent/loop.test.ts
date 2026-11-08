@@ -26,6 +26,8 @@ import type { ToolContext, ToolPolicy } from '../../src/tools/types.ts';
 interface Step {
   readonly text?: string;
   readonly reasoning?: string;
+  /** End the step without a completion event, like a proxy cutting the stream. */
+  readonly incomplete?: boolean;
   readonly calls?: readonly { readonly id: string; readonly name: string; readonly args: unknown }[];
   readonly rawCalls?: readonly { readonly id: string; readonly name: string; readonly arguments: string }[];
 }
@@ -66,6 +68,10 @@ function scripted(steps: readonly Step[]): { turn: ModelTurn; requests: LoopInpu
         name: call.name,
         arguments: call.arguments,
       });
+    }
+    if (step.incomplete) {
+      yield { type: 'incomplete', output, reason: 'test: stream cut' };
+      return;
     }
     yield { type: 'done', output };
   };
@@ -488,5 +494,95 @@ describe('the execution log', () => {
     );
 
     expect(texts).toEqual(['答。']);
+  });
+});
+
+/**
+ * Finish reasons (ADR 029).
+ *
+ * The rule these pin: keeping the text and calling the turn finished are two
+ * different decisions. A cut stream still yields everything that arrived, with a
+ * reason that says so; the step cap says the harness stopped, not the model.
+ */
+describe('finish reasons', () => {
+  it('reports a normal answer as completed', async () => {
+    const model = scripted([{ text: '答。' }]);
+    const events = await collect(
+      runAgentLoop({
+        modelTurn: model.turn,
+        instructions: 'stable',
+        input: [{ type: 'message', role: 'user', content: 'go' }],
+        tools: registry(echoTool),
+        toolContext: context(),
+      }),
+    );
+
+    expect(events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'completed' });
+  });
+
+  it('keeps a cut stream’s text and marks it incomplete_stream', async () => {
+    const model = scripted([{ text: '说到一半', incomplete: true }]);
+    const events = await collect(
+      runAgentLoop({
+        modelTurn: model.turn,
+        instructions: 'stable',
+        input: [{ type: 'message', role: 'user', content: 'go' }],
+        tools: registry(echoTool),
+        toolContext: context(),
+      }),
+    );
+
+    expect(events).toContainEqual({ type: 'text_delta', text: '说到一半' });
+    expect(events.at(-1)).toMatchObject({
+      type: 'completed',
+      text: '说到一半',
+      finishReason: 'incomplete_stream',
+    });
+  });
+
+  it('marks the step cap as loop_exhausted, and still completes with the partial work', async () => {
+    const model = scripted([
+      { text: '先看看。', calls: [{ id: 'c1', name: 'read_thing', args: { name: 'a.ts' } }] },
+      { calls: [{ id: 'c2', name: 'read_thing', args: { name: 'b.ts' } }] },
+    ]);
+
+    const events = await collect(
+      runAgentLoop({
+        modelTurn: model.turn,
+        instructions: 'stable',
+        input: [{ type: 'message', role: 'user', content: 'go' }],
+        tools: registry(echoTool),
+        toolContext: context(),
+        maxSteps: 2,
+      }),
+    );
+
+    expect(events).toContainEqual({ type: 'loop_exhausted', steps: 2 });
+    const completed = events.at(-1);
+    expect(completed).toMatchObject({ type: 'completed', finishReason: 'loop_exhausted' });
+    // The partial text is preserved; the notice explains why it stopped.
+    expect(completed?.type === 'completed' && completed.text).toContain('先看看。');
+    expect(completed?.type === 'completed' && completed.text).toContain('上限');
+  });
+
+  it('marks a provider failure as failed', async () => {
+    // The generator exists to throw: a provider that fails before producing
+    // anything is exactly the case the loop must report, not swallow.
+    // eslint-disable-next-line require-yield
+    const failing: ModelTurn = async function* () {
+      throw new Error('connection reset');
+    };
+
+    const events = await collect(
+      runAgentLoop({
+        modelTurn: failing,
+        instructions: 'stable',
+        input: [{ type: 'message', role: 'user', content: 'go' }],
+        tools: registry(echoTool),
+        toolContext: context(),
+      }),
+    );
+
+    expect(events.at(-1)).toMatchObject({ type: 'error', finishReason: 'failed' });
   });
 });

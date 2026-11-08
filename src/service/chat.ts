@@ -56,7 +56,9 @@ import { conversationTitle } from '../session/types.ts';
 import { SessionService } from '../session/service.ts';
 import { renderArchivedSummary } from '../session/summary.ts';
 import type { Message } from '../session/types.ts';
+import type { FinishReason } from '../finish-reason.ts';
 import type { TurnFinishPatch } from '../session/turn-types.ts';
+import { evaluateTurnOutcome } from '../agent/turn-outcome.ts';
 import type { Store } from '../store.ts';
 import { StoreTurnRecorder } from './turn-recorder.ts';
 import { TurnCoordinator } from './turns.ts';
@@ -447,8 +449,16 @@ async function* runTurnInner(
   let streamed = '';
   let interrupted = false;
   let usedTools = false;
+  /** Tool calls that returned an error; an acceptance condition, not a status. */
+  let failedTools = 0;
   const toolCalls: string[] = [];
   let failed: string | null = null;
+  /**
+   * Why the model side ended. The runner's own value when it has one, so a test
+   * double that does not know about finish reasons still behaves like a normal
+   * completion.
+   */
+  let finishReason: FinishReason = 'completed';
 
   for await (const event of runner(agent, message, {
     signal: request.signal,
@@ -458,6 +468,7 @@ async function* runTurnInner(
   })) {
     if (event.type === 'completed') {
       reply = event.text;
+      finishReason = event.finishReason ?? 'completed';
       continue;
     }
     if (event.type === 'error') {
@@ -469,13 +480,14 @@ async function* runTurnInner(
         break;
       }
       failed = event.message;
-      yield event;
+      yield { ...event, finishReason: event.finishReason ?? 'failed' };
       break;
     }
     if (event.type === 'tool_call') {
       usedTools = true;
       toolCalls.push(event.name);
     }
+    if (event.type === 'tool_result' && !event.ok) failedTools += 1;
     // Withholding deltas is the whole point of `buffer`. Reasoning is withheld
     // alongside the reply: a person in crisis should not watch the model work
     // its way toward them, and if the reply is then replaced by the safety
@@ -498,6 +510,7 @@ async function* runTurnInner(
         message,
         reply: partial,
         interrupted: true,
+        finishReason: 'cancelled',
         riskLevel,
         usedTools,
         toolCalls,
@@ -516,6 +529,7 @@ async function* runTurnInner(
       text: partial,
       conversationId: persist ? conversationId : null,
       messageId: assistantMessageId,
+      finishReason: 'cancelled',
     };
     return;
   }
@@ -536,6 +550,7 @@ async function* runTurnInner(
           outputFingerprint: null,
           riskLevel,
           durationMs: Date.now() - startedAt,
+          finishReason: 'failed',
           error: failed,
         })
         .catch((error: unknown) => log.warn('run.record_failed', { error: String(error) }));
@@ -562,6 +577,16 @@ async function* runTurnInner(
     yield { type: 'text_delta', text: outcome.reply };
   }
 
+  // Two verdicts, computed independently: why it ended (above) and whether what
+  // arrived is accepted (ADR 029). A cut stream keeps its text and fails
+  // `finished`; a completed turn that called a failing tool keeps `finished` and
+  // fails `tools_ok`. Neither collapses into the other.
+  const verdict = evaluateTurnOutcome({
+    finishReason,
+    reply: outcome.reply,
+    failedTools,
+  });
+
   let assistantMessageId: string | null = null;
   if (persist) {
     assistantMessageId = await persistTurn(deps.store, session, {
@@ -571,6 +596,7 @@ async function* runTurnInner(
       message,
       reply: outcome.reply,
       interrupted: false,
+      finishReason,
       riskLevel,
       usedTools,
       toolCalls,
@@ -584,6 +610,9 @@ async function* runTurnInner(
     text: outcome.reply,
     conversationId: persist ? conversationId : null,
     messageId: assistantMessageId,
+    finishReason,
+    accepted: verdict.succeeded,
+    acceptance: verdict.acceptance,
   };
 }
 
@@ -599,6 +628,8 @@ async function persistTurn(
     reply: string;
     /** True when `reply` is the part generated before the person pressed stop. */
     interrupted: boolean;
+    /** Why the turn ended; stored on the run row for statistics and recovery. */
+    finishReason: FinishReason;
     riskLevel: 'none' | 'elevated' | 'crisis';
     usedTools: boolean;
     toolCalls: readonly string[];
@@ -632,6 +663,7 @@ async function persistTurn(
       outputFingerprint: contentFingerprint(turn.reply),
       riskLevel: turn.riskLevel,
       durationMs: turn.durationMs,
+      finishReason: turn.finishReason,
       error: null,
     });
     return stored?.id ?? null;

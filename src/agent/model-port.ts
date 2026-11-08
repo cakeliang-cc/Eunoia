@@ -77,6 +77,20 @@ export type ModelTurnEvent =
       readonly output: readonly LoopOutputItem[];
       readonly usage?: ModelUsage;
       readonly responseId?: string;
+    }
+  /**
+   * The provider's stream ended without its completion event.
+   *
+   * Distinct from `done` on purpose: the text (if any) is real and must be kept,
+   * but "the connection closed" is not "the model finished". The loop turns this
+   * into `finishReason: 'incomplete_stream'`.
+   */
+  | {
+      readonly type: 'incomplete';
+      readonly output: readonly LoopOutputItem[];
+      readonly usage?: ModelUsage;
+      readonly responseId?: string;
+      readonly reason?: string;
     };
 
 export interface ModelTurnRequest {
