@@ -222,10 +222,10 @@ curl -s http://127.0.0.1:8790/api/teams/runs/<runId>/report
 
 ## 11. 统一主线合并（2026-11-08）
 
-- 合并提交：`c241d71`（`feat/team-mcp-integration`，已推送），main 快进到该提交。
+- 合并提交：`c241d71`（`feat/team-mcp-integration`）；后续 `92cee77`、`54ab4db`、`b35e1be`（最终）已推送到 main。
 - schema 统一为 **15**：MCP 11、撤销 13、开发工具 14、Agent Team 15；Team 11 张表全部创建。
 - 迁移前备份：`backups/eunoia-before-team-mcp-merge-20261108-192415.sqlite`；迁移后 13 个会话保留。
-- 服务：`http://127.0.0.1:8787`，PID 96583，从 `.worktrees/mcp` 的 main 构建启动；`/health` 为 `status:ok, mcp:true, web:true, team.enabled:true`。
+- 服务：`http://127.0.0.1:8787`，PID 3689，从 `.worktrees/mcp` 的 main 构建启动；`/health` 为 `status:ok, mcp:true, web:true, team.enabled:true`。
 - 功能：`/`、`/team.js`、`/team.css`、`/app.js` 200；`/api/tools` 51 个工具（含 `read_image`、`web_fetch`、`process_start`、`ask_user_question`、`find_definition`）；Playwright MCP 服务 ready；`GET /api/teams` 返回 Team 配置。
 - 成员执行已接入 MCP 工具与统一权限端口；真实回放中成员 `browser_navigate` 进入 `waiting_approval`，接受后执行；Playwright 浏览器缓存 EPERM 属环境阻塞，T42 的 elicitation/Tasks 仍未单独验收，保持部分。
 
