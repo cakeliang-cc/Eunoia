@@ -149,6 +149,21 @@ export class MediaService {
   }
 
   /**
+   * Import bytes a tool returned as a private, bound asset.
+   *
+   * Binding happens with the import, not with a message: a tool result is a
+   * durable fact of its own and the collector must not treat the image as an
+   * unreferenced draft. Callers that fail after this point may leave a bound
+   * asset; deleting the conversation removes it, and that is the honest
+   * ownership rule.
+   */
+  async putToolImage(input: PutImageInput): Promise<ImageAsset> {
+    const asset = await this.putImage(input);
+    await this.#store.bindMediaAsset(input.userId, asset.id);
+    return { ...asset, status: 'bound' };
+  }
+
+  /**
    * Validate that a set of ids is usable by this conversation.
    *
    * Returns the unique assets in the order first referenced. A missing id, an

@@ -162,37 +162,55 @@ export function projectModelRequest(
   const imageDigests: string[] = [];
   let textChars = 0;
 
+  /**
+   * Project an ordered part list.
+   *
+   * Used for both a message's `content` and a tool result's `output` array: a
+   * tool that returns an image puts base64 in `output`, and serialising that
+   * item wholesale would write the bytes into the transcript's proof instead of
+   * its digest.
+   */
+  const addParts = (parts: readonly unknown[], type: string, role?: string): void => {
+    let chars = 0;
+    for (const part of parts) {
+      const partRecord = part as Record<string, unknown>;
+      if (partRecord.type === 'input_image' && typeof partRecord.image === 'string') {
+        const data = partRecord.image;
+        const comma = data.indexOf(',');
+        const bytes = comma >= 0 ? Buffer.from(data.slice(comma + 1), 'base64') : Buffer.from('');
+        const digest = sha256(bytes.toString('base64'));
+        imageDigests.push(digest);
+        entries.push({
+          type: 'input_image',
+          hash: sha256(canonicalJson({ detail: partRecord.detail ?? null, bytes: digest })),
+          chars: 0,
+        });
+        continue;
+      }
+      const text = typeof partRecord.text === 'string' ? partRecord.text : '';
+      chars += text.length;
+      textChars += text.length;
+      entries.push({
+        type: typeof partRecord.type === 'string' ? partRecord.type : 'part',
+        hash: sha256(text),
+        chars: text.length,
+      });
+    }
+    entries.push({ type, ...(role ? { role } : {}), hash: sha256(canonicalJson(parts.length)), chars });
+  };
+
   for (const item of request.input) {
     const record = item as Record<string, unknown>;
     const type = typeof record.type === 'string' ? record.type : 'message';
     const role = typeof record.role === 'string' ? record.role : undefined;
     const content = record.content;
     if (Array.isArray(content)) {
-      let chars = 0;
-      for (const part of content) {
-        const partRecord = part as Record<string, unknown>;
-        if (partRecord.type === 'input_image' && typeof partRecord.image === 'string') {
-          const data = partRecord.image;
-          const comma = data.indexOf(',');
-          const bytes = comma >= 0 ? Buffer.from(data.slice(comma + 1), 'base64') : Buffer.from('');
-          imageDigests.push(sha256(bytes.toString('base64')));
-          entries.push({
-            type: 'input_image',
-            hash: sha256(canonicalJson({ detail: partRecord.detail ?? null, bytes: imageDigests.at(-1) })),
-            chars: 0,
-          });
-          continue;
-        }
-        const text = typeof partRecord.text === 'string' ? partRecord.text : '';
-        chars += text.length;
-        textChars += text.length;
-        entries.push({
-          type: typeof partRecord.type === 'string' ? partRecord.type : 'part',
-          hash: sha256(text),
-          chars: text.length,
-        });
-      }
-      entries.push({ type, ...(role ? { role } : {}), hash: sha256(canonicalJson(content.length)), chars });
+      addParts(content, type, role);
+      continue;
+    }
+    const output = record.output;
+    if (Array.isArray(output)) {
+      addParts(output, type, role);
       continue;
     }
     const text = typeof content === 'string' ? content : canonicalJson(item);
@@ -272,14 +290,42 @@ function toAgentInput(
         arguments: item.arguments,
         status: 'completed',
       };
-    case 'function_call_result':
+    case 'function_call_result': {
+      if (!item.images || item.images.length === 0) {
+        return {
+          type: 'function_call_result',
+          callId: item.callId,
+          name: item.name,
+          status: 'completed',
+          output: item.output,
+        };
+      }
+      // A tool that returned an image is answered with the text projection and
+      // the ordered image parts. The image bytes come from the per-step plan;
+      // a planned-but-missing image is a programming error, not a reason to
+      // silently drop it.
+      const parts: Array<
+        { type: 'input_text'; text: string } | { type: 'input_image'; image: string; detail?: string }
+      > = [{ type: 'input_text', text: item.output }];
+      for (const image of item.images) {
+        const planned = media?.images.get(image.assetId);
+        if (!planned || !planned.data) {
+          throw new Error(`no planned image bytes for tool result asset ${image.assetId}`);
+        }
+        parts.push({
+          type: 'input_image',
+          image: `data:${planned.mediaType};base64,${Buffer.from(planned.data).toString('base64')}`,
+          detail: planned.detail,
+        });
+      }
       return {
         type: 'function_call_result',
         callId: item.callId,
         name: item.name,
         status: 'completed',
-        output: item.output,
+        output: parts,
       };
+    }
     case 'reasoning':
       if (item.raw) return item.raw as AgentInputItem;
       return {

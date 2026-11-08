@@ -41,6 +41,14 @@ export function policyDenial(
       // Only a sandbox-backed run has a task working directory; without one the
       // tool itself reports that there is nothing to change.
       return null;
+    case 'external_read':
+    case 'external_write':
+    case 'external_unknown':
+      // Authorization for an external call is the MCP permission port's job: it
+      // is the only layer that knows the owner, account, contract hash and the
+      // persisted approval. Pre-deciding here would make approval unreachable.
+      // The loop refuses an MCP tool outright when no port is present.
+      return null;
   }
 }
 

@@ -18,6 +18,7 @@
  */
 
 import { SANDBOX_SCHEMA } from '../sandbox/schema.ts';
+import { MCP_SCHEMA } from '../mcp/schema.ts';
 
 /**
  * Version 2 adds the sandbox platform's tables (ADR 017); version 3 records the
@@ -51,10 +52,14 @@ import { SANDBOX_SCHEMA } from '../sandbox/schema.ts';
  * background-block comparison baseline). It also adds `turn_requests.turn_usage`
  * so a turn can report summed step usage without pretending it is a bill.
  * Version 10 is additive and idempotent.
+ * Version 11 adds the MCP host: server configuration, identity-scoped catalog
+ * snapshots, prepared/sent tool actions, approval and elicitation interactions,
+ * remote task handles, sealed credentials, conversation bindings, resource
+ * snapshots and non-image artifacts. It is additive and idempotent (ADR 033).
  * The base schema is idempotent, so a version-1 file gets the tables by executing
  * the full schema; later files get the new columns by `ALTER TABLE`.
  */
-export const SQLITE_SCHEMA_VERSION = 10;
+export const SQLITE_SCHEMA_VERSION = 11;
 
 export const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -478,6 +483,8 @@ CREATE INDEX IF NOT EXISTS model_context_state_conversation_idx
   ON model_context_state (conversation_id, epoch_id);
 
 ${SANDBOX_SCHEMA}
+
+${MCP_SCHEMA}
 `;
 
 /** Applied to a version-2 database that already has the sandbox tables. */
@@ -781,3 +788,12 @@ CREATE TABLE IF NOT EXISTS model_context_state (
 CREATE INDEX IF NOT EXISTS model_context_state_conversation_idx
   ON model_context_state (conversation_id, epoch_id);
 `;
+
+/**
+ * Version 10 → 11: the MCP host tables.
+ *
+ * Additive and idempotent, so an interrupted migration can be re-run. A fresh
+ * database applies this as a no-op because the base schema already carries the
+ * same DDL.
+ */
+export const SQLITE_MIGRATION_11 = MCP_SCHEMA;

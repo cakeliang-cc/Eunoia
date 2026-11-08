@@ -35,7 +35,7 @@ export interface RecordedToolResult {
   readonly callId: string;
   readonly name: string;
   readonly ok: boolean;
-  readonly status: 'succeeded' | 'failed';
+  readonly status: 'succeeded' | 'failed' | 'unknown';
   /** The sandbox execution id, when the tool produced one. */
   readonly executionId?: string;
   /** Bounded result text; the full body is not an audit requirement. */

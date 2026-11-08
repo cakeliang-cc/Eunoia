@@ -29,14 +29,23 @@
  * See docs/adr/014-coding-tools-and-agent-loop.md.
  */
 
-import type { ZodError } from 'zod';
 import { policyDenial } from '../tools/policy.ts';
 import { parseToolArguments } from '../tools/schema.ts';
 import { summarizeToolCall, summarizeToolResult } from '../tools/summary.ts';
 import { truncateLine, truncateMiddle } from '../tools/truncate.ts';
-import type { ToolCall, ToolContext, ToolDefinition, ToolResult, ToolSchema } from '../tools/types.ts';
+import type {
+  ToolCall,
+  ToolContentBlock,
+  ToolContext,
+  ToolDefinition,
+  ToolResult,
+  ToolSchema,
+} from '../tools/types.ts';
 import { renderToolResult, toolError } from '../tools/types.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
+import { contractOf } from '../tools/registry.ts';
+import { toolOriginLabel } from '../tools/contract.ts';
+import type { ToolPermissionPort, ToolPermissionDecision } from '../tools/types.ts';
 import type { AgentEvent, ThinkingDoneEvent } from './events.ts';
 import type { ExecutionRecorder } from './execution-log.ts';
 import { fitContext, type ContextBudget } from './context-budget.ts';
@@ -46,6 +55,7 @@ import type {
   LoopOutputItem,
   ModelTurn,
   ModelUsage,
+  ToolResultImage,
 } from './model-port.ts';
 import { log } from '../observability/logging.ts';
 import type { RequestProjection } from '../session/model-transcript.ts';
@@ -172,6 +182,26 @@ export interface AgentLoopOptions {
   readonly media?: PreparedMediaPlan;
   /** Durable replay recorder. Absent in legacy mode and in evaluation runs. */
   readonly transcript?: LoopTranscript;
+  /**
+   * The unified authorization port for external tools (ADR 033).
+   *
+   * Absent means this turn cannot call an MCP tool at all: an MCP tool without
+   * an authorization port is refused rather than run unapproved.
+   */
+  readonly permission?: ToolPermissionPort | null;
+  /**
+   * Build the media plan for the *next* model step.
+   *
+   * The loop re-plans whenever the set of image ids in the request changes. A
+   * fixed whole-turn plan cannot price an image that a tool returned on step 3,
+   * and counting one size while sending another is the failure ADR 031 exists
+   * to prevent.
+   */
+  readonly prepareMedia?: (input: {
+    readonly imageIds: readonly string[];
+  }) => Promise<PreparedMediaPlan | undefined>;
+  /** How long a human approval may block one call. */
+  readonly approvalTimeoutMs?: number;
 }
 
 interface CallPlan {
@@ -180,6 +210,8 @@ interface CallPlan {
   readonly args: Record<string, unknown>;
   readonly summary: string;
   readonly parseError: string | null;
+  /** The contract's own check, run before authorization so approval binds to it. */
+  readonly validationError: string | null;
 }
 
 interface Invocation {
@@ -195,6 +227,16 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
   // Serialised once: the same bytes are sent and counted, so the estimate cannot
   // drift from the request it is budgeting.
   const toolSchemas = options.tools.schemas();
+  const approvalTimeoutMs = options.approvalTimeoutMs ?? 10 * 60_000;
+  /**
+   * The media plan for the request about to be sent.
+   *
+   * Replaced when a tool result adds an image, because the plan is what both the
+   * budget and the encoder read. `undefined` means the request carries no image
+   * the plan knows about.
+   */
+  let mediaPlan: PreparedMediaPlan | undefined = options.media;
+  let mediaSignature = imageSignature(options.input);
 
   /**
    * Write one execution record, without letting the write end the turn.
@@ -254,6 +296,29 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
     for (let step = 1; step <= maxSteps; step += 1) {
       throwIfAborted(options.signal);
 
+      // A tool may have returned an image on the previous step. Re-plan before
+      // the budget is computed, not after: everything below must price the same
+      // plan the adapter will encode.
+      if (options.prepareMedia) {
+        const nextSignature = imageSignature(input);
+        if (mediaPlan === undefined || nextSignature !== mediaSignature) {
+          try {
+            mediaPlan = await options.prepareMedia({ imageIds: collectImageIds(input) });
+            mediaSignature = nextSignature;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            yield {
+              type: 'error',
+              message: `无法为这次请求准备图片：${message}`,
+              retryable: false,
+              finishReason: 'failed',
+              code: 'MEDIA_PLAN_FAILED',
+            };
+            return;
+          }
+        }
+      }
+
       // Budget the request that is about to be sent, not the history that was
       // budgeted before the turn started.
       let requestInput: readonly LoopInputItem[] = input;
@@ -264,7 +329,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
           tools: toolSchemas,
           items: input,
           budget: options.contextBudget,
-          ...(options.media ? { media: options.media } : {}),
+          ...(mediaPlan ? { media: mediaPlan } : {}),
         });
         requestInput = fit.items;
         requestTokens = fit.tokens;
@@ -311,7 +376,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
             requestInput,
             instructions: options.instructions,
             tools: toolSchemas,
-            ...(options.media ? { media: options.media } : {}),
+            ...(mediaPlan ? { media: mediaPlan } : {}),
             estimatedTokens: requestTokens,
           });
         } catch (error) {
@@ -346,7 +411,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
         input: requestInput,
         tools: toolSchemas,
         ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.media ? { media: options.media } : {}),
+        ...(mediaPlan ? { media: mediaPlan } : {}),
         capture: (projection) => {
           capturedProjection = projection;
         },
@@ -556,9 +621,12 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
   /**
    * Run a step's calls in the order the model gave them.
    *
-   * Consecutive read-only calls are dispatched together, up to a cap. Everything
-   * else is strictly sequential: a write needs its own turn, and two writes to
-   * the same file must not race.
+   * Authorization runs before execution for every call in the group, so a
+   * waiting approval is surfaced before an unconcerned read is dispatched.
+   * Consecutive read-only builtin calls are dispatched together, up to a cap;
+   * everything else is strictly sequential. An external read is never grouped:
+   * even a read crosses a network boundary and may be the call a person needs
+   * to approve.
    */
   async function* executeCalls(
     calls: readonly Extract<LoopOutputItem, { type: 'function_call' }>[],
@@ -569,12 +637,14 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       const plans: CallPlan[] = [];
       const first = planFor(calls[index] as Extract<LoopOutputItem, { type: 'function_call' }>);
 
-      if (first.definition?.readOnly === true) {
+      if (first.definition?.readOnly === true && first.definition.sideEffect !== 'external_read') {
         while (index < calls.length && plans.length < MAX_PARALLEL_READS) {
           const next = planFor(
             calls[index] as Extract<LoopOutputItem, { type: 'function_call' }>,
           );
-          if (next.definition?.readOnly !== true) break;
+          if (next.definition?.readOnly !== true || next.definition.sideEffect === 'external_read') {
+            break;
+          }
           plans.push(next);
           index += 1;
         }
@@ -602,39 +672,94 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
           name: plan.call.name,
           displayable: true,
           summary: plan.summary,
+          ...callOrigin(plan),
         };
       }
 
-      if (plans.length > 1) {
-        const results = await Promise.all(plans.map((plan) => invoke(plan)));
-        for (const [offset, plan] of plans.entries()) {
-          const invocation = results[offset] as Invocation;
-          const resultItem = {
-            type: 'function_call_result' as const,
+      // Phase one: a decision for every call, before any of them executes. A
+      // denial is turned into a model-visible refusal below; a wait is shown to
+      // the person and blocks only its own call.
+      const decisions = new Map<CallPlan, { readonly decision: ToolPermissionDecision; readonly actionId?: string }>();
+      for (const plan of plans) {
+        let decision = await authorize(plan);
+        let actionId = decision.kind === 'deny' ? undefined : decision.actionId;
+        if (decision.kind === 'wait') {
+          yield {
+            type: 'approval_required',
+            interactionId: decision.interactionId,
             callId: plan.call.callId,
             name: plan.call.name,
-            output: renderToolResult(invocation.result),
+            summary: decision.summary,
+            ...(decision.expiresAt ? { expiresAt: decision.expiresAt.toISOString() } : {}),
+            ...callOrigin(plan),
           };
-          input.push(resultItem);
-          await recordInvocation(plan, invocation);
-          await recordTranscriptToolResult(step, resultItem, invocation);
-          yield toolResultEvent(plan, invocation);
+          let resolution: Awaited<ReturnType<ToolPermissionPort['awaitDecision']>>;
+          try {
+            resolution = await options.permission!.awaitDecision(decision.interactionId, {
+              ...(options.signal ? { signal: options.signal } : {}),
+              timeoutMs: approvalTimeoutMs,
+            });
+          } catch (error) {
+            resolution = {
+              kind: 'unknown',
+              reason: error instanceof Error ? error.message : String(error),
+            };
+          }
+          if (resolution.kind === 'allow' && resolution.actionId) actionId = resolution.actionId;
+          decision =
+            resolution.kind === 'allow'
+              ? { kind: 'allow', ...(resolution.grantId ? { grantId: resolution.grantId } : {}) }
+              : resolution.kind === 'deny'
+                ? { kind: 'deny', reason: resolution.reason }
+                : {
+                    kind: 'deny',
+                    reason: `这次外部调用还在等待人工确认，但等待已经结束（${resolution.reason}）。它没有执行，也不会自动重试；需要重新发起。`,
+                  };
         }
-        continue;
+        decisions.set(plan, { decision, ...(actionId ? { actionId } : {}) });
       }
 
-      const plan = plans[0] as CallPlan;
-      const invocation = await invoke(plan);
-      const resultItem = {
-        type: 'function_call_result' as const,
-        callId: plan.call.callId,
-        name: plan.call.name,
-        output: renderToolResult(invocation.result),
-      };
-      input.push(resultItem);
-      await recordInvocation(plan, invocation);
-      await recordTranscriptToolResult(step, resultItem, invocation);
-      yield toolResultEvent(plan, invocation);
+      // Phase two: run what was allowed. Only a group of builtin reads is
+      // concurrent; an external call is always alone so its progress and
+      // cancellation remain attributable.
+      const results = new Map<CallPlan, Invocation>();
+      const allAllowed = plans.every((plan) => decisions.get(plan)?.decision.kind === 'allow');
+      if (plans.length > 1 && allAllowed) {
+        const parallel = await Promise.all(
+          plans.map((plan) => invoke(plan, decisions.get(plan)?.actionId)),
+        );
+        for (const [offset, plan] of plans.entries()) {
+          results.set(plan, parallel[offset] as Invocation);
+        }
+      } else {
+        for (const plan of plans) {
+          const decided = decisions.get(plan);
+          if (decided?.decision.kind === 'deny') {
+            results.set(plan, {
+              result: toolError(decided.decision.reason, { approvalDenied: true }),
+              durationMs: 0,
+            });
+            continue;
+          }
+          results.set(plan, await invoke(plan, decided?.actionId));
+        }
+      }
+
+      for (const plan of plans) {
+        const invocation = results.get(plan) as Invocation;
+        const images = resultImages(invocation.result);
+        const resultItem = {
+          type: 'function_call_result' as const,
+          callId: plan.call.callId,
+          name: plan.call.name,
+          output: renderToolResult(invocation.result),
+          ...(images.length > 0 ? { images } : {}),
+        };
+        input.push(resultItem);
+        await recordInvocation(plan, invocation);
+        await recordTranscriptToolResult(step, resultItem, invocation);
+        yield toolResultEvent(plan, invocation);
+      }
     }
   }
 
@@ -644,16 +769,53 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       ? (parsed.value as Record<string, unknown>)
       : {};
     const definition = options.tools.get(call.name);
+    let validationError: string | null = null;
+    if (parsed.ok && definition) {
+      const check = contractOf(definition).validate(args);
+      if (!check.ok) validationError = check.error;
+    }
     return {
       call: { callId: call.callId, name: call.name, arguments: call.arguments },
       definition,
       args,
       summary: summarizeToolCall(call.name, args),
       parseError: parsed.ok ? null : parsed.error,
+      validationError,
     };
   }
 
-  async function invoke(plan: CallPlan): Promise<Invocation> {
+  /**
+   * Ask the unified policy about one call.
+   *
+   * A builtin tool's decision is the loop's existing fail-closed policy. An MCP
+   * tool has no local policy that could be right: it needs the owner, the
+   * conversation, the server's account and the persisted approval, so only the
+   * injected port may answer.
+   */
+  async function authorize(plan: CallPlan): Promise<ToolPermissionDecision> {
+    if (plan.parseError !== null || !plan.definition || plan.validationError !== null) {
+      return { kind: 'allow' };
+    }
+    const contract = contractOf(plan.definition);
+    if (contract.source !== 'mcp') return { kind: 'allow' };
+    if (!options.permission) {
+      return {
+        kind: 'deny',
+        reason: `外部工具 ${plan.call.name} 没有可用的授权通道，已拒绝执行。`,
+      };
+    }
+    return options.permission.decide({
+      tool: plan.definition,
+      contract,
+      args: plan.args,
+      callId: plan.call.callId,
+      userId: options.toolContext.userId ?? null,
+      conversationId: options.toolContext.conversationId ?? null,
+      summary: plan.summary,
+    });
+  }
+
+  async function invoke(plan: CallPlan, actionId?: string): Promise<Invocation> {
     const startedAtMs = Date.now();
 
     if (plan.parseError !== null) {
@@ -675,13 +837,16 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       return { result: toolError(denial), durationMs: Date.now() - startedAtMs };
     }
 
-    const parsed = plan.definition.parameters.safeParse(plan.args);
-    if (!parsed.success) {
+    if (plan.validationError !== null) {
       return {
-        result: toolError(`invalid arguments for ${plan.call.name}: ${formatIssues(parsed.error)}`),
+        result: toolError(`invalid arguments for ${plan.call.name}: ${plan.validationError}`),
         durationMs: Date.now() - startedAtMs,
       };
     }
+    // The contract already returned the normalized value; the tool consumes the
+    // same object the validator accepted rather than re-parsing a second time.
+    const check = contractOf(plan.definition).validate(plan.args);
+    const args = check.ok ? check.value : plan.args;
 
     const timeoutMs = plan.definition.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
     const controller = new AbortController();
@@ -690,9 +855,12 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
 
     let timer: NodeJS.Timeout | undefined;
     try {
-      const execution = plan.definition.execute(parsed.data, {
+      const execution = plan.definition.execute(args, {
         ...options.toolContext,
         toolCallId: plan.call.callId,
+        // The permission port creates the durable action before approval; the
+        // adapter records its execution against that same id.
+        actionId: actionId ?? options.toolContext.actionId ?? plan.call.callId,
         signal: controller.signal,
       });
       const result = await Promise.race([
@@ -743,12 +911,16 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
     const { result } = invocation;
     const executionId =
       typeof result.meta?.executionId === 'string' ? result.meta.executionId : undefined;
+    // `unknown` is a terminal status: a call that was sent and never reconciled
+    // is not a failure, and recording it as one would invite a retry that the
+    // remote side may already have executed.
+    const unknown = result.meta?.executionStatus === 'unknown';
     await record(() =>
       recorder.toolResult({
         callId: plan.call.callId,
         name: plan.call.name,
         ok: result.ok,
-        status: result.ok ? 'succeeded' : 'failed',
+        status: unknown ? 'unknown' : result.ok ? 'succeeded' : 'failed',
         ...(executionId ? { executionId } : {}),
         output: result.output,
         outputChars: result.output.length,
@@ -759,6 +931,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
 
   function toolResultEvent(plan: CallPlan, invocation: Invocation): AgentEvent {
     const { result } = invocation;
+    const images = resultImages(result);
     return {
       type: 'tool_result',
       callId: plan.call.callId,
@@ -766,6 +939,8 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       ok: result.ok,
       durationMs: invocation.durationMs,
       summary: summarizeToolResult(plan.call.name, result),
+      ...callOrigin(plan),
+      ...(images.length > 0 ? { images: images.length } : {}),
       ...(result.ok
         ? {}
         : { error: truncateLine(result.error ?? 'tool failed', 300) }),
@@ -773,6 +948,13 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       // that was refused already recorded the two ids in `meta`.
       ...(result.meta?.approval ? { approval: result.meta.approval } : {}),
     };
+  }
+
+  function callOrigin(plan: CallPlan): { source?: 'builtin' | 'mcp'; originLabel?: string } {
+    if (!plan.definition) return {};
+    const contract = contractOf(plan.definition);
+    if (contract.source !== 'mcp') return { source: 'builtin' };
+    return { source: 'mcp', originLabel: toolOriginLabel(contract) };
   }
 }
 
@@ -813,12 +995,6 @@ function clampOutput(result: ToolResult, maxChars: number): ToolResult {
   };
 }
 
-function formatIssues(error: ZodError): string {
-  return error.issues
-    .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-    .join('; ');
-}
-
 function cacheLog(usage: ModelUsage | undefined): Record<string, number> {
   if (!usage || usage.inputTokens <= 0) return {};
   return {
@@ -833,4 +1009,66 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   const error = new Error('cancelled');
   error.name = 'AbortError';
   throw error;
+}
+
+
+/** Every image asset id referenced by the request, in order, de-duplicated. */
+function collectImageIds(items: readonly LoopInputItem[]): string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  const push = (id: string): void => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    ids.push(id);
+  };
+  for (const item of items) {
+    if (item.type === 'message' && typeof item.content !== 'string') {
+      for (const part of item.content) {
+        if (part.type === 'image') push(part.assetId);
+      }
+      continue;
+    }
+    if (item.type === 'function_call_result' && item.images) {
+      for (const image of item.images) push(image.assetId);
+    }
+  }
+  return ids;
+}
+
+/**
+ * A cheap identity for the set of images a request would carry.
+ *
+ * Order matters: the same two images in a different order are a different
+ * request. The signature is only used to decide *whether* to re-plan, never as
+ * a cache key for bytes.
+ */
+function imageSignature(items: readonly LoopInputItem[]): string {
+  let signature = '';
+  for (const item of items) {
+    if (item.type === 'message' && typeof item.content !== 'string') {
+      for (const part of item.content) {
+        if (part.type === 'image') signature += `m:${part.assetId};`;
+      }
+      continue;
+    }
+    if (item.type === 'function_call_result' && item.images) {
+      for (const image of item.images) signature += `t:${item.callId}:${image.assetId};`;
+    }
+  }
+  return signature;
+}
+
+/** Images from a tool result, already imported into private storage. */
+function resultImages(result: ToolResult): ToolResultImage[] {
+  if (!result.content) return [];
+  return result.content
+    .filter((block): block is Extract<ToolContentBlock, { type: 'image' }> => block.type === 'image')
+    .map((block) => ({
+      assetId: block.assetId,
+      mediaType: block.mediaType,
+      width: block.width,
+      height: block.height,
+      bytes: block.bytes,
+      name: block.name,
+    }));
 }

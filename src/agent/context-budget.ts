@@ -247,7 +247,14 @@ export function estimateItemTokens(
     case 'function_call':
       return estimateTokens(item.name, mode) + estimateTokens(item.arguments, mode) + ITEM_OVERHEAD_TOKENS;
     case 'function_call_result':
-      return estimateTokens(item.output, mode) + ITEM_OVERHEAD_TOKENS;
+      return (
+        estimateTokens(item.output, mode) +
+        ITEM_OVERHEAD_TOKENS +
+        (item.images ?? []).reduce(
+          (sum, image) => sum + (media?.images.get(image.assetId)?.estimatedTokens ?? 0),
+          0,
+        )
+      );
     case 'reasoning':
       return estimateTokens(item.text, mode) + ITEM_OVERHEAD_TOKENS;
   }

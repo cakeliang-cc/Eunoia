@@ -601,6 +601,12 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore, ModelTr
     return true;
   }
 
+  async bindMediaAsset(userId: string, assetId: string): Promise<void> {
+    const asset = this.#media.get(assetId);
+    if (!asset || asset.userId !== userId || asset.status !== 'pending') return;
+    this.#media.set(assetId, { ...asset, status: 'bound', leaseExpiresAt: null });
+  }
+
   async deleteMediaAssets(assetIds: readonly string[]): Promise<void> {
     for (const id of assetIds) this.#media.delete(id);
   }

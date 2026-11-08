@@ -67,6 +67,10 @@ export interface ToolCallEvent {
   readonly type: 'tool_call';
   readonly callId: string;
   readonly name: string;
+  /** `builtin` or `mcp`; the chat card must not have to guess from the name. */
+  readonly source?: 'builtin' | 'mcp';
+  /** For an MCP call: "服务名 · 工具名". */
+  readonly originLabel?: string;
   /**
    * Whether the call is safe to show the user. Memory tools are, but this
    * exists so a future tool with sensitive arguments is not leaked by default.
@@ -81,16 +85,30 @@ export interface ToolCallEvent {
 }
 
 /** A tool call finished. */
+export interface ApprovalRequiredEvent {
+  readonly type: 'approval_required';
+  readonly interactionId: string;
+  readonly callId: string;
+  readonly name: string;
+  readonly originLabel?: string;
+  readonly summary: string;
+  readonly expiresAt?: string;
+}
+
 export interface ToolResultEvent {
   readonly type: 'tool_result';
   readonly callId: string;
   readonly name: string;
+  readonly source?: 'builtin' | 'mcp';
+  readonly originLabel?: string;
   readonly ok: boolean;
   readonly durationMs?: number;
   /** A one-line outcome for the trace, not the result body. */
   readonly summary?: string;
   /** Present when `ok` is false; bounded by the tool, never a stack trace. */
   readonly error?: string;
+  /** How many images the result imported into the conversation's media store. */
+  readonly images?: number;
   /**
    * Present when the permission layer stopped the call and is waiting for a
    * person. The ids address the persisted request and its approval queue entry;
@@ -265,6 +283,7 @@ export type AgentEvent =
   | ThinkingDeltaEvent
   | ThinkingDoneEvent
   | ToolCallEvent
+  | ApprovalRequiredEvent
   | ToolResultEvent
   | LoopExhaustedEvent
   | MemoryRetrievedEvent

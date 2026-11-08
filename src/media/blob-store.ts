@@ -32,7 +32,11 @@ export interface BlobBodies {
 
 export interface MediaBlobStore {
   put(paths: BlobPaths, bodies: BlobBodies): Promise<void>;
+  /** Write one opaque blob (a non-image tool artifact) under its own key. */
+  putBinary?(key: string, bytes: Uint8Array): Promise<void>;
   read(key: string): Promise<Buffer>;
+  /** Remove one key, used by artifact cleanup. */
+  removeKey?(key: string): Promise<void>;
   /** Remove every file recorded for one asset, then its (now empty) directory. */
   remove(paths: BlobPaths): Promise<void>;
   exists(key: string): Promise<boolean>;
@@ -85,6 +89,26 @@ export class FileMediaBlobStore implements MediaBlobStore {
         details: { reason: error instanceof Error ? error.message : String(error) },
       });
     }
+  }
+
+  async putBinary(key: string, bytes: Uint8Array): Promise<void> {
+    const file = this.#resolve(key);
+    await mkdir(dirname(file), { recursive: true, mode: 0o700 });
+    const temporary = `${file}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, bytes, { mode: 0o600 });
+      await rename(temporary, file);
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => undefined);
+      throw new MediaError('MEDIA_STORE_FAILED', '工具产物写入失败', 500, {
+        retryable: true,
+        details: { reason: error instanceof Error ? error.message : String(error) },
+      });
+    }
+  }
+
+  async removeKey(key: string): Promise<void> {
+    await rm(this.#resolve(key), { force: true }).catch(() => undefined);
   }
 
   async read(key: string): Promise<Buffer> {
@@ -145,6 +169,14 @@ export class MemoryMediaBlobStore implements MediaBlobStore {
     this.#files.set(paths.original, Uint8Array.from(bodies.original));
     this.#files.set(paths.normalized, Uint8Array.from(bodies.normalized));
     this.#files.set(paths.request, Uint8Array.from(bodies.request));
+  }
+
+  async putBinary(key: string, bytes: Uint8Array): Promise<void> {
+    this.#files.set(key, Uint8Array.from(bytes));
+  }
+
+  async removeKey(key: string): Promise<void> {
+    this.#files.delete(key);
   }
 
   async read(key: string): Promise<Buffer> {

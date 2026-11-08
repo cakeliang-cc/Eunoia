@@ -153,3 +153,53 @@ export async function loadMediaPlan(
 export function plannedImages(plan: PreparedMediaPlan): PreparedImage[] {
   return [...plan.images.values()];
 }
+
+/**
+ * Plan the media for one model step whose images came from tool results.
+ *
+ * A turn's image set can grow while it runs: step three may return screenshots
+ * the plan made before step one never priced. The loop asks for a new plan
+ * whenever the set changes, and this is the service-side half of that request.
+ *
+ * The planner sees the images as one ordered list. Text is estimated by the
+ * loop from the actual items, not from this synthetic content, so nothing is
+ * counted twice.
+ */
+export async function planToolImages(
+  deps: MediaTurnDeps,
+  input: {
+    readonly userId: string;
+    readonly conversationId: string;
+    readonly profile: ModelProfile;
+    readonly imageIds: readonly string[];
+    readonly requiresTools?: boolean;
+    readonly fixedTokens?: number;
+  },
+): Promise<LoadedMediaPlan | null> {
+  const unique = [...new Set(input.imageIds)];
+  if (unique.length === 0) return null;
+  if (!deps.media) {
+    throw new MediaError('MEDIA_UNAVAILABLE', '这个进程没有配置图片存储，工具返回的图片无法发送。', 422);
+  }
+  const assets = await deps.media.resolve(input.userId, input.conversationId, unique);
+  const content: UserContentV1 = {
+    version: 1,
+    parts: input.imageIds.map((assetId) => ({ type: 'image' as const, assetId })),
+  };
+  const result = planMediaRequest({
+    profile: input.profile,
+    policy: deps.policies.forRoute(input.profile.capabilities),
+    current: content,
+    history: [],
+    assets,
+    limits: deps.limits,
+    ...(deps.inputBudgetTokens !== null && deps.inputBudgetTokens !== undefined
+      ? { inputBudgetTokens: deps.inputBudgetTokens }
+      : {}),
+    ...(input.fixedTokens !== undefined ? { fixedTokens: input.fixedTokens } : {}),
+    ...(input.requiresTools !== undefined ? { requiresTools: input.requiresTools } : {}),
+    ...(deps.availableModels ? { availableModels: deps.availableModels } : {}),
+  });
+  if (!result.ok) throw result.error;
+  return loadMediaPlan({ media: deps.media }, input.userId, result.plan);
+}

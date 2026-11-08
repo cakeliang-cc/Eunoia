@@ -15,8 +15,28 @@
  * and the event stream belong to the loop; a tool cannot approve itself.
  */
 
-import { jsonSchemaOf } from './schema.ts';
+import { zodContract } from './contract.ts';
+import type { ToolContract } from './contract.ts';
 import type { ToolDefinition, ToolSchema } from './types.ts';
+
+/**
+ * The contract a definition is governed by.
+ *
+ * A builtin tool defined before contracts existed still gets a faithful one
+ * derived from its Zod schema; nothing about its behaviour changes. An MCP tool
+ * always carries an explicit contract, so this never invents a looser one.
+ */
+export function contractOf(tool: ToolDefinition): ToolContract {
+  return (
+    tool.contract ??
+    zodContract({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+      ...(tool.guidelines ? { guidelines: tool.guidelines } : {}),
+    })
+  );
+}
 
 export class ToolRegistry {
   private readonly byName = new Map<string, ToolDefinition>();
@@ -61,11 +81,20 @@ export class ToolRegistry {
 
   /** The declarations sent to the model. */
   schemas(): readonly ToolSchema[] {
-    return this.list().map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: jsonSchemaOf(tool.parameters),
-    }));
+    return this.list().map((tool) => {
+      const contract = contractOf(tool);
+      return {
+        name: contract.name,
+        description: contract.description,
+        parameters: contract.inputSchema as Record<string, unknown>,
+      };
+    });
+  }
+
+  /** The contract for a name, or undefined when the tool is not registered. */
+  contract(name: string): ToolContract | undefined {
+    const tool = this.get(name);
+    return tool ? contractOf(tool) : undefined;
   }
 
   /**
@@ -77,7 +106,7 @@ export class ToolRegistry {
    */
   guidelines(): string {
     const entries = this.list()
-      .map((tool) => tool.guidelines?.trim())
+      .map((tool) => (contractOf(tool).guidelines ?? tool.guidelines)?.trim())
       .filter((line): line is string => Boolean(line));
     return entries.join('\n');
   }

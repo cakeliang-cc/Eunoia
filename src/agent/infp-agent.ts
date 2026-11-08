@@ -26,6 +26,7 @@ import { DEFAULT_MAX_STEPS, runAgentLoop } from './loop.ts';
 import { createModelTurnResolver } from './model-turn.ts';
 import type { LoopInputItem, ModelTurn } from './model-port.ts';
 import type { UserContentV1 } from './content.ts';
+import type { ToolPermissionPort } from '../tools/types.ts';
 import { contentText } from './content.ts';
 import type { PreparedMediaPlan } from './request-plan.ts';
 import type { AgentEvent } from './events.ts';
@@ -209,6 +210,16 @@ export interface StreamReplyOptions {
   readonly input?: readonly LoopInputItem[];
   /** Durable transcript hooks. Absent in legacy mode. */
   readonly transcript?: LoopTranscript;
+  /** Unified authorization for external tools (ADR 033). */
+  readonly permission?: ToolPermissionPort | null;
+  /** Re-plan media when tool results add images mid-turn. */
+  readonly prepareMedia?: (input: {
+    readonly imageIds: readonly string[];
+  }) => Promise<PreparedMediaPlan | undefined>;
+  /** Turn scope, passed to tools that need ownership (MCP media, approvals). */
+  readonly userId?: string;
+  readonly conversationId?: string;
+  readonly approvalTimeoutMs?: number;
 }
 
 /**
@@ -275,6 +286,9 @@ export async function* streamReply(
       policy: agent.policy,
       ledger: agent.ledger,
       now: agent.now,
+      ...(options.userId ? { userId: options.userId } : {}),
+      ...(options.conversationId ? { conversationId: options.conversationId } : {}),
+      ...(options.permission ? { permission: options.permission } : {}),
     },
     maxSteps: options.maxTurns ?? agent.maxSteps,
     ...(options.signal ? { signal: options.signal } : {}),
@@ -282,6 +296,11 @@ export async function* streamReply(
     ...(agent.contextBudget ? { contextBudget: agent.contextBudget } : {}),
     ...(options.media ? { media: options.media } : {}),
     ...(options.transcript ? { transcript: options.transcript } : {}),
+    ...(options.permission ? { permission: options.permission } : {}),
+    ...(options.prepareMedia ? { prepareMedia: options.prepareMedia } : {}),
+    ...(options.approvalTimeoutMs !== undefined
+      ? { approvalTimeoutMs: options.approvalTimeoutMs }
+      : {}),
   });
 }
 

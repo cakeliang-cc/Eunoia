@@ -71,6 +71,7 @@ import {
   SQLITE_MIGRATION_8,
   SQLITE_MIGRATION_9,
   SQLITE_MIGRATION_10,
+  SQLITE_MIGRATION_11,
   SQLITE_SCHEMA,
   SQLITE_SCHEMA_VERSION,
 } from './sqlite-schema.ts';
@@ -1120,6 +1121,15 @@ export class SqliteStore implements Store, TurnStore, MediaAssetStore, ModelTran
     return result.changes > 0;
   }
 
+  async bindMediaAsset(userId: string, assetId: string): Promise<void> {
+    this.#run(
+      `UPDATE media_assets SET status = 'bound', lease_expires_at = NULL
+        WHERE user_id = ? AND id = ? AND status = 'pending'`,
+      userId,
+      assetId,
+    );
+  }
+
   async deleteMediaAssets(assetIds: readonly string[]): Promise<void> {
     if (assetIds.length === 0) return;
     const placeholders = assetIds.map(() => '?').join(', ');
@@ -1954,6 +1964,9 @@ export function openSqliteStore(path: string): SqliteStore {
     }
     if (version < 10) {
       migrateToVersion10(db);
+    }
+    if (version < 11) {
+      db.exec(SQLITE_MIGRATION_11);
     }
   }
   if (version < SQLITE_SCHEMA_VERSION) {

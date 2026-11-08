@@ -45,6 +45,15 @@ export interface MediaAssetStore {
    */
   deletePendingMediaAsset(userId: string, assetId: string, now?: Date): Promise<boolean>;
 
+  /**
+   * Mark a pending asset as referenced by a durable non-message fact.
+   *
+   * An MCP tool result is such a fact: the image is part of a persisted call,
+   * not of a user upload, and the collector must not remove it as an
+   * unreferenced draft while the action record still points at it.
+   */
+  bindMediaAsset(userId: string, assetId: string): Promise<void>;
+
   /** Delete metadata rows after their blobs were removed. */
   deleteMediaAssets(assetIds: readonly string[]): Promise<void>;
 

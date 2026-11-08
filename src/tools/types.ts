@@ -15,6 +15,8 @@
  */
 
 import type { z } from 'zod';
+import type { ToolContract } from './contract.ts';
+import { zodContract } from './contract.ts';
 
 /**
  * What calling a tool can change.
@@ -38,7 +40,62 @@ export type ToolSideEffect =
    * either "read-only" (it changes ordering) or "workspace_write" (it does not
    * write anything).
    */
-  | 'workspace_state';
+  | 'workspace_state'
+  /**
+   * An MCP call that only reads from an external service (ADR 033).
+   *
+   * The class is decided by the application's policy, never by the server's
+   * `readOnlyHint`: a server that describes itself as harmless is still an
+   * external party executing code we did not write.
+   */
+  | 'external_read'
+  | 'external_write'
+  /** An external call whose effect the application cannot classify. */
+  | 'external_unknown';
+
+/**
+ * One ordered block of a tool result.
+ *
+ * `output` on `ToolResult` stays the stable text projection old tools and old
+ * clients read. `content` is the authority when present: the text projection is
+ * derived from it at the boundary, so the two can never disagree about order or
+ * about which images were really returned.
+ */
+export type ToolContentBlock =
+  | { readonly type: 'text'; readonly text: string }
+  | {
+      readonly type: 'image';
+      /** Private media asset id. Never a remote URL and never raw bytes. */
+      readonly assetId: string;
+      readonly mediaType: string;
+      readonly width: number;
+      readonly height: number;
+      readonly bytes: number;
+      readonly name: string;
+      /** Tool results are not user uploads; the model must be able to see that. */
+      readonly source: 'tool';
+    }
+  | {
+      readonly type: 'resource_link';
+      readonly uri: string;
+      readonly name?: string;
+      readonly mimeType?: string;
+      readonly description?: string;
+    }
+  | {
+      readonly type: 'embedded_text';
+      readonly uri: string;
+      readonly mimeType: string;
+      readonly text: string;
+    }
+  | {
+      /** A non-image binary kept in private storage; never a local path. */
+      readonly type: 'artifact';
+      readonly artifactId: string;
+      readonly mimeType: string;
+      readonly bytes: number;
+      name?: string;
+    };
 
 /** What a tool returns to the loop. Always serialisable: it goes back to the model. */
 export interface ToolResult {
@@ -46,6 +103,15 @@ export interface ToolResult {
   readonly output: string;
   readonly error?: string;
   readonly meta?: ToolResultMeta;
+  /** Ordered result blocks. Absent on the legacy string-only path. */
+  readonly content?: readonly ToolContentBlock[];
+  /** `structuredContent` from an MCP result, kept separate from the text. */
+  readonly structuredContent?: unknown;
+  /**
+   * Failed, but the failure is a pending human interaction rather than an
+   * error the model should retry. The loop stops and the UI asks.
+   */
+  readonly pendingInteraction?: { readonly interactionId: string; readonly summary: string };
 }
 
 /**
@@ -179,6 +245,21 @@ export interface ToolContext {
   readonly ledger: ReadLedger;
   readonly signal?: AbortSignal;
   readonly now: Date;
+  /**
+   * The unified authorization port (ADR 033).
+   *
+   * Present on a turn that may call an MCP tool. A tool never decides its own
+   * approval: it asks this port, which knows the owner, the conversation, the
+   * account and the persisted interaction.
+   */
+  readonly permission?: ToolPermissionPort | null;
+  /** Private media import for tool-returned images. */
+  readonly media?: ToolMediaPort | null;
+  /** The conversation this turn belongs to, for ownership on imported media. */
+  readonly conversationId?: string;
+  readonly userId?: string;
+  /** The persisted action id, when the turn is backed by a durable record. */
+  readonly actionId?: string;
 }
 
 // ------------------------------------------------------------------- ports ---
@@ -361,8 +442,22 @@ export interface ToolExecutionResult {
 export interface ToolDefinition {
   readonly name: string;
   readonly description: string;
+  /**
+   * The validator for this tool.
+   *
+   * Builtin tools carry a Zod schema; an MCP tool carries a JSON Schema and a
+   * `contract`, and this field is a passthrough so the two kinds share one
+   * definition shape. The registry and the loop always prefer `contract`, which
+   * is why the passthrough can never weaken an MCP tool.
+   */
   readonly parameters: z.ZodType;
+  /** The authoritative declaration and validator (ADR 033). */
+  readonly contract?: ToolContract;
+  /** Provenance when `contract` is absent or when the UI needs it cheaply. */
+  readonly origin?: import('./contract.ts').ToolOrigin;
   readonly sideEffect: ToolSideEffect;
+  /** Whether the application has declared the call safe to retry. */
+  readonly idempotent?: boolean;
   /**
    * Whether several calls of this tool may run concurrently within one model
    * step. Reads are; writes are not, because two writes to one file racing is
@@ -397,6 +492,13 @@ export function defineTool<Schema extends z.ZodType>(spec: {
 }): ToolDefinition {
   return {
     ...spec,
+    contract: zodContract({
+      name: spec.name,
+      description: spec.description,
+      parameters: spec.parameters,
+      ...(spec.guidelines ? { guidelines: spec.guidelines } : {}),
+    }),
+    origin: { kind: 'builtin' },
     execute: (args, context) => spec.execute(args as z.infer<Schema>, context),
   };
 }
@@ -423,4 +525,96 @@ export function renderToolResult(result: ToolResult): string {
   // assertion lives in the output, not in the exit code. Dropping it because
   // `ok` is false is how the model ends up fixing the wrong thing.
   return result.output.trim().length > 0 ? `${error}\n${result.output}` : error;
+}
+
+
+// -------------------------------------------------- authorization contract ---
+
+/**
+ * One authorization question, already bound to the exact action.
+ *
+ * The digest of the arguments is part of the request on purpose: an approval
+ * for `write(file="a")` must not authorize `write(file="b")` if the model's
+ * call was edited between the question and the answer.
+ */
+export interface ToolPermissionRequest {
+  readonly tool: ToolDefinition;
+  readonly contract: ToolContract;
+  readonly args: Record<string, unknown>;
+  readonly callId: string;
+  readonly userId: string | null;
+  readonly conversationId: string | null;
+  readonly summary: string;
+}
+
+/**
+ * What the policy says about one call.
+ *
+ * `wait` is not a denial: it means a person must decide, and the loop is
+ * expected to stop and surface the interaction rather than ask the model to try
+ * again. That distinction is the difference between an approval flow and a
+ * model that keeps retrying a blocked call.
+ */
+export type ToolPermissionDecision =
+  | { readonly kind: 'allow'; readonly grantId?: string; readonly actionId?: string }
+  | { readonly kind: 'deny'; readonly reason: string }
+  | {
+      readonly kind: 'wait';
+      readonly interactionId: string;
+      readonly summary: string;
+      readonly expiresAt?: Date;
+      /** The persisted action this decision is about. */
+      readonly actionId?: string;
+    };
+
+export type ToolPermissionResolution =
+  | { readonly kind: 'allow'; readonly grantId?: string; readonly actionId?: string }
+  | { readonly kind: 'deny'; readonly reason: string }
+  | {
+      readonly kind: 'unknown';
+      /** Why the wait ended without a decision (expired, cancelled, restart). */
+      readonly reason: string;
+    };
+
+export interface ToolPermissionPort {
+  decide(request: ToolPermissionRequest): Promise<ToolPermissionDecision>;
+  /**
+   * Block until the person answers, the interaction expires, or the turn is
+   * cancelled. A restart cannot resolve a wait: the interaction stays persisted
+   * and an explicit resume action answers it.
+   */
+  awaitDecision(
+    interactionId: string,
+    options: { readonly signal?: AbortSignal; readonly timeoutMs?: number },
+  ): Promise<ToolPermissionResolution>;
+}
+
+// ------------------------------------------------------------ media import ---
+
+export interface ImportedToolImage {
+  readonly assetId: string;
+  readonly mediaType: string;
+  readonly width: number;
+  readonly height: number;
+  readonly bytes: number;
+  readonly name: string;
+}
+
+export interface ToolMediaPort {
+  /**
+   * Store bytes a server returned as a private, conversation-scoped asset.
+   *
+   * The caller supplies the action id so the asset can be traced back to the
+   * call that produced it, and so a cleanup can find it. The bytes are decoded
+   * and bounded by the same limits as an upload; a corrupt or unsupported image
+   * is reported, never stored as if it were valid.
+   */
+  importToolImage(input: {
+    readonly userId: string;
+    readonly conversationId: string;
+    readonly actionId: string;
+    readonly name: string;
+    readonly mediaType: string;
+    readonly bytes: Uint8Array;
+  }): Promise<ImportedToolImage>;
 }

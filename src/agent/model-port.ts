@@ -47,7 +47,19 @@ export type LoopInputItem =
       readonly type: 'function_call_result';
       readonly callId: string;
       readonly name: string;
+      /**
+       * The stable text projection. With images present this is still the text
+       * the model reads first; the images follow as ordered parts.
+       */
       readonly output: string;
+      /**
+       * Images an MCP tool returned, already imported into private storage.
+       *
+       * They travel with the result so the call/result pairing and the block
+       * order are preserved. A tool result image is not a user upload: the
+       * adapter labels it as tool output in the associated text.
+       */
+      readonly images?: readonly ToolResultImage[];
     }
   | {
       readonly type: 'reasoning';
@@ -57,6 +69,15 @@ export type LoopInputItem =
       /** The adapter's original item, replayed verbatim when present. */
       readonly raw?: unknown;
     };
+
+export interface ToolResultImage {
+  readonly assetId: string;
+  readonly mediaType: string;
+  readonly width: number;
+  readonly height: number;
+  readonly bytes: number;
+  readonly name: string;
+}
 
 export type LoopOutputItem =
   | {

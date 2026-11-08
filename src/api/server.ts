@@ -96,6 +96,10 @@ import type {
 import { discoverSkillRegistry } from '../skills/registry.ts';
 import type { SkillRegistry } from '../skills/registry.ts';
 import { clearIdentity, readIdentity, resolveIdentity, singleUserId } from './identity.ts';
+import { handleMcpRoutes } from './mcp-routes.ts';
+import type { McpService } from '../mcp/service.ts';
+import type { McpRuntime } from '../mcp/runtime.ts';
+import { createMcpRuntime } from '../mcp/runtime.ts';
 import {
   PERMISSION_MODE_DEFAULT_KEY,
   isPermissionMode,
@@ -691,6 +695,10 @@ export interface AppDependencies {
   readonly modelProfiles?: (id: string) => ModelProfile;
   /** Server-side replay switch. Defaults to the process environment. */
   readonly transcriptMode?: TranscriptMode;
+  /** The MCP host, when this process has one. */
+  readonly mcp?: McpService | null;
+  /** The runtime behind the MCP service, for status/interaction streams. */
+  readonly mcpRuntime?: McpRuntime | null;
 }
 
 function defaultModelProfileFor(id: string): ModelProfile {
@@ -708,6 +716,8 @@ export function createApp(deps: AppDependencies) {
    */
   const turns = deps.turns ?? new TurnCoordinator(store);
   const media = deps.media ?? null;
+  const mcp = deps.mcp ?? null;
+  const mcpRuntime = deps.mcpRuntime ?? null;
   const limits = deps.mediaLimits ?? mediaLimits();
   const config = deps.sessionConfig ?? sessionConfig();
   const imagePolicies = deps.imagePolicies ?? defaultImagePolicies();
@@ -963,6 +973,7 @@ export function createApp(deps: AppDependencies) {
       ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
       ...(deps.skills ? { skills: deps.skills } : {}),
       ...(deps.transcriptMode ? { transcriptMode: deps.transcriptMode } : {}),
+      ...(deps.mcp ? { mcp: deps.mcp } : {}),
     };
   }
 
@@ -1657,6 +1668,26 @@ export function createApp(deps: AppDependencies) {
 
     // Each group owns a disjoint set of paths, so first-match-wins is a
     // property of the list, not of the order inside one 480-line function.
+    const handleMcpGroup = async (
+      request: IncomingMessage,
+      response: ServerResponse,
+      requestUrl: URL,
+    ): Promise<boolean> => {
+      if (!mcp) return false;
+      return handleMcpRoutes(request, response, requestUrl, {
+        mcp,
+        runtime: mcpRuntime,
+        identify,
+        guardRead: guardPermissionRead,
+        guardWrite: guardPermissionWrite,
+        readJson: readBodyOrReject,
+        hasConversation: async (userId, conversationId) =>
+          Boolean(await sessions.get(userId, conversationId)),
+        isUuid,
+        localToken,
+      });
+    };
+
     for (const group of [
       handleStatusRoutes,
       handleMediaRoutes,
@@ -1664,6 +1695,7 @@ export function createApp(deps: AppDependencies) {
       handleConversationRoutes,
       handleMemoryRoutes,
       handlePreferenceRoutes,
+      handleMcpGroup,
     ]) {
       if (await group(req, res, url)) return true;
     }
@@ -1695,6 +1727,7 @@ export function createApp(deps: AppDependencies) {
         skills: deps.skills?.count() ?? 0,
         skills_version: deps.skills?.version() || null,
         media: media !== null,
+        mcp: mcp !== null,
       });
       return true;
     }
@@ -2625,6 +2658,24 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     decode_concurrency: mediaLimitConfig.maxConcurrentDecodes,
   });
 
+  /**
+   * The MCP host.
+   *
+   * It shares the product store (so a deleted conversation cascades its pending
+   * approvals) and the media library (so a tool image is the same kind of
+   * private asset as an upload).
+   */
+  const mcpRuntime = createMcpRuntime({
+    store,
+    media: mediaService,
+    blobs: blobStore,
+  });
+  log.info('server.mcp', {
+    secret_storage: mcpRuntime.vault.available ? 'encrypted' : 'unavailable',
+    host_process: process.env.MCP_ALLOW_HOST_PROCESS === '1',
+    private_network: process.env.MCP_ALLOW_PRIVATE_NETWORK === '1',
+  });
+
   const server = createApp({
     store,
     sessions,
@@ -2640,6 +2691,8 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     mediaLimits: mediaLimitConfig,
     sessionConfig: config,
     transcriptMode: transcriptMode(),
+    mcp: mcpRuntime.service,
+    mcpRuntime,
   });
   log.info('server.model_transcript', { mode: transcriptMode() });
 
@@ -2664,6 +2717,7 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
 
   server.on('close', () => {
     sandboxPlatform?.stop();
+    void mcpRuntime.shutdown();
     void store.close();
   });
 
@@ -2703,6 +2757,16 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     if (sandboxPlatform) {
       void sandboxPlatform.start().catch((error: unknown) => {
         log.error('sandbox.start_failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+    // Reconnect enabled MCP servers after the listener exists, so a slow server
+    // cannot delay the health endpoint. Reconnection re-runs discovery and never
+    // replays a tool call.
+    if (single) {
+      void mcpRuntime.manager.startAll(single).catch((error: unknown) => {
+        log.warn('mcp.start_all_failed', {
           error: error instanceof Error ? error.message : String(error),
         });
       });
