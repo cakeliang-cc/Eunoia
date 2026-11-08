@@ -146,7 +146,7 @@ export function createTeamTools(host: TeamToolHost, caller: TeamToolCaller): rea
       role: z.enum(['worker', 'reviewer']).optional(),
       modelId: z.string().min(1).max(100).optional().describe('Only a model the deployment catalog lists.'),
     }),
-    sideEffect: 'command',
+    sideEffect: 'workspace_state',
     readOnly: false,
     timeoutMs: 120_000,
     guidelines:
@@ -176,7 +176,7 @@ export function createTeamTools(host: TeamToolHost, caller: TeamToolCaller): rea
       message: z.string().min(1).max(8_000),
       requestId: z.string().min(1).max(200).optional(),
     }),
-    sideEffect: 'command',
+    sideEffect: 'workspace_state',
     readOnly: false,
     timeoutMs: 30_000,
     execute: async (args) => {
@@ -222,7 +222,7 @@ export function createTeamTools(host: TeamToolHost, caller: TeamToolCaller): rea
       body: z.string().min(1).max(4_000),
       clientMessageId: z.string().min(1).max(200).describe('Idempotency key for this recipient.'),
     }),
-    sideEffect: 'command',
+    sideEffect: 'workspace_state',
     readOnly: false,
     timeoutMs: 30_000,
     execute: async (args) => {
@@ -281,7 +281,7 @@ export function createTeamTools(host: TeamToolHost, caller: TeamToolCaller): rea
     description:
       'Stop the current activation of a member. The member stays alive and can be followed up; only its running turn is cancelled.',
     parameters: z.object({ memberId: z.string().min(1).max(120) }),
-    sideEffect: 'command',
+    sideEffect: 'workspace_state',
     readOnly: false,
     timeoutMs: 30_000,
     execute: async (args) => {
@@ -299,7 +299,7 @@ export function createTeamTools(host: TeamToolHost, caller: TeamToolCaller): rea
     description:
       'Stop and close a member and its subtree. It refuses further follow-ups; its history and artifacts stay. This is not a task cancellation.',
     parameters: z.object({ memberId: z.string().min(1).max(120) }),
-    sideEffect: 'command',
+    sideEffect: 'workspace_state',
     readOnly: false,
     timeoutMs: 30_000,
     execute: async (args) => {
@@ -332,7 +332,7 @@ export function createTeamTools(host: TeamToolHost, caller: TeamToolCaller): rea
       ownerId: z.string().min(1).max(120).nullable().optional(),
       writeScopes: z.array(z.string().min(1).max(300)).max(32).optional(),
     }),
-    sideEffect: 'command',
+    sideEffect: 'workspace_state',
     readOnly: false,
     timeoutMs: 30_000,
     execute: async (args) => {
@@ -408,7 +408,7 @@ export function createTeamTools(host: TeamToolHost, caller: TeamToolCaller): rea
       ownerId: z.string().min(1).max(120).nullable().optional(),
       writeScopes: z.array(z.string().min(1).max(300)).max(32).optional(),
     }),
-    sideEffect: 'command',
+    sideEffect: 'workspace_state',
     readOnly: false,
     timeoutMs: 30_000,
     execute: async (args) => {
@@ -430,7 +430,7 @@ export function createTeamTools(host: TeamToolHost, caller: TeamToolCaller): rea
       taskId: z.string().min(1).max(120),
       expectedRevision: z.number().int().min(1),
     }),
-    sideEffect: 'command',
+    sideEffect: 'workspace_state',
     readOnly: false,
     timeoutMs: 30_000,
     execute: async (args) => {
@@ -461,7 +461,7 @@ export function createTeamTools(host: TeamToolHost, caller: TeamToolCaller): rea
       testEvidence: z.array(z.string().min(1).max(1_000)).max(64).optional(),
       candidateHash: z.string().min(1).max(200).nullable().optional(),
     }),
-    sideEffect: 'command',
+    sideEffect: 'workspace_state',
     readOnly: false,
     timeoutMs: 30_000,
     execute: async (args) => {
@@ -490,7 +490,7 @@ export function createTeamTools(host: TeamToolHost, caller: TeamToolCaller): rea
       evidence: z.array(z.string().min(1).max(1_000)).max(64).optional(),
       candidateHash: z.string().min(1).max(200).nullable().optional(),
     }),
-    sideEffect: 'command',
+    sideEffect: 'workspace_state',
     readOnly: false,
     timeoutMs: 30_000,
     execute: async (args) => {

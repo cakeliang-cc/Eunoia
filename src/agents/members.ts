@@ -966,6 +966,17 @@ export class SubagentRuntime {
         now: nowIso,
       });
     }
+    // A close may have raced this finish between the read and the write. The
+    // `closedAt` stamp is the durable fact; repair the status if the finish's
+    // "idle" write landed after the close.
+    const after = await this.#deps.teamStore.getMember(member.id);
+    if (after?.closedAt && after.status !== 'closed') {
+      await this.#deps.teamStore.updateMember(member.id, {
+        status: 'closed',
+        currentActivationId: null,
+        now: nowIso,
+      });
+    }
     this.#notify(activation.runId, {
       type: 'activation',
       activationId: activation.id,
@@ -1025,16 +1036,26 @@ export class SubagentRuntime {
       const requestKey = `${activation.id}:${sequence}`;
       const estimated = estimateRequestTokens(request, member.profile);
       const output = Math.max(1, member.profile.maxOutputTokens);
-      const grant = await host.authorizeModelCall({
-        runId: run.id,
-        memberId: member.id,
-        activationId: activation.id,
-        generation: activation.generation,
-        requestKey,
-        estimatedInputTokens: estimated,
-        maxOutputTokens: output,
-      });
+      // Acquire the concurrency slot *before* reserving budget. Otherwise a
+      // queued request that is not even in flight reserves its maximum output
+      // and can exhaust the team budget while only three requests are allowed to
+      // run. The slot is released on every path.
       const release = await host.acquireModelSlot(run.id, request.signal);
+      let grant: ModelCallGrant;
+      try {
+        grant = await host.authorizeModelCall({
+          runId: run.id,
+          memberId: member.id,
+          activationId: activation.id,
+          generation: activation.generation,
+          requestKey,
+          estimatedInputTokens: estimated,
+          maxOutputTokens: output,
+        });
+      } catch (error) {
+        release();
+        throw error;
+      }
       let usage: ModelUsage | undefined;
       let settled = false;
       try {

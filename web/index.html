@@ -2292,6 +2292,14 @@
         <button id="team-resume" class="soft-button" type="button" hidden>恢复</button>
         <button id="team-stop" class="soft-button danger" type="button" hidden>停止整队</button>
       </div>
+      <form class="team-steer" id="team-steer" hidden>
+        <label class="field-label" for="team-steer-input">追加指令（只给主成员，不打断当前步骤）</label>
+        <div class="team-inline">
+          <input id="team-steer-input" maxlength="8000" placeholder="例如：先验收任务 A，再派发 C" autocomplete="off">
+          <button type="submit">发送</button>
+        </div>
+        <p class="team-hint">忙碌时在下一次模型请求前注入；不会插进工具调用组中间。</p>
+      </form>
     </section>
 
     <form class="team-start" id="team-start">

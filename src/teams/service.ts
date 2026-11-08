@@ -555,9 +555,18 @@ export class TeamService implements ActivationHost, TeamToolHost {
       }, { kind: 'run.status', payload: { status: 'succeeded' } });
       return succeeded ?? run;
     }
+    // While the root member is still executing, the run is still running: a
+    // task review by the root must not flip the run to waiting_user mid-turn.
+    const rootActive = run.rootMemberId
+      ? activations.some(
+          (activation) =>
+            activation.memberId === run.rootMemberId &&
+            ['queued', 'running', 'waiting'].includes(activation.status),
+        )
+      : false;
     // A root that produced an answer with unfinished work is not a success. It
     // waits with the answer preserved, and a later review can finish the run.
-    if (run.status === 'running') {
+    if (run.status === 'running' && !rootActive) {
       const waiting = await this.teamStore.transitionRun(runId, ['running'], {
         status: 'waiting_user',
         reason:
@@ -1021,7 +1030,9 @@ export class TeamService implements ActivationHost, TeamToolHost {
 
   async dispatchReady(runId: string): Promise<number> {
     const run = await this.teamStore.getRun(runId);
-    if (!run || run.status !== 'running') return 0;
+    // A waiting run can still receive new assigned work; "waiting_user" means no
+    // terminal outcome yet, not "dispatch is closed".
+    if (!run || (run.status !== 'running' && run.status !== 'waiting_user')) return 0;
     const team = await this.teamStore.getTeam(run.teamId);
     if (!team || !team.config.autoDispatch || team.config.dispatchPaused || team.config.mode !== 'team') {
       return 0;
@@ -1032,7 +1043,13 @@ export class TeamService implements ActivationHost, TeamToolHost {
     for (const task of page.items) {
       if (!task.ownerId || !isTaskReady(task, byId)) continue;
       const member = await this.teamStore.getMember(task.ownerId);
-      if (!member || member.status !== 'idle') continue;
+      // A busy member still gets the work queued: its current activation is
+      // not interrupted, and the task runs immediately after it. Skipping the
+      // task because the member happened to be busy would leave assigned work
+      // pending until something else wakes the scheduler.
+      if (!member || ['closed', 'closing', 'failed', 'provisioning'].includes(member.status)) {
+        continue;
+      }
       const derived = await this.#claimForDispatch(task, member, run);
       if (!derived) continue;
       await this.runtime.followup(member.id, {
@@ -1172,6 +1189,43 @@ export class TeamService implements ActivationHost, TeamToolHost {
       }
     }
     return appended;
+  }
+
+  /**
+   * Deliver a mid-run instruction to the root member.
+   *
+   * If the root is busy it is queued and delivered at the next model-step
+   * boundary (the same mailbox path as a peer message, with the user as the
+   * source). If it is idle it starts a new activation. It never creates a
+   * second concurrent root turn.
+   */
+  async steerRun(input: {
+    readonly ownerId: string;
+    readonly runId: string;
+    readonly message: string;
+    readonly clientMessageId?: string;
+  }): Promise<{ message: TeamMessage; activation: Activation | null }> {
+    const run = await this.getRun(input.ownerId, input.runId);
+    if (isTerminalRunStatus(run.status) || run.status === 'stopping') {
+      throw new TeamError('TEAM_RUN_TERMINAL', '这次运行已经结束，不能再追加指令。', 409);
+    }
+    if (!run.rootMemberId) {
+      throw new TeamError('TEAM_MEMBER_NOT_FOUND', '这次运行还没有主成员。', 409);
+    }
+    const result = await this.sendMessage({
+      ownerId: input.ownerId,
+      runId: run.id,
+      senderId: input.ownerId,
+      senderKind: 'user',
+      recipientId: run.rootMemberId,
+      clientMessageId: input.clientMessageId?.trim() || newId('steer'),
+      body: input.message,
+    });
+    const activations = await this.teamStore.listActivations(run.id, run.rootMemberId);
+    return {
+      message: result.message,
+      activation: activations.find((entry) => entry.status === 'queued') ?? null,
+    };
   }
 
   async listMessages(

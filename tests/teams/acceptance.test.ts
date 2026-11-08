@@ -572,7 +572,7 @@ describe('T26 — rejection keeps the old attempt and returns the task to pendin
     const activation = (await h.teamStore.listActivations(run.id, member.id))[0]!;
     const task = await h.service.createTask(
       { run, member: null, userId: USER },
-      { title: '返工', specification: '', acceptance: '有证据', required: true, ownerId: member.id },
+      { title: '返工', specification: '', acceptance: '有证据', required: true },
     );
     const claimed = await h.service.claimTask(
       { team: await h.service.getTeam(USER, run.teamId), run, member, activation },
@@ -677,7 +677,7 @@ describe('T39 — evidence is bound to the candidate hash', () => {
     const activation = (await h.teamStore.listActivations(run.id, member.id))[0]!;
     const task = await h.service.createTask(
       { run, member: null, userId: USER },
-      { title: '哈希', specification: '', acceptance: '证据', required: true, ownerId: member.id },
+      { title: '哈希', specification: '', acceptance: '证据', required: true },
     );
     const claimed = await h.service.claimTask(
       { team: await h.service.getTeam(USER, run.teamId), run, member, activation },

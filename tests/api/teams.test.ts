@@ -235,6 +235,69 @@ describe('Team API', () => {
     expect(budget.body.usage.requests).toBeGreaterThanOrEqual(0);
   });
 
+  it('streams persisted events over SSE and honours a cursor', async () => {
+    const conversationId = await conversation();
+    const created = await json('/api/teams/runs', {
+      method: 'POST',
+      body: JSON.stringify({ conversationId, requestId: 'req-sse', message: 'SSE' }),
+    });
+    const runId = created.body.run.id as string;
+    const first = await json(`/api/teams/runs/${runId}/events?after=0`);
+    const cursor = first.body.cursor as number;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+    try {
+      const response = await fetch(`${base}/api/teams/runs/${runId}/events/stream?after=${cursor}`, {
+        signal: controller.signal,
+        ...(identityCookie ? { headers: { cookie: identityCookie } } : {}),
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/event-stream');
+      // Creating a task after the cursor produces a durable event the stream
+      // must deliver without rebuilding the run.
+      await json(`/api/teams/runs/${runId}/tasks`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: 'SSE 任务',
+          specification: '',
+          acceptance: '证据',
+          required: true,
+        }),
+      });
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let found: { sequence: number } | null = null;
+      const deadline = Date.now() + 4_000;
+      while (!found && Date.now() < deadline) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop() ?? '';
+        for (const frame of frames) {
+          if (!frame.includes('event: team')) continue;
+          const dataLine = frame
+            .split('\n')
+            .find((line) => line.startsWith('data: '));
+          if (!dataLine) continue;
+          const data = JSON.parse(dataLine.slice(6));
+          if (typeof data.sequence === 'number' && data.sequence > cursor) {
+            found = data;
+            break;
+          }
+        }
+      }
+      expect(found).not.toBeNull();
+      expect(found!.sequence).toBeGreaterThan(cursor);
+      await reader.cancel().catch(() => undefined);
+    } finally {
+      clearTimeout(timeout);
+      controller.abort();
+    }
+  });
+
   it('does not list a member conversation as a normal conversation', async () => {
     const cookie = (await json('/api/teams', { method: 'GET' })).cookie;
     const conversationId = await conversation();

@@ -141,6 +141,19 @@ export function createTeamApi(deps: { service: TeamService; adapters: TeamApiAda
         adapters.sendJson(res, 200, await service.snapshot(ownerId, runId));
         return true;
       }
+      if (suffix === 'steering' && method === 'POST') {
+        const body = asObject(await adapters.readJson(req));
+        const steered = await service.steerRun({
+          ownerId,
+          runId,
+          message: requiredString(body, 'message'),
+          ...(typeof body.clientMessageId === 'string'
+            ? { clientMessageId: body.clientMessageId }
+            : {}),
+        });
+        adapters.sendJson(res, 201, steered);
+        return true;
+      }
       if (suffix === 'stop' && method === 'POST') {
         const body = asObject(await adapters.readJson(req).catch(() => ({})));
         const stopped = await service.stopRun(

@@ -241,7 +241,9 @@ async function act(path, options, note) {
 }
 
 function post(path, body) {
-  return act(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined });
+  // The write guard requires a JSON content type; a control action with no
+  // arguments still sends `{}` so it is not rejected as a form post.
+  return act(path, { method: 'POST', body: JSON.stringify(body ?? {}) });
 }
 
 // ----------------------------------------------------------------- render ---
@@ -275,6 +277,7 @@ function render() {
   $('team-pause').hidden = !state.run || !['running', 'waiting_user'].includes(status);
   $('team-resume').hidden = !state.run || !['paused', 'waiting_user', 'pausing'].includes(status);
   $('team-stop').hidden = !state.run || TERMINAL.has(status);
+  $('team-steer').hidden = !state.run || TERMINAL.has(status);
 
   const startButton = $('team-start').querySelector('button[type="submit"]');
   startButton.disabled = state.busy || !state.conversationId;
@@ -708,6 +711,18 @@ $('team-start')?.addEventListener('submit', async (event) => {
     subscribe();
     render();
   }
+});
+
+$('team-steer')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const input = $('team-steer-input');
+  if (!state.run || !input.value.trim()) return;
+  void post(`/api/teams/runs/${state.run.id}/steering`, {
+    message: input.value,
+    clientMessageId: crypto.randomUUID(),
+  }).then((result) => {
+    if (result) input.value = '';
+  });
 });
 
 $('team-pause')?.addEventListener('click', () => {
