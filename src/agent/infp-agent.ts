@@ -26,7 +26,7 @@ import { DEFAULT_MAX_STEPS, runAgentLoop } from './loop.ts';
 import { createModelTurnResolver } from './model-turn.ts';
 import type { LoopInputItem, ModelTurn } from './model-port.ts';
 import type { UserContentV1 } from './content.ts';
-import type { ToolPermissionPort } from '../tools/types.ts';
+import type { ToolPermissionPort, ToolMediaPort, ToolChangeJournal } from '../tools/types.ts';
 import { contentText } from './content.ts';
 import type { PreparedMediaPlan } from './request-plan.ts';
 import type { AgentEvent } from './events.ts';
@@ -78,6 +78,9 @@ export interface CompanionOptions {
   /** The model's window, enforced before every request (ADR 030). */
   readonly contextBudget?: ContextBudget;
   readonly now?: Date;
+  /** Private media import for tools that attach images (read_image). */
+  readonly toolMedia?: ToolMediaPort | null;
+  readonly toolChanges?: ToolChangeJournal | null;
 }
 
 /** Alias kept for the composition root and evaluation tools. */
@@ -105,6 +108,8 @@ export interface CompanionRun {
   readonly modelTurn?: ModelTurn;
   readonly modelProvider?: ModelProvider;
   readonly now: Date;
+  readonly toolMedia: ToolMediaPort | null;
+  readonly toolChanges: ToolChangeJournal | null;
 }
 
 /**
@@ -137,6 +142,8 @@ export function createCompanionAgent(options: CompanionOptions = {}): CompanionR
     ...(options.modelTurn ? { modelTurn: options.modelTurn } : {}),
     ...(options.modelProvider ? { modelProvider: options.modelProvider } : {}),
     now: options.now ?? new Date(),
+    toolMedia: options.toolMedia ?? null,
+    toolChanges: options.toolChanges ?? null,
   };
 }
 
@@ -220,6 +227,9 @@ export interface StreamReplyOptions {
   readonly userId?: string;
   readonly conversationId?: string;
   readonly approvalTimeoutMs?: number;
+  /** Per-turn media import port; absent means read_image refuses. */
+  readonly toolMedia?: ToolMediaPort | null;
+  readonly toolChanges?: ToolChangeJournal | null;
 }
 
 /**
@@ -289,6 +299,8 @@ export async function* streamReply(
       ...(options.userId ? { userId: options.userId } : {}),
       ...(options.conversationId ? { conversationId: options.conversationId } : {}),
       ...(options.permission ? { permission: options.permission } : {}),
+      ...(options.toolMedia ? { media: options.toolMedia } : {}),
+      ...(options.toolChanges ? { changes: options.toolChanges } : {}),
     },
     maxSteps: options.maxTurns ?? agent.maxSteps,
     ...(options.signal ? { signal: options.signal } : {}),

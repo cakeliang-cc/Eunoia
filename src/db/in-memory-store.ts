@@ -65,6 +65,9 @@ import type { UserContentV1 } from '../agent/content.ts';
 import { contentText } from '../agent/content.ts';
 import type { ImageAsset } from '../media/types.ts';
 import type { MediaAssetStore } from '../media/store.ts';
+import type { WebDocumentRecord } from '../web/store.ts';
+import type { UserQuestionRecord, QuestionStatus } from '../questions/types.ts';
+import type { DevJobRecord } from '../processes/types.ts';
 import type {
   ChangesetFileRecord,
   ChangesetStatus,
@@ -102,6 +105,9 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore, ModelTr
   readonly #turnEvents: TurnEventRecord[] = [];
   readonly #media = new Map<string, ImageAsset>();
   readonly #changesets = new Map<string, WorkspaceChangesetRecord>();
+  readonly #webDocuments = new Map<string, WebDocumentRecord>();
+  readonly #questions = new Map<string, UserQuestionRecord>();
+  readonly #devJobs = new Map<string, DevJobRecord>();
   /** Message id → asset ids in content order; the reference index. */
   readonly #messageAssets = new Map<string, string[]>();
   /** Model transcript state (ADR 032). */
@@ -1176,6 +1182,132 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore, ModelTr
   }
 
   // ------------------------------------------------------------ plumbing -----
+
+  async saveWebDocument(record: WebDocumentRecord): Promise<void> {
+    this.#webDocuments.set(record.id, { ...record });
+  }
+
+  async getWebDocument(userId: string, id: string): Promise<WebDocumentRecord | null> {
+    const record = this.#webDocuments.get(id);
+    return record && record.userId === userId ? { ...record } : null;
+  }
+
+  async createUserQuestion(record: UserQuestionRecord): Promise<void> {
+    this.#questions.set(record.id, { ...record });
+  }
+
+  async getUserQuestion(userId: string, id: string): Promise<UserQuestionRecord | null> {
+    const record = this.#questions.get(id);
+    return record && record.userId === userId ? { ...record } : null;
+  }
+
+  async getUserQuestionByCall(
+    userId: string,
+    conversationId: string,
+    callId: string,
+  ): Promise<UserQuestionRecord | null> {
+    for (const record of this.#questions.values()) {
+      if (
+        record.userId === userId &&
+        record.conversationId === conversationId &&
+        record.callId === callId
+      ) {
+        return { ...record };
+      }
+    }
+    return null;
+  }
+
+  async listPendingQuestions(userId: string, conversationId: string): Promise<UserQuestionRecord[]> {
+    return [...this.#questions.values()]
+      .filter(
+        (record) =>
+          record.userId === userId &&
+          record.conversationId === conversationId &&
+          record.status === 'pending',
+      )
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map((record) => ({ ...record }));
+  }
+
+  async resolveUserQuestion(input: {
+    readonly userId: string;
+    readonly id: string;
+    readonly status: Exclude<QuestionStatus, 'pending'>;
+    readonly answer: Record<string, unknown> | null;
+    readonly at: string;
+  }): Promise<boolean> {
+    const record = this.#questions.get(input.id);
+    if (!record || record.userId !== input.userId || record.status !== 'pending') return false;
+    this.#questions.set(input.id, {
+      ...record,
+      status: input.status,
+      answer: input.answer,
+      answeredAt: input.at,
+    });
+    return true;
+  }
+
+  async expireUserQuestions(now: Date): Promise<number> {
+    let count = 0;
+    for (const [id, record] of this.#questions) {
+      if (record.status !== 'pending' || record.expiresAt > now.toISOString()) continue;
+      this.#questions.set(id, { ...record, status: 'expired', answeredAt: now.toISOString() });
+      count += 1;
+    }
+    return count;
+  }
+
+  async createDevJob(record: DevJobRecord): Promise<void> {
+    this.#devJobs.set(record.id, { ...record });
+  }
+
+  async updateDevJob(
+    userId: string,
+    id: string,
+    patch: Partial<
+      Pick<DevJobRecord, 'pid' | 'status' | 'exitCode' | 'endedAt' | 'error' | 'expiresAt'>
+    >,
+  ): Promise<void> {
+    const record = this.#devJobs.get(id);
+    if (!record || record.userId !== userId) return;
+    this.#devJobs.set(id, { ...record, ...patch });
+  }
+
+  async getDevJob(userId: string, id: string): Promise<DevJobRecord | null> {
+    const record = this.#devJobs.get(id);
+    return record && record.userId === userId ? { ...record } : null;
+  }
+
+  async getDevJobByCall(
+    userId: string,
+    conversationId: string,
+    toolCallId: string,
+  ): Promise<DevJobRecord | null> {
+    for (const record of this.#devJobs.values()) {
+      if (
+        record.userId === userId &&
+        record.conversationId === conversationId &&
+        record.toolCallId === toolCallId
+      ) {
+        return { ...record };
+      }
+    }
+    return null;
+  }
+
+  async listDevJobs(userId: string, conversationId: string): Promise<DevJobRecord[]> {
+    return [...this.#devJobs.values()]
+      .filter((record) => record.userId === userId && record.conversationId === conversationId)
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+      .map((record) => ({ ...record }));
+  }
+
+  async listRunningDevJobs(): Promise<DevJobRecord[]> {
+    return [...this.#devJobs.values()]
+      .filter((record) => record.status === 'running' || record.status === 'starting')
+      .map((record) => ({ ...record }));
+  }
 
   // ---------------------------------------------------------- changesets -----
 

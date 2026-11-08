@@ -15,6 +15,9 @@ import type { TurnStore } from './session/turn-store.ts';
 import type { MediaAssetStore } from './media/store.ts';
 import type { ModelTranscriptStore } from './session/model-transcript-store.ts';
 import type { ChangesetStore } from './session/changeset.ts';
+import type { WebDocumentStore } from './web/store.ts';
+import type { QuestionStore } from './questions/store.ts';
+import type { ProcessStore } from './processes/store.ts';
 import type {
   FeedbackStore,
   IdentityStore,
@@ -32,6 +35,9 @@ export interface Store
     MediaAssetStore,
     ModelTranscriptStore,
     ChangesetStore,
+    WebDocumentStore,
+    QuestionStore,
+    ProcessStore,
     PreferenceStore,
     FeedbackStore {
   /** Cheap liveness probe used by `GET /health`. */

@@ -50,6 +50,11 @@ import {
 } from '../service/chat.ts';
 import { recoverInterruptedTurns } from '../service/recovery.ts';
 import { WorkspaceChangeService, WorkspaceUndoError } from '../sandbox/index.ts';
+import { WebService } from '../web/service.ts';
+import { HttpFetchProvider } from '../web/fetch-http.ts';
+import { createDefaultSearchProvider } from '../web/tavily.ts';
+import { QuestionService } from '../questions/service.ts';
+import { ProcessService } from '../processes/service.ts';
 import {
   ConversationBusyError,
   TurnCoordinator,
@@ -96,6 +101,7 @@ import type {
   PermissionRequestRecord,
 } from '../sandbox/permissions/types.ts';
 import { discoverSkillRegistry } from '../skills/registry.ts';
+import { codingTools } from '../tools/coding/index.ts';
 import type { SkillRegistry } from '../skills/registry.ts';
 import { clearIdentity, readIdentity, resolveIdentity, singleUserId } from './identity.ts';
 import { handleMcpRoutes } from './mcp-routes.ts';
@@ -703,6 +709,12 @@ export interface AppDependencies {
   readonly mcpRuntime?: McpRuntime | null;
   /** Turn-scoped workspace undo (ADR 036). */
   readonly workspaceChanges?: WorkspaceChangeService | null;
+  /** Web search/fetch backends for the developer toolkit. */
+  readonly web?: WebService | null;
+  /** Typed questions to the person. */
+  readonly questions?: QuestionService | null;
+  /** Container-backed long-running jobs and previews. */
+  readonly processes?: ProcessService | null;
 }
 
 function defaultModelProfileFor(id: string): ModelProfile {
@@ -723,6 +735,9 @@ export function createApp(deps: AppDependencies) {
   const mcp = deps.mcp ?? null;
   const mcpRuntime = deps.mcpRuntime ?? null;
   const workspaceChanges = deps.workspaceChanges ?? null;
+  const web = deps.web ?? null;
+  const questions = deps.questions ?? null;
+  const processes = deps.processes ?? null;
   const limits = deps.mediaLimits ?? mediaLimits();
   const config = deps.sessionConfig ?? sessionConfig();
   const imagePolicies = deps.imagePolicies ?? defaultImagePolicies();
@@ -980,6 +995,9 @@ export function createApp(deps: AppDependencies) {
       ...(deps.transcriptMode ? { transcriptMode: deps.transcriptMode } : {}),
       ...(deps.mcp ? { mcp: deps.mcp } : {}),
       ...(deps.workspaceChanges ? { workspaceChanges: deps.workspaceChanges } : {}),
+      ...(deps.web ? { web: deps.web } : {}),
+      ...(deps.questions ? { questions: deps.questions } : {}),
+      ...(deps.processes ? { processes: deps.processes } : {}),
     };
   }
 
@@ -1674,6 +1692,158 @@ export function createApp(deps: AppDependencies) {
 
     // Each group owns a disjoint set of paths, so first-match-wins is a
     // property of the list, not of the order inside one 480-line function.
+    const handleToolGroup = async (
+      request: IncomingMessage,
+      response: ServerResponse,
+      requestUrl: URL,
+    ): Promise<boolean> => {
+      if (requestUrl.pathname !== '/api/tools' || request.method !== 'GET') return false;
+      if (!guardPermissionRead(request, response)) return true;
+      const userId = await identify(request, response);
+      const conversationId = requestUrl.searchParams.get('conversationId') ?? '';
+      if (conversationId && !isUuid(conversationId)) {
+        sendJson(response, 400, { error: 'conversationId must be a uuid' });
+        return true;
+      }
+      const tools = codingTools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        source: 'builtin' as const,
+        sideEffect: tool.sideEffect,
+        readOnly: tool.readOnly === true,
+        timeoutMs: tool.timeoutMs ?? null,
+      }));
+      let mcpTools: Array<Record<string, unknown>> = [];
+      if (mcp) {
+        const servers = await mcp.listServers(userId);
+        mcpTools = servers.flatMap((server) =>
+          server.tools.map((tool) => ({
+            name: tool.modelName,
+            description: tool.description,
+            source: 'mcp' as const,
+            server: server.name,
+            classification: tool.classification,
+            enabled: tool.enabled,
+          })),
+        );
+      }
+      const browserServer = mcp
+        ? (await mcp.listServers(userId)).find((server) => /playwright|browser/i.test(server.name))
+        : null;
+      sendJson(response, 200, {
+        tools: [...tools, ...mcpTools],
+        backends: {
+          web: web?.status() ?? null,
+          processes: {
+            available: Boolean(deps.sandbox),
+            note: deps.sandbox
+              ? '沙箱已启用；端口未发布时 preview 只有容器内地址'
+              : '未启用沙箱',
+          },
+          mcp: { servers: mcp ? (await mcp.listServers(userId)).length : 0 },
+          browser: browserServer
+            ? { configured: true, server: browserServer.name, state: browserServer.status.state }
+            : { configured: false, hint: 'npm run toolkit:setup 打印 Playwright MCP 配置' },
+          languageServer: {
+            mode: 'typescript-compiler',
+            lspInstalled: true,
+            note: '语义工具使用 TypeScript LanguageService（编译器内置）；typescript-language-server 已安装供后续 LSP 适配器使用',
+          },
+        },
+      });
+      return true;
+    };
+
+    const handleProcessGroup = async (
+      request: IncomingMessage,
+      response: ServerResponse,
+      requestUrl: URL,
+    ): Promise<boolean> => {
+      if (!processes) return false;
+      const { pathname } = requestUrl;
+      if (pathname !== '/api/processes' || request.method !== 'GET') return false;
+      {
+        if (!guardPermissionRead(request, response)) return true;
+        const userId = await identify(request, response);
+        const conversationId = requestUrl.searchParams.get('conversationId') ?? '';
+        if (!isUuid(conversationId) || !(await sessions.get(userId, conversationId))) {
+          sendJson(response, 404, { error: 'conversation not found' });
+          return true;
+        }
+        if (!deps.sandbox) {
+          sendJson(response, 200, { jobs: [], available: false, reason: '没有启用沙箱' });
+          return true;
+        }
+        const session = await deps.sandbox.provider.forTask({
+          taskId: conversationId,
+          sessionId: conversationId,
+          userId,
+        });
+        if (!session.executor) {
+          sendJson(response, 200, { jobs: [], available: false, reason: '沙箱没有执行器' });
+          return true;
+        }
+        const jobs = await processes.list({
+          executor: session.executor,
+          userId,
+          conversationId,
+          taskId: conversationId,
+          toolCallId: 'api-list',
+        });
+        sendJson(response, 200, { jobs, available: true });
+        return true;
+      }
+      return false;
+    };
+
+    const handleQuestionGroup = async (
+      request: IncomingMessage,
+      response: ServerResponse,
+      requestUrl: URL,
+    ): Promise<boolean> => {
+      if (!questions) return false;
+      const { pathname } = requestUrl;
+      if (pathname === '/api/questions' && request.method === 'GET') {
+        if (!guardPermissionRead(request, response)) return true;
+        const userId = await identify(request, response);
+        const conversationId = requestUrl.searchParams.get('conversationId') ?? '';
+        if (!isUuid(conversationId) || !(await sessions.get(userId, conversationId))) {
+          sendJson(response, 404, { error: 'conversation not found' });
+          return true;
+        }
+        sendJson(response, 200, { questions: await questions.pending(userId, conversationId) });
+        return true;
+      }
+      const match = /^\/api\/questions\/([0-9a-f-]{36})\/(answer|cancel)$/.exec(pathname);
+      if (match && request.method === 'POST') {
+        if (!guardPermissionWrite(request, response)) return true;
+        const parsed = await readBodyOrReject(request, response);
+        if (!parsed.ok) return true;
+        const body = asObject(parsed.value) ?? {};
+        const userId = await identify(request, response);
+        try {
+          const record =
+            match[2] === 'answer'
+              ? await questions.answer({
+                  userId,
+                  questionId: match[1] as string,
+                  answer: body.answer,
+                })
+              : await questions.cancel(userId, match[1] as string);
+          sendJson(response, 200, { question: record });
+        } catch (error) {
+          const described =
+            error instanceof Error
+              ? { error: error.message, code: (error as { code?: string }).code ?? 'QUESTION_FAILED' }
+              : { error: 'question failed' };
+          const status = (error as { status?: number }).status ?? 400;
+          sendJson(response, status, described);
+        }
+        return true;
+      }
+      return false;
+    };
+
     const handleMcpGroup = async (
       request: IncomingMessage,
       response: ServerResponse,
@@ -1702,6 +1872,9 @@ export function createApp(deps: AppDependencies) {
       handleMemoryRoutes,
       handlePreferenceRoutes,
       handleMcpGroup,
+      handleQuestionGroup,
+      handleProcessGroup,
+      handleToolGroup,
     ]) {
       if (await group(req, res, url)) return true;
     }
@@ -1734,6 +1907,7 @@ export function createApp(deps: AppDependencies) {
         skills_version: deps.skills?.version() || null,
         media: media !== null,
         mcp: mcp !== null,
+        web: web !== null,
       });
       return true;
     }
@@ -2696,6 +2870,23 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
    * change-set tables. The recorder is attached after construction because the
    * platform is built before this service exists.
    */
+  /**
+   * Web tools share the process's private store for immutable fetch snapshots.
+   * Search credentials are separate from the model key; a missing key makes the
+   * search tool report "not configured", never an empty result.
+   */
+  const processService = new ProcessService({ store });
+  const questionService = new QuestionService({ store });
+  void questionService.expireStale().catch(() => undefined);
+
+  const webService = new WebService({
+    fetchProvider: new HttpFetchProvider({
+      policy: { allowPrivateNetwork: process.env.WEB_ALLOW_PRIVATE_NETWORK === '1' },
+    }),
+    searchProvider: createDefaultSearchProvider(process.env),
+    documents: store,
+  });
+
   const workspaceChanges = sandboxPlatform
     ? new WorkspaceChangeService({
         store: sandboxStore,
@@ -2817,6 +3008,9 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     mcp: mcpRuntime.service,
     mcpRuntime,
     workspaceChanges,
+    web: webService,
+    questions: questionService,
+    processes: processService,
   });
   log.info('server.model_transcript', { mode: transcriptMode() });
 

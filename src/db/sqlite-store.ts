@@ -61,6 +61,9 @@ import type {
   TurnRecord,
 } from '../session/turn-types.ts';
 import type { Store } from '../store.ts';
+import type { WebDocumentRecord } from '../web/store.ts';
+import type { QuestionSchema, QuestionStatus, UserQuestionRecord } from '../questions/types.ts';
+import type { DevJobRecord, JobStatus } from '../processes/types.ts';
 import type {
   ChangesetFileRecord,
   ChangesetStatus,
@@ -80,6 +83,7 @@ import {
   SQLITE_MIGRATION_10,
   SQLITE_MIGRATION_11,
   SQLITE_MIGRATION_13,
+  SQLITE_MIGRATION_14,
   SQLITE_SCHEMA,
   SQLITE_SCHEMA_VERSION,
 } from './sqlite-schema.ts';
@@ -1918,6 +1922,244 @@ export class SqliteStore implements Store, TurnStore, MediaAssetStore, ModelTran
     }
   }
 
+  // ------------------------------------------------------------ processes -----
+
+  async createDevJob(record: DevJobRecord): Promise<void> {
+    this.#run(
+      `INSERT INTO dev_jobs
+         (id, user_id, conversation_id, turn_id, member_id, task_id, tool_call_id, command, cwd,
+          marker, pid, status, exit_code, stdout_path, stderr_path, stdin_fifo,
+          started_at, ended_at, expires_at, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      record.id,
+      record.userId,
+      record.conversationId,
+      record.turnId,
+      record.memberId,
+      record.taskId,
+      record.toolCallId,
+      record.command,
+      record.cwd,
+      record.marker,
+      record.pid,
+      record.status,
+      record.exitCode,
+      record.stdoutPath,
+      record.stderrPath,
+      record.stdinFifo,
+      record.startedAt,
+      record.endedAt,
+      record.expiresAt,
+      record.error,
+    );
+  }
+
+  async updateDevJob(
+    userId: string,
+    id: string,
+    patch: Partial<
+      Pick<DevJobRecord, 'pid' | 'status' | 'exitCode' | 'endedAt' | 'error' | 'expiresAt'>
+    >,
+  ): Promise<void> {
+    const sets: string[] = [];
+    const values: (string | number | null)[] = [];
+    const add = (column: string, value: string | number | null): void => {
+      sets.push(`${column} = ?`);
+      values.push(value);
+    };
+    if (patch.pid !== undefined) add('pid', patch.pid);
+    if (patch.status !== undefined) add('status', patch.status);
+    if (patch.exitCode !== undefined) add('exit_code', patch.exitCode);
+    if (patch.endedAt !== undefined) add('ended_at', patch.endedAt);
+    if (patch.error !== undefined) add('error', patch.error);
+    if (patch.expiresAt !== undefined) add('expires_at', patch.expiresAt);
+    if (sets.length === 0) return;
+    values.push(userId, id);
+    this.#run(`UPDATE dev_jobs SET ${sets.join(', ')} WHERE user_id = ? AND id = ?`, ...values);
+  }
+
+  async getDevJob(userId: string, id: string): Promise<DevJobRecord | null> {
+    const row = this.#get<Record<string, unknown>>(
+      'SELECT * FROM dev_jobs WHERE user_id = ? AND id = ?',
+      userId,
+      id,
+    );
+    return row ? toDevJob(row) : null;
+  }
+
+  async getDevJobByCall(
+    userId: string,
+    conversationId: string,
+    toolCallId: string,
+  ): Promise<DevJobRecord | null> {
+    const row = this.#get<Record<string, unknown>>(
+      `SELECT * FROM dev_jobs
+        WHERE user_id = ? AND conversation_id = ? AND tool_call_id = ?`,
+      userId,
+      conversationId,
+      toolCallId,
+    );
+    return row ? toDevJob(row) : null;
+  }
+
+  async listDevJobs(userId: string, conversationId: string): Promise<DevJobRecord[]> {
+    return this.#all<Record<string, unknown>>(
+      `SELECT * FROM dev_jobs WHERE user_id = ? AND conversation_id = ?
+        ORDER BY started_at DESC LIMIT 20`,
+      userId,
+      conversationId,
+    ).map(toDevJob);
+  }
+
+  async listRunningDevJobs(): Promise<DevJobRecord[]> {
+    return this.#all<Record<string, unknown>>(
+      `SELECT * FROM dev_jobs WHERE status IN ('running', 'starting') ORDER BY started_at`,
+    ).map(toDevJob);
+  }
+
+  // ----------------------------------------------------------- questions -----
+
+  async createUserQuestion(record: UserQuestionRecord): Promise<void> {
+    this.#run(
+      `INSERT INTO user_questions
+         (id, user_id, conversation_id, turn_id, call_id, member_id, generation,
+          prompt, schema_json, status, answer_json, created_at, expires_at, answered_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      record.id,
+      record.userId,
+      record.conversationId,
+      record.turnId,
+      record.callId,
+      record.memberId,
+      record.generation,
+      record.prompt,
+      JSON.stringify(record.schema),
+      record.status,
+      record.answer === null ? null : JSON.stringify(record.answer),
+      record.createdAt,
+      record.expiresAt,
+      record.answeredAt,
+    );
+  }
+
+  async getUserQuestion(userId: string, id: string): Promise<UserQuestionRecord | null> {
+    const row = this.#get<Record<string, unknown>>(
+      'SELECT * FROM user_questions WHERE user_id = ? AND id = ?',
+      userId,
+      id,
+    );
+    return row ? toQuestion(row) : null;
+  }
+
+  async getUserQuestionByCall(
+    userId: string,
+    conversationId: string,
+    callId: string,
+  ): Promise<UserQuestionRecord | null> {
+    const row = this.#get<Record<string, unknown>>(
+      `SELECT * FROM user_questions
+        WHERE user_id = ? AND conversation_id = ? AND call_id = ?
+        ORDER BY created_at DESC LIMIT 1`,
+      userId,
+      conversationId,
+      callId,
+    );
+    return row ? toQuestion(row) : null;
+  }
+
+  async listPendingQuestions(
+    userId: string,
+    conversationId: string,
+  ): Promise<UserQuestionRecord[]> {
+    return this.#all<Record<string, unknown>>(
+      `SELECT * FROM user_questions
+        WHERE user_id = ? AND conversation_id = ? AND status = 'pending'
+        ORDER BY created_at`,
+      userId,
+      conversationId,
+    ).map(toQuestion);
+  }
+
+  async resolveUserQuestion(input: {
+    readonly userId: string;
+    readonly id: string;
+    readonly status: Exclude<QuestionStatus, 'pending'>;
+    readonly answer: Record<string, unknown> | null;
+    readonly at: string;
+  }): Promise<boolean> {
+    return (
+      this.#run(
+        `UPDATE user_questions
+            SET status = ?, answer_json = ?, answered_at = ?
+          WHERE user_id = ? AND id = ? AND status = 'pending'`,
+        input.status,
+        input.answer === null ? null : JSON.stringify(input.answer),
+        input.at,
+        input.userId,
+        input.id,
+      ).changes > 0
+    );
+  }
+
+  async expireUserQuestions(now: Date): Promise<number> {
+    return this.#run(
+      `UPDATE user_questions SET status = 'expired', answered_at = ?
+        WHERE status = 'pending' AND expires_at <= ?`,
+      now.toISOString(),
+      now.toISOString(),
+    ).changes;
+  }
+
+  // --------------------------------------------------------------- web ------
+
+  async saveWebDocument(record: WebDocumentRecord): Promise<void> {
+    this.#run(
+      `INSERT INTO web_documents
+         (id, user_id, conversation_id, action_id, requested_url, final_url, status,
+          mime_type, title, text, bytes, truncated, fetched_at, sha256)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      record.id,
+      record.userId,
+      record.conversationId,
+      record.actionId,
+      record.requestedUrl,
+      record.finalUrl,
+      record.status,
+      record.mimeType,
+      record.title,
+      record.text,
+      record.bytes,
+      record.truncated ? 1 : 0,
+      record.fetchedAt,
+      record.sha256,
+    );
+  }
+
+  async getWebDocument(userId: string, id: string): Promise<WebDocumentRecord | null> {
+    const row = this.#get<Record<string, unknown>>(
+      'SELECT * FROM web_documents WHERE user_id = ? AND id = ?',
+      userId,
+      id,
+    );
+    if (!row) return null;
+    return {
+      id: String(row.id),
+      userId: String(row.user_id),
+      conversationId: String(row.conversation_id),
+      actionId: row.action_id === null ? null : String(row.action_id),
+      requestedUrl: String(row.requested_url),
+      finalUrl: String(row.final_url),
+      status: Number(row.status),
+      mimeType: String(row.mime_type),
+      title: row.title === null ? null : String(row.title),
+      text: String(row.text),
+      bytes: Number(row.bytes),
+      truncated: Number(row.truncated) === 1,
+      fetchedAt: String(row.fetched_at),
+      sha256: String(row.sha256),
+    };
+  }
+
   // ---------------------------------------------------------- changesets -----
 
   async createWorkspaceChangeset(input: NewChangesetInput): Promise<void> {
@@ -2134,6 +2376,9 @@ export function openSqliteStore(path: string): SqliteStore {
     }
     if (version < 13) {
       db.exec(SQLITE_MIGRATION_13);
+    }
+    if (version < 14) {
+      db.exec(SQLITE_MIGRATION_14);
     }
   }
   if (version < SQLITE_SCHEMA_VERSION) {
@@ -2653,5 +2898,52 @@ function toChangesetFile(row: Record<string, unknown>): ChangesetFileRecord {
     beforeContent: row.before_content === null ? null : String(row.before_content),
     restoreSource: String(row.restore_source) as ChangesetFileRecord['restoreSource'],
     restored: Number(row.restored) === 1,
+  };
+}
+
+function toQuestion(row: Record<string, unknown>): UserQuestionRecord {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    conversationId: String(row.conversation_id),
+    turnId: row.turn_id === null ? null : String(row.turn_id),
+    callId: row.call_id === null ? null : String(row.call_id),
+    memberId: row.member_id === null ? null : String(row.member_id),
+    generation: Number(row.generation),
+    prompt: String(row.prompt),
+    schema: JSON.parse(String(row.schema_json)) as QuestionSchema,
+    status: String(row.status) as QuestionStatus,
+    answer:
+      row.answer_json === null
+        ? null
+        : (JSON.parse(String(row.answer_json)) as Record<string, unknown>),
+    createdAt: String(row.created_at),
+    expiresAt: String(row.expires_at),
+    answeredAt: row.answered_at === null ? null : String(row.answered_at),
+  };
+}
+
+function toDevJob(row: Record<string, unknown>): DevJobRecord {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    conversationId: String(row.conversation_id),
+    turnId: row.turn_id === null ? null : String(row.turn_id),
+    memberId: row.member_id === null ? null : String(row.member_id),
+    taskId: String(row.task_id),
+    toolCallId: row.tool_call_id === null ? null : String(row.tool_call_id),
+    command: String(row.command),
+    cwd: String(row.cwd),
+    marker: String(row.marker),
+    pid: row.pid === null ? null : Number(row.pid),
+    status: String(row.status) as JobStatus,
+    exitCode: row.exit_code === null ? null : Number(row.exit_code),
+    stdoutPath: String(row.stdout_path),
+    stderrPath: String(row.stderr_path),
+    stdinFifo: row.stdin_fifo === null ? null : String(row.stdin_fifo),
+    startedAt: String(row.started_at),
+    endedAt: row.ended_at === null ? null : String(row.ended_at),
+    expiresAt: row.expires_at === null ? null : String(row.expires_at),
+    error: row.error === null ? null : String(row.error),
   };
 }

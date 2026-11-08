@@ -118,6 +118,14 @@ class GatewayToolSession implements ToolWorkspacePort, ToolExecutor, ToolCwdPort
     return this.gateway.statFile(await this.ready(), input);
   }
 
+  async readBytes(input: string, maxBytes?: number): Promise<Uint8Array> {
+    return this.gateway.readBytes(await this.ready(), input, maxBytes);
+  }
+
+  async deleteFile(input: string): Promise<{ readonly path: string }> {
+    return this.gateway.deleteFile(await this.ready(), input);
+  }
+
   async listDir(input = '.', depth = 2): Promise<ToolDirectoryListing> {
     return this.gateway.listDir(await this.ready(), input, depth);
   }

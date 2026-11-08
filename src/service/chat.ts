@@ -66,6 +66,7 @@ import {
 import type { SessionConfig } from '../session/config.ts';
 import { sessionConfig } from '../session/config.ts';
 import type { MediaService } from '../media/service.ts';
+import { createToolMediaPort } from '../media/tool-media.ts';
 import type { MediaLimits } from '../media/types.ts';
 import { mediaLimits } from '../media/limits.ts';
 import type { ImagePolicyRegistry } from '../provider/image-policy.ts';
@@ -74,6 +75,13 @@ import type { ModelProfile } from '../models/types.ts';
 import type { PreparedMediaPlan } from '../agent/request-plan.ts';
 import { preflightMedia, loadMediaPlan, planToolImages } from './media-turn.ts';
 import type { McpService } from '../mcp/service.ts';
+import type { WebService } from '../web/service.ts';
+import type { QuestionService } from '../questions/service.ts';
+import type { ProcessService } from '../processes/service.ts';
+import { createProcessTools } from '../tools/process-tools.ts';
+import { createPreviewTools } from '../tools/preview-tools.ts';
+import { createWebTools } from '../tools/web-tools.ts';
+import { createQuestionTools } from '../tools/question-tools.ts';
 import type { WorkspaceChangeService } from '../sandbox/workspace-change-service.ts';
 import { mcpInstructions } from '../mcp/tool-adapter.ts';
 import { renderArchivedSummary } from '../session/summary.ts';
@@ -211,6 +219,12 @@ export interface TurnDependencies {
    * file changes; the turn still runs and the UI has no button to offer.
    */
   readonly workspaceChanges?: WorkspaceChangeService | null;
+  /** Web search/fetch backends, when this deployment configured them. */
+  readonly web?: WebService | null;
+  /** Typed questions to the person. */
+  readonly questions?: QuestionService | null;
+  /** Container-backed long-running jobs and previews. */
+  readonly processes?: ProcessService | null;
 }
 
 /**
@@ -636,6 +650,14 @@ async function* runTurnInner(
       }),
     );
     if (deps.additionalTools) toolRegistry.registerAll(deps.additionalTools);
+    if (deps.web) toolRegistry.registerAll(createWebTools(deps.web));
+    if (deps.questions) {
+      toolRegistry.registerAll(createQuestionTools(deps.questions));
+    }
+    if (deps.processes && sandboxSession) {
+      toolRegistry.registerAll(createProcessTools(deps.processes));
+      toolRegistry.registerAll(createPreviewTools(deps.processes));
+    }
     if (sandboxSession) toolRegistry.registerAll(codingTools);
     const skills = deps.skills ?? null;
     if (skills && skills.count() > 0) {
@@ -922,6 +944,15 @@ async function* runTurnInner(
       ...(mediaPlan ? { media: mediaPlan } : {}),
       ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
       ...(deps.mcp ? { permission: deps.mcp.permissionPort() } : {}),
+      ...(deps.media ? { toolMedia: createToolMediaPort(deps.media) } : {}),
+      ...(deps.workspaceChanges
+        ? {
+            toolChanges: {
+              beforeWrite: (path: string) =>
+                deps.workspaceChanges!.beforeWrite({ taskId: conversationId, path }),
+            },
+          }
+        : {}),
       ...(prepareMedia ? { prepareMedia } : {}),
       userId: request.userId,
       conversationId,

@@ -260,6 +260,18 @@ export interface ToolContext {
   readonly userId?: string;
   /** The persisted action id, when the turn is backed by a durable record. */
   readonly actionId?: string;
+  /**
+   * Undo journal: called before a tool overwrites or deletes a file.
+   *
+   * Present only when turn undo is armed. A patch that cannot journal its files
+   * still applies, but the turn cannot offer a precise undo; the UI simply has
+   * no button for it.
+   */
+  readonly changes?: ToolChangeJournal | null;
+}
+
+export interface ToolChangeJournal {
+  beforeWrite(path: string): Promise<void>;
 }
 
 // ------------------------------------------------------------------- ports ---
@@ -285,6 +297,10 @@ export interface ToolWorkspacePort {
    * needs no prior read.
    */
   stat(input: string): Promise<ToolFileStat | null>;
+  /** Raw bytes under the same path guard; used by image reads, never by write. */
+  readBytes?(input: string, maxBytes?: number): Promise<Uint8Array>;
+  /** Delete one file; absent means the workspace is read-only. */
+  deleteFile?(input: string): Promise<{ readonly path: string }>;
   listDir(input?: string, depth?: number): Promise<ToolDirectoryListing>;
   glob(pattern: string, maxResults?: number): Promise<{ paths: string[]; truncated: boolean }>;
   grep(options: {

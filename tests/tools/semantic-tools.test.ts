@@ -18,6 +18,7 @@ import {
   diagnosticsTool,
   findDefinitionTool,
   findReferencesTool,
+  listSymbolsTool,
 } from '../../src/tools/coding/semantic-tools.ts';
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -177,5 +178,29 @@ describe('diagnostics', () => {
     });
     const result = await run(diagnosticsTool, context, {});
     expect(output(result)).toContain('TS2322');
+  });
+});
+
+describe('symbols and Unicode positions', () => {
+  it('lists declarations with a structural kind', async () => {
+    const { context } = await workspaceWith(PROJECT);
+    const result = await run(listSymbolsTool, context, { path: 'a.ts' });
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain('function add');
+    expect(result.output).toContain('@1:');
+  });
+
+  it('counts a position in code points, not UTF-16 units', async () => {
+    const line = 'const 😀 = 1; const 中文 = 2;';
+    const use = 'export const value = 中文;';
+    const { context } = await workspaceWith({ 'u.ts': `${line}\r\n${use}\r\n` });
+    const column = [...use].indexOf('中') + 1;
+    const result = await run(findReferencesTool, context, {
+      path: 'u.ts',
+      line: 2,
+      column,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain('u.ts:1:');
   });
 });

@@ -32,7 +32,9 @@
     "cleanup:media": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types src/media/cli.ts",
     "browser:check": "node --experimental-strip-types scripts/browser-check.ts",
     "experiment:transcript": "node --experimental-strip-types scripts/model-transcript-experiment.ts",
-    "experiment:transcript:live": "node --env-file-if-exists=.env --experimental-strip-types scripts/model-transcript-experiment.ts --live"
+    "experiment:transcript:live": "node --env-file-if-exists=.env --experimental-strip-types scripts/model-transcript-experiment.ts --live",
+    "toolkit:doctor": "node --experimental-strip-types scripts/toolkit-doctor.ts",
+    "toolkit:setup": "node --experimental-strip-types scripts/toolkit-setup.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "^2.1.0",
@@ -46,10 +48,12 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/mcp": "^0.0.80",
     "@types/node": "^24.0.0",
     "@vitest/coverage-v8": "^3.2.7",
     "eslint": "^9.0.0",
     "typescript-eslint": "^8.0.0",
+    "typescript-language-server": "^6.0.3",
     "vitest": "^3.0.0"
   }
 }

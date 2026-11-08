@@ -17,6 +17,8 @@ export {
 export { editFileTool, writeFileTool } from './edit-tools.ts';
 export { runCommandTool } from './command-tool.ts';
 export { changeDirectoryTool } from './change-directory-tool.ts';
+export { readImageTool } from './read-image-tool.ts';
+export { applyPatchTool, applyHunks, parsePatch, planPatch, PatchError } from './apply-patch.ts';
 export {
   diagnosticsTool,
   findDefinitionTool,
@@ -29,6 +31,8 @@ export {
 import { editFileTool, writeFileTool } from './edit-tools.ts';
 import { runCommandTool } from './command-tool.ts';
 import { changeDirectoryTool } from './change-directory-tool.ts';
+import { readImageTool } from './read-image-tool.ts';
+import { applyPatchTool } from './apply-patch.ts';
 import { semanticTools } from './semantic-tools.ts';
 import { globTool, grepTool, listDirTool, readFileTool } from './read-tools.ts';
 
@@ -45,5 +49,7 @@ export const codingTools = [
   writeFileTool,
   runCommandTool,
   changeDirectoryTool,
+  readImageTool,
+  applyPatchTool,
   ...semanticTools,
 ] as const;

@@ -60,11 +60,32 @@ npm run dev                # http://127.0.0.1:8787
 
 ## 语义代码工具
 
-- 新增 `find_definition`、`find_references`、`diagnostics`，使用 TypeScript 语言服务，
-  不是文本搜索：跨文件的定义、调用点和类型错误都能定位。
+- 新增 `find_definition`、`find_references`、`list_symbols`、`diagnostics`，使用
+  TypeScript 语言服务，不是文本搜索：跨文件的定义、调用点、声明和类型错误都能定位。
 - 只支持 TypeScript/JavaScript；其它语言会明确报不支持，不会用文本搜索冒充。
 - 每次调用读取有界的工作区快照（最多 800 个文件 / 8 MiB），只读，不启动语言服务器
-  进程。设计与边界见 [ADR 037](docs/adr/037-semantic-code-tools.md)。
+  进程。行列为 1-based，列按 Unicode 码点计数。设计与边界见
+  [ADR 037](docs/adr/037-semantic-code-tools.md)。
+
+## 开发工具（进程、浏览器、图片、联网、提问、补丁）
+
+- **后台作业。** `process_start` 在沙箱里启动开发服务器/监视器并立即返回作业 ID；
+  `process_read` 用字节游标读 stdout/stderr，`process_wait` 可取消，`process_stop`
+  先终止进程组再核对。作业不是 Web 工作台终端，也不会在宿主执行。
+- **预览。** `preview_start` 会探测容器内 HTTP 就绪；当前部署没有发布容器端口，所以
+  明确返回“宿主地址不可用”，不会给你一个打不开的 localhost。
+- **浏览器。** 运行 `npm run toolkit:setup` 查看 Playwright MCP 配置，运行
+  `npm run toolkit:doctor` 检查依赖。浏览器工具通过 MCP 发现，不另注册同义原生工具；
+  本地单用户需要在 `.env` 显式设置 `MCP_ALLOW_HOST_PROCESS=1`（不是沙箱）。
+- **图片。** 让 Agent 直接 `read_image` 工作区里的 PNG/JPEG/WebP；图片经媒体管线入库，
+  源文件之后被改不会改变历史资产。
+- **联网。** `web_search` 需要独立的 `TAVILY_API_KEY`；没有密钥会明确报未配置。
+  `web_fetch` 抓取公网正文，拒绝私有地址、登录页和 PDF，并支持 cursor 分页。
+- **提问。** Agent 用 `ask_user_question` 暂停并询问需求；答案按字段校验后返回同一轮，
+  不是权限批准。
+- **补丁。** `apply_patch` 一次改多个文件，先全量预检；上下文不唯一会拒绝，失败会回滚。
+- 验收状态与阻塞项见
+  [开发工具补齐验收报告](docs/features/eunoia-开发工具补齐验收报告.md)。
 
 ## 外部服务（MCP）
 

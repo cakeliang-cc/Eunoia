@@ -244,8 +244,16 @@ function resolvePosition(
   const lineStarts = computeLineStarts(file.text);
   const index = input.line - 1;
   if (index < 0 || index >= lineStarts.length) return null;
-  const offset = (lineStarts[index] as number) + Math.max(0, input.column - 1);
-  if (offset > file.text.length) return null;
+  const lineStart = lineStarts[index] as number;
+  const lineEnd = index + 1 < lineStarts.length ? (lineStarts[index + 1] as number) : file.text.length;
+  const lineText = file.text.slice(lineStart, lineEnd).replace(/\r?\n$/, '');
+  const characters = [...lineText];
+  const column = Math.max(0, input.column - 1);
+  // Columns are 1-based Unicode code points, not UTF-16 units. A model counting
+  // "characters" before a Chinese name or an emoji must get the same position a
+  // person does; the compiler offset is computed from that prefix.
+  const offset = lineStart + characters.slice(0, column).join('').length;
+  if (offset > lineStart + lineText.length) return null;
   return { path: file.path, offset };
 }
 
@@ -280,7 +288,9 @@ function lineAndColumn(text: string, position: number): { line: number; column: 
       high = mid - 1;
     }
   }
-  return { line: line + 1, column: position - (starts[line] as number) + 1 };
+  const lineStart = starts[line] as number;
+  const prefix = text.slice(lineStart, position);
+  return { line: line + 1, column: [...prefix].length + 1 };
 }
 
 function lineAt(file: SemanticFile | undefined, position: number): string {
@@ -502,4 +512,53 @@ export const diagnosticsTool = defineTool({
   },
 });
 
-export const semanticTools = [findDefinitionTool, findReferencesTool, diagnosticsTool] as const;
+export const listSymbolsTool = defineTool({
+  name: 'list_symbols',
+  description:
+    'List the declarations in one TypeScript/JavaScript file with their kind and 1-based position. Use it to navigate a file by structure instead of reading every line.',
+  parameters: z.object({
+    path: z.string().min(1),
+  }),
+  sideEffect: 'none',
+  readOnly: true,
+  guidelines:
+    'list_symbols reads the declarations the language service sees. It does not list local variables inside function bodies.',
+  timeoutMs: 20_000,
+  async execute({ path }, context) {
+    if (!context.workspace) return toolError('没有配置工作区。');
+    const loaded = await loadProject(context).catch((error: unknown) =>
+      toolError(error instanceof Error ? error.message : String(error)),
+    );
+    if (loaded === null) return toolError('没有配置工作区。');
+    if ('ok' in loaded) return loaded;
+    const project = loaded;
+    const checked = assertSupported(project, path);
+    if ('ok' in checked) return checked;
+    try {
+      const tree = project.service.getNavigationTree(checked.path);
+      const rows: string[] = [];
+      const flatten = (node: typeof tree, depth: number): void => {
+        if (rows.length >= 200) return;
+        for (const child of node.childItems ?? []) {
+          const span = child.spans[0];
+          if (span) {
+            const location = lineAndColumn(checked.file.text, span.start);
+            rows.push(`${'  '.repeat(depth)}${child.kind} ${child.text} @${location.line}:${location.column}`);
+          }
+          flatten(child, depth + 1);
+        }
+      };
+      flatten(tree, 0);
+      if (rows.length === 0) return toolOk(`没有找到声明：${checked.path}`);
+      return toolOk(`符号（最多 200 个）：\n${rows.join('\n')}`, {
+        summary: `${rows.length} 个符号`,
+        path: checked.path,
+        symbols: rows.length,
+      });
+    } catch (error) {
+      return toolError(`语言服务无法列出符号：${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+});
+
+export const semanticTools = [findDefinitionTool, findReferencesTool, listSymbolsTool, diagnosticsTool] as const;

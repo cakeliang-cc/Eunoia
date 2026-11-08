@@ -20,6 +20,7 @@
 import { SANDBOX_SCHEMA } from '../sandbox/schema.ts';
 import { MCP_SCHEMA } from '../mcp/schema.ts';
 import { CHANGESET_SCHEMA } from '../session/changeset-schema.ts';
+import { TOOLKIT_SCHEMA } from '../session/toolkit-schema.ts';
 
 /**
  * Version 2 adds the sandbox platform's tables (ADR 017); version 3 records the
@@ -66,7 +67,7 @@ import { CHANGESET_SCHEMA } from '../session/changeset-schema.ts';
  * The base schema is idempotent, so a version-1 file gets the tables by executing
  * the full schema; later files get the new columns by `ALTER TABLE`.
  */
-export const SQLITE_SCHEMA_VERSION = 13;
+export const SQLITE_SCHEMA_VERSION = 14;
 
 export const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -494,6 +495,8 @@ ${SANDBOX_SCHEMA}
 ${MCP_SCHEMA}
 
 ${CHANGESET_SCHEMA}
+
+${TOOLKIT_SCHEMA}
 `;
 
 /** Applied to a version-2 database that already has the sandbox tables. */
@@ -813,3 +816,10 @@ export const SQLITE_MIGRATION_11 = MCP_SCHEMA;
  * Additive and idempotent; the base schema already carries the same DDL.
  */
 export const SQLITE_MIGRATION_13 = CHANGESET_SCHEMA;
+
+/**
+ * Version 13 → 14: the developer toolkit's durable facts.
+ *
+ * Additive and idempotent; the base schema carries the same DDL.
+ */
+export const SQLITE_MIGRATION_14 = TOOLKIT_SCHEMA;

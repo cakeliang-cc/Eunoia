@@ -13,6 +13,9 @@ import { InMemoryStore } from '../../src/db/in-memory-store.ts';
 import { MemorySandboxStore } from '../../src/sandbox/store-memory.ts';
 import { WorkspaceManager } from '../../src/sandbox/workspace-manager.ts';
 import { WorkspaceChangeService } from '../../src/sandbox/workspace-change-service.ts';
+import { applyPatchTool } from '../../src/tools/coding/apply-patch.ts';
+import { TurnReadLedger } from '../../src/tools/ledger.ts';
+import { DEFAULT_TOOL_POLICY } from '../../src/tools/types.ts';
 
 const cleanups: (() => Promise<void>)[] = [];
 
@@ -232,5 +235,50 @@ describe('ownership', () => {
     await expect(
       service.undo({ userId: 'u1', conversationId: 'conv-2', changesetId: summary!.id }),
     ).rejects.toThrow(/没有可撤销/);
+  });
+});
+
+describe('a patch turn', () => {
+  it('restores added, modified, moved and deleted files through the same change set', async () => {
+    const { service, workspaces, workspace } = await setup();
+    const ws = files(workspaces, workspace);
+    await service.arm({ userId: 'u1', conversationId: 'conv-1', turnId: 'turn-patch', taskId: 'conv-1' });
+    const patch = [
+      '*** Begin Patch',
+      '*** Add File: added.ts',
+      '+export const added = 1;',
+      '*** Update File: a.ts',
+      '@@',
+      '-export const a = 1;',
+      '+export const a = 2;',
+      '*** Update File: b.ts',
+      '*** Move to: moved.ts',
+      '@@',
+      '-export const b = 2;',
+      '+export const b = 3;',
+      '*** End Patch',
+    ].join('\n');
+    const checked = applyPatchTool.contract?.validate({ patch });
+    if (!checked || !checked.ok) throw new Error('contract');
+    const result = await applyPatchTool.execute(checked.value, {
+      workspace: ws,
+      policy: { ...DEFAULT_TOOL_POLICY, allowWorkspaceWrites: true },
+      ledger: new TurnReadLedger(),
+      now: new Date('2026-04-01T00:00:00Z'),
+      userId: 'u1',
+      conversationId: 'conv-1',
+      changes: {
+        beforeWrite: (path) => service.beforeWrite({ taskId: 'conv-1', path }),
+      },
+    });
+    expect(result.ok).toBe(true);
+    const summary = await service.finish({ userId: 'u1', turnId: 'turn-patch' });
+    expect(summary).toMatchObject({ added: 2, modified: 1, deleted: 1 });
+    const undo = await service.undo({ userId: 'u1', conversationId: 'conv-1', changesetId: summary!.id });
+    expect(undo.status).toBe('undone');
+    expect(await readFile(join(workspace.storageLocation, 'a.ts'), 'utf8')).toBe('export const a = 1;\n');
+    expect(await readFile(join(workspace.storageLocation, 'b.ts'), 'utf8')).toBe('export const b = 2;\n');
+    await expect(readFile(join(workspace.storageLocation, 'added.ts'), 'utf8')).rejects.toThrow();
+    await expect(readFile(join(workspace.storageLocation, 'moved.ts'), 'utf8')).rejects.toThrow();
   });
 });

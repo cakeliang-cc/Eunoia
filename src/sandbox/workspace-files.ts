@@ -304,6 +304,17 @@ export class WorkspaceFiles {
     };
   }
 
+  /** Raw bytes for a binary-capable read, bounded by the caller. */
+  async readBytes(input: string, maxBytes = 10 * 1024 * 1024): Promise<Uint8Array> {
+    const resolved = this.pathGuard.resolve(input);
+    const info = await this.pathGuard.lstatRegular(resolved).catch(() => null);
+    if (!info) throw new WorkspaceError(`${resolved.relative} does not exist`);
+    if (Number(info.size) > maxBytes) {
+      throw new WorkspaceError(`${resolved.relative} is larger than ${maxBytes} bytes`);
+    }
+    return readFile(resolved.host);
+  }
+
   async writeText(input: string, content: string): Promise<WriteResult> {
     const resolved = this.pathGuard.resolve(input);
     const existed = await stat(resolved.host).then(

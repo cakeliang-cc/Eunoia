@@ -2230,6 +2230,7 @@ async function send(text, options = {}) {
       const untitled = !conversationTitles.get(event.conversationId);
       rememberConversation(event.conversationId);
           void pollMcpPending();
+          void pollQuestions();
       if (untitled) void refreshHistory();
     }
     messageId = event?.messageId ?? null;
@@ -4183,6 +4184,8 @@ const mcpState = {
   armedDelete: null,
 };
 let mcpPollTimer = null;
+let questionPollTimer = null;
+let pendingQuestions = [];
 
 function mcpHeaders() {
   return permissionHeaders();
@@ -4910,10 +4913,140 @@ async function pollMcpPending() {
 function startMcpPolling() {
   if (mcpPollTimer) return;
   mcpPollTimer = globalThis.setInterval(() => void pollMcpPending(), 2_500);
+  questionPollTimer = globalThis.setInterval(() => void pollQuestions(), 2_500);
 }
 function stopMcpPolling() {
   if (mcpPollTimer) globalThis.clearInterval(mcpPollTimer);
+  if (questionPollTimer) globalThis.clearInterval(questionPollTimer);
   mcpPollTimer = null;
+  questionPollTimer = null;
+  pendingQuestions = [];
+  renderQuestions();
+}
+
+async function pollQuestions() {
+  if (!state.conversationId || !localToken) return;
+  try {
+    const response = await fetch(
+      `/api/questions?conversationId=${state.conversationId}`,
+    );
+    if (!response.ok) return;
+    const payload = await response.json().catch(() => ({}));
+    pendingQuestions = Array.isArray(payload.questions) ? payload.questions : [];
+    renderQuestions();
+  } catch {
+    // A poll failure is not a turn failure; the next tick retries.
+  }
+}
+
+function renderQuestions() {
+  const box = $('question-pending');
+  if (!box) return;
+  box.textContent = '';
+  if (pendingQuestions.length === 0) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  for (const question of pendingQuestions) {
+    const card = el('div', 'mcp-card question-card');
+    card.append(el('strong', null, question.prompt));
+    const fields = question.schema?.fields || [];
+    if (fields.length === 0) {
+      const input = el('input');
+      input.type = 'text';
+      input.placeholder = '你的回答';
+      input.dataset.questionFree = 'true';
+      card.append(input);
+    }
+    for (const field of fields) {
+      const wrapper = el('div', 'mcp-field');
+      const label = document.createElement('label');
+      label.textContent = `${field.label}${field.required ? ' *' : ''}`;
+      wrapper.append(label);
+      let control;
+      if (field.type === 'select' || field.type === 'multi') {
+        control = el('select');
+        if (field.type === 'multi') control.multiple = true;
+        for (const option of field.options || []) {
+          const opt = document.createElement('option');
+          opt.value = option.value;
+          opt.textContent = option.label;
+          control.append(opt);
+        }
+      } else if (field.type === 'boolean') {
+        control = document.createElement('input');
+        control.type = 'checkbox';
+      } else if (field.type === 'number') {
+        control = el('input');
+        control.type = 'number';
+      } else {
+        control = el('input');
+        control.type = 'text';
+        if (field.placeholder) control.placeholder = field.placeholder;
+      }
+      control.dataset.questionField = field.key;
+      control.dataset.questionType = field.type;
+      wrapper.append(control);
+      card.append(wrapper);
+    }
+    const actions = el('div', 'mcp-actions');
+    const error = el('div', 'mcp-error');
+    actions.append(
+      mcpButton('回答', async () => {
+        const answer = collectQuestionValues(card, fields);
+        try {
+          const response = await fetch(`/api/questions/${question.id}/answer`, {
+            method: 'POST',
+            headers: permissionHeaders(),
+            body: JSON.stringify({ answer }),
+          }).catch(() => null);
+          if (!response || !response.ok) {
+            const payload = response ? await response.json().catch(() => ({})) : {};
+            error.textContent = payload.error || '回答失败';
+            return;
+          }
+          await pollQuestions();
+        } catch (failure) {
+          error.textContent = failure instanceof Error ? failure.message : String(failure);
+        }
+      }, 'primary'),
+      mcpButton('取消提问', async () => {
+        await fetch(`/api/questions/${question.id}/cancel`, {
+          method: 'POST',
+          headers: permissionHeaders(),
+          body: '{}',
+        }).catch(() => null);
+        await pollQuestions();
+      }),
+    );
+    card.append(actions, error);
+    box.append(card);
+  }
+}
+
+function collectQuestionValues(card, fields) {
+  const answer = {};
+  if (fields.length === 0) {
+    const free = card.querySelector('[data-question-free]');
+    answer.text = free ? free.value : '';
+    return answer;
+  }
+  for (const field of fields) {
+    const control = card.querySelector(`[data-question-field="${field.key}"]`);
+    if (!control) continue;
+    if (field.type === 'boolean') {
+      answer[field.key] = Boolean(control.checked);
+    } else if (field.type === 'multi') {
+      answer[field.key] = [...control.selectedOptions].map((option) => option.value);
+    } else if (field.type === 'number') {
+      const value = Number(control.value);
+      if (control.value !== '' && Number.isFinite(value)) answer[field.key] = value;
+    } else if (control.value !== '') {
+      answer[field.key] = control.value;
+    }
+  }
+  return answer;
 }
 
 function addMcpApprovalCard(bubble, event) {

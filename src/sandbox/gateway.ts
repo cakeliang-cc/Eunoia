@@ -1438,6 +1438,18 @@ export class SandboxGateway {
     return this.fileOps.readFile(context, path, start, end);
   }
 
+  async deleteFile(context: SandboxContext, path: string): Promise<{ readonly path: string }> {
+    return this.fileOps.deleteFile(context, path);
+  }
+
+  async readBytes(
+    context: SandboxContext,
+    path: string,
+    maxBytes?: number,
+  ): Promise<Uint8Array> {
+    return this.fileOps.readBytes(context, path, maxBytes);
+  }
+
   async listDir(context: SandboxContext, path = '.', depth = 2): Promise<Awaited<ReturnType<WorkspaceFilesPort['listDir']>>> {
     return this.fileOps.listDir(context, path, depth);
   }

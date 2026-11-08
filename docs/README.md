@@ -24,8 +24,11 @@
 - [模型轨迹与前缀缓存实施清单](./plans/eunoia-模型轨迹与前缀缓存实施清单.md)
 - [多模态实施计划与验收要求](./plans/eunoia-多模态实施计划与验收.md)
 - [多模态一期实际验收报告](./multimodal-acceptance.md)
+- [开发工具补齐实施清单](./plans/eunoia-开发工具补齐实施清单.md)（部分验收，见
+  [报告](./features/eunoia-开发工具补齐验收报告.md)）
 - [用户可操作的按轮撤销（ADR 036）](./adr/036-user-code-undo.md)
 - [语义代码工具（ADR 037）](./adr/037-semantic-code-tools.md)
+- [开发工具补齐（ADR 038）](./adr/038-developer-toolkit.md)
 
 ## 设计和介绍
 
@@ -34,6 +37,7 @@
 - [前缀缓存与模型轨迹亮点介绍](./features/eunoia-前缀缓存与模型轨迹亮点介绍.md)
 - [模型轨迹与前缀缓存验收报告](./features/eunoia-模型轨迹与前缀缓存验收报告.md)
 - [长任务检查点验收报告](./features/eunoia-长任务检查点验收报告.md)
+- [开发工具补齐验收报告](./features/eunoia-开发工具补齐验收报告.md)（含阻塞项）
 - [简历项目经历](./features/eunoia-简历项目经历.md)
 
 ## 项目研究
@@ -41,6 +45,7 @@
 - [MCP 使用、配置与故障恢复](./mcp/README.md)
 - [MCP 验收报告](./mcp/acceptance.md)
 - [MCP 与内置工具用途及 DSH/Codex 对照](./research/mcp/eunoia-MCP与内置工具对照.md)
+- [开发工具现状与选型](./research/tools/eunoia-开发工具现状与选型.md)
 - [前缀缓存方案对照评估](./research/prefix-cache/eunoia-前缀缓存方案对照评估.md)
 - [前缀缓存与主流 Harness 实现对照](./research/prefix-cache/eunoia-前缀缓存与主流Harness实现对照.md)
 - [模型轨迹真实与离线实验数据](./research/prefix-cache/experiments/)

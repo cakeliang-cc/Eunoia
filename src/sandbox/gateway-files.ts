@@ -84,6 +84,44 @@ export class GatewayFileOperations {
     return slice;
   }
 
+  async deleteFile(context: SandboxContext, path: string): Promise<{ readonly path: string }> {
+    const { task, workspace, files } = await this.fileContext(context, path, 'fs.write', 'delete');
+    const resolved = files.resolve(path);
+    await this.#changes?.beforeWrite({ taskId: task.taskId, path: resolved.relative }).catch(() => undefined);
+    const result = await files.deleteFile(path);
+    await this.#workspaces.refreshVersion(workspace);
+    await this.#audit.record({
+      taskId: task.taskId,
+      sessionId: context.sessionId ?? null,
+      toolCallId: context.toolCallId ?? null,
+      action: 'fs.write',
+      outcome: 'succeeded',
+      detail: { path: result.path, deleted: true },
+    });
+    return result;
+  }
+
+  async readBytes(
+    context: SandboxContext,
+    path: string,
+    maxBytes?: number,
+  ): Promise<Uint8Array> {
+    const { task, files } = await this.fileContext(context, path, 'fs.read', 'read_image');
+    const resolved = files.resolve(path);
+    const info = await files.stat(path);
+    if (!info) throw new SandboxNotFoundError(`${resolved.relative} does not exist`);
+    const bytes = await files.readBytes(path, maxBytes);
+    await this.#audit.record({
+      taskId: task.taskId,
+      sessionId: context.sessionId ?? null,
+      toolCallId: context.toolCallId ?? null,
+      action: 'fs.read',
+      outcome: 'succeeded',
+      detail: { path: resolved.relative, bytes: bytes.length, binary: true },
+    });
+    return bytes;
+  }
+
   async listDir(
     context: SandboxContext,
     path = '.',

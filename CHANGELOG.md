@@ -8,6 +8,35 @@
 
 ## [Unreleased]
 
+### Added（开发工具补齐，ADR 038）
+
+- **持续进程。** `process_start/status/read/wait/input/stop/list` 在沙箱内启动
+  detached 进程组，pid/marker/stdout/stderr/exit 存于容器；状态区分
+  running/exited/stopped/unknown，字节游标读日志，同 `toolCallId` 幂等，停止先 TERM
+  进程组再 KILL 并核对。预览工具只报告容器内就绪，宿主端口未发布时明确
+  `userUrl:null`。
+- **浏览器。** 锁定并安装 `@playwright/mcp@0.0.80`；`toolkit:setup` 打印真实配置，
+  `toolkit:doctor` 检查 MCP/Chrome/语言服务/搜索/沙箱镜像。已用真实 Chrome 导航
+  example.com 并截图；截图入媒体和容器隔离仍是缺口。
+- **工作区图片。** `read_image` 经工作区路径守卫读取 JPEG/PNG/WebP，媒体管线解码、
+  私有入库、按用户/会话绑定；伪扩展、SVG、超限、符号链接越界和缺失文件显式拒绝。
+- **联网。** 原生 `web_search` / `web_fetch`；Tavily 基础搜索适配器（无总结/无原始
+  正文，独立密钥），HTTP 抓取双层 SSRF 防护、逐跳重定向检查、gzip/编码/正文提取、
+  登录页/PDF/429 错误映射；快照持久化与 cursor 分页。无 Tavily 密钥时结构化
+  `WEB_NOT_CONFIGURED`。
+- **用户提问。** `ask_user_question` + `user_questions` + `/api/questions` + 前端
+  卡片；typed fields、必填/选项校验、10 分钟过期、取消、abort、同 tool call 幂等与
+  异参冲突；答案与权限批准分离。
+- **多文件补丁。** `apply_patch` 支持 Add/Update/Move/Delete，先全量预检再写；精确
+  上下文匹配、歧义拒绝、失败回滚、行尾保留；写前进入按轮撤销 journal。
+- **语义。** 新增 `list_symbols`；位置改用 Unicode 码点列（中文/emoji/CRLF 测试）；
+  `typescript-language-server@6.0.3` 已安装并进入 doctor，LSP 适配器尚未接线。
+- **schema v14。** 新增 `web_documents`、`dev_jobs`、`dev_previews`、`user_questions`；
+  `dev_jobs` 的 tool call 唯一索引提供启动幂等。
+- **验证与边界。** 新增 read_image 9、web 10、提问 10、补丁 8、进程 8、语义 12 项
+  测试；全量回归见验收报告。报告明确记录 V01/V04/V08 等 BLOCKED 与 D18–D23、
+  D46、D51、D56 等未完成项，不宣称完整验收。
+
 ### Added（按轮撤销与语义代码工具，ADR 036/037）
 
 - **用户可操作的按轮撤销。** 每个持久回合登记一份变更集：惰性 manifest 基线 + 文件
