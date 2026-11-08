@@ -3496,6 +3496,36 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     sweeper.unref();
     server.on('close', () => clearInterval(sweeper));
   }
+  if (processService && sandboxPlatform) {
+    // Long-running jobs also have a configured TTL. A stopped preview removes
+    // its job; a job that outlives its TTL without a preview must not run
+    // forever. The context is rebuilt from the sandbox provider, not guessed.
+    const every = 60_000;
+    const jobSweeper = setInterval(() => {
+      void (async () => {
+        for (const job of await processService.expired().catch(() => [])) {
+          const session = await sandboxPlatform.provider
+            .forTask({ taskId: job.conversationId, sessionId: job.conversationId, userId: job.userId })
+            .catch(() => null);
+          if (!session?.executor) continue;
+          await processService
+            .stop(
+              {
+                executor: session.executor,
+                userId: job.userId,
+                conversationId: job.conversationId,
+                taskId: job.conversationId,
+                toolCallId: `ttl-${job.id}`,
+              },
+              job.id,
+            )
+            .catch(() => undefined);
+        }
+      })();
+    }, every);
+    jobSweeper.unref();
+    server.on('close', () => clearInterval(jobSweeper));
+  }
   server.on('close', () => {
     void previewGateway?.stop();
     sandboxPlatform?.stop();

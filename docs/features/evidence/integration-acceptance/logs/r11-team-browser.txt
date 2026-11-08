@@ -1,0 +1,3 @@
+team browser check: 96/96 assertions passed
+  evidence: docs/features/evidence/integration-acceptance/team/team-browser-check.json
+  screenshots: docs/features/evidence/integration-acceptance/team/{1280,390}-{members,tasks,messages,approvals,integration,panel}.png

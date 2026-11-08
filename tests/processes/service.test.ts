@@ -202,4 +202,25 @@ describe('process lifecycle', () => {
     expect(probe.ready).toBe(true);
     await service.stop(context, job.id);
   }, 30_000);
+
+  it('reports a job whose configured lifetime elapsed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'eunoia-process-ttl-'));
+    cleanups.push(async () => rm(root, { recursive: true, force: true }));
+    let now = new Date('2026-04-01T00:00:00Z');
+    const store = new InMemoryStore();
+    const service = new ProcessService({ store, limits: { ttlMs: 1_000 }, now: () => now });
+    const context: ProcessRunContext = {
+      executor: new LocalExecutor(root),
+      userId: 'u1',
+      conversationId: 'c-ttl',
+      taskId: 'c-ttl',
+      toolCallId: 'ttl-call',
+    };
+    const job = await service.start(context, { command: 'sleep 30' });
+    expect(await service.expired()).toHaveLength(0);
+    now = new Date('2026-04-01T00:00:02Z');
+    const due = await service.expired();
+    expect(due.map((entry) => entry.id)).toContain(job.id);
+    await service.stop(context, job.id);
+  }, 30_000);
 });

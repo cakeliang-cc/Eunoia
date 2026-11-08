@@ -54,10 +54,15 @@ function runChild(
       resolve(message as { point?: string; state?: Record<string, unknown> });
     });
     child.once('exit', (code) => {
-      if (code !== 0) {
-        clearTimeout(timer);
-        reject(new Error(`child exited ${String(code)} before a fault: ${stderr}`));
+      clearTimeout(timer);
+      if (code === 0) {
+        // A child that was run without a fault point (e.g. the resume/drain
+        // command) completes normally; settle the unused promise instead of
+        // leaving a 20s timer to reject after the test has passed.
+        resolve({});
+        return;
       }
+      reject(new Error(`child exited ${String(code)} before a fault: ${stderr}`));
     });
   });
   return { child, fault, closed, output: () => stdout };

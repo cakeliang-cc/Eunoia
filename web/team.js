@@ -75,7 +75,13 @@ async function api(path, options = {}) {
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
+  if (text !== undefined) {
+    // Some card heads pass a badge element as the third argument. Assigning it
+    // to textContent would render "[object HTMLSpanElement]" instead of the
+    // badge; append a real node, keep strings as text.
+    if (text && typeof text === 'object' && 'nodeType' in text) node.append(text);
+    else node.textContent = text;
+  }
   return node;
 }
 

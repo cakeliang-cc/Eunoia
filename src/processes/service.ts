@@ -399,6 +399,12 @@ export class ProcessService {
     }
   }
 
+  /** Running jobs whose configured lifetime has elapsed. */
+  async expired(now: Date = this.#now()): Promise<DevJobRecord[]> {
+    const running = await this.#store.listRunningDevJobs();
+    return running.filter((job) => job.expiresAt !== null && job.expiresAt <= now.toISOString());
+  }
+
   async list(context: ProcessRunContext): Promise<DevJobRecord[]> {
     const jobs = await this.#store.listDevJobs(context.userId, context.conversationId);
     const refreshed: DevJobRecord[] = [];

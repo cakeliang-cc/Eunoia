@@ -1,0 +1,2984 @@
+{
+  "generatedAt": "2026-11-08T14:44:16.626Z",
+  "command": "node --experimental-strip-types scripts/team-browser-check.ts",
+  "browser": "Google Chrome (headless=new) via CDP",
+  "url": "http://127.0.0.1:59384/",
+  "viewports": [
+    1280,
+    390
+  ],
+  "totals": {
+    "passed": 96,
+    "total": 96,
+    "failed": 0
+  },
+  "checks": [
+    {
+      "name": "1280: Team drawer opens from #team-open",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: drawer is a modal dialog",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: closing control is labelled",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: config renders mode",
+      "pass": true,
+      "detail": "[{\"label\":\"模式\",\"value\":\"Team\"},{\"label\":\"成员上限\",\"value\":\"4\"},{\"label\":\"模型\",\"value\":\"deepseek-flash\"},{\"label\":\"请求上限\",\"value\":\"24\"},{\"label\":\"输入预算\",\"value\":\"400,000\"},{\"label\":\"输出预算\",\"value\":\"32,000\"}]"
+    },
+    {
+      "name": "1280: config renders member limit",
+      "pass": true,
+      "detail": "[{\"label\":\"模式\",\"value\":\"Team\"},{\"label\":\"成员上限\",\"value\":\"4\"},{\"label\":\"模型\",\"value\":\"deepseek-flash\"},{\"label\":\"请求上限\",\"value\":\"24\"},{\"label\":\"输入预算\",\"value\":\"400,000\"},{\"label\":\"输出预算\",\"value\":\"32,000\"}]"
+    },
+    {
+      "name": "1280: config renders model",
+      "pass": true,
+      "detail": "[{\"label\":\"模式\",\"value\":\"Team\"},{\"label\":\"成员上限\",\"value\":\"4\"},{\"label\":\"模型\",\"value\":\"deepseek-flash\"},{\"label\":\"请求上限\",\"value\":\"24\"},{\"label\":\"输入预算\",\"value\":\"400,000\"},{\"label\":\"输出预算\",\"value\":\"32,000\"}]"
+    },
+    {
+      "name": "1280: config renders request budget",
+      "pass": true,
+      "detail": "[{\"label\":\"模式\",\"value\":\"Team\"},{\"label\":\"成员上限\",\"value\":\"4\"},{\"label\":\"模型\",\"value\":\"deepseek-flash\"},{\"label\":\"请求上限\",\"value\":\"24\"},{\"label\":\"输入预算\",\"value\":\"400,000\"},{\"label\":\"输出预算\",\"value\":\"32,000\"}]"
+    },
+    {
+      "name": "1280: config renders token budgets",
+      "pass": true,
+      "detail": "[{\"label\":\"模式\",\"value\":\"Team\"},{\"label\":\"成员上限\",\"value\":\"4\"},{\"label\":\"模型\",\"value\":\"deepseek-flash\"},{\"label\":\"请求上限\",\"value\":\"24\"},{\"label\":\"输入预算\",\"value\":\"400,000\"},{\"label\":\"输出预算\",\"value\":\"32,000\"}]"
+    },
+    {
+      "name": "1280: mode toggle writes config with expectedRevision (POST)",
+      "pass": true,
+      "detail": "[{\"method\":\"POST\",\"path\":\"/api/teams/config\",\"body\":{\"conversationId\":\"22222222-2222-4222-8222-222222222222\",\"expectedRevision\":1,\"config\":{\"mode\":\"delegation\"},\"enabled\":false},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"125\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "1280: mode label and meta follow the response",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: second toggle uses the new revision",
+      "pass": true,
+      "detail": "[{\"method\":\"POST\",\"path\":\"/api/teams/config\",\"body\":{\"conversationId\":\"22222222-2222-4222-8222-222222222222\",\"expectedRevision\":1,\"config\":{\"mode\":\"delegation\"},\"enabled\":false},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"125\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}},{\"method\":\"POST\",\"path\":\"/api/teams/config\",\"body\":{\"conversationId\":\"22222222-2222-4222-8222-222222222222\",\"expectedRevision\":2,\"config\":{\"mode\":\"team\"},\"enabled\":true},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"118\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "1280: start run posts conversationId/message/requestId and token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/runs\",\"body\":{\"conversationId\":\"22222222-2222-4222-8222-222222222222\",\"requestId\":\"ce5348fd-a8d8-43a2-8214-ef338c081e75\",\"message\":\"给 shared.ts 加一个对象存储适配，并让写手补测试证据\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"192\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "1280: start run note points at the active run",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: members tab renders exactly two durable member ids",
+      "pass": true,
+      "detail": "[\"mem_root_0000000000000001\",\"mem_writer_00000000000001\"]"
+    },
+    {
+      "name": "1280: members render name/role/depth/model/context/workspace",
+      "pass": true,
+      "detail": "主成员activemem_root_0000000000000001root · 深度 1 · deepseek-flash · fresh工作区：bind · 正在执行 act_root_00000…跟进这条成员（同一上下文）发送跟进停止本轮关闭成员写手idlemem_writer_00000000000001worker · 深度 2 · deepseek-flash · fresh工作区：copy跟进这条成员（同一上下文）发送跟进停止本轮关闭成员MCP approval：写入仓库标签写手（mem_writer_000…）{\n  \"tool\": \"issues.update\",\n  \"argsDigest\": \"sha256:mcp-args\"\n}接受拒绝待审批：shell.exec主成员（mem_root_00000…）· npm test风险：high · 策略：policy-v7请求摘要：digest:4f2a9c代次：3 · 执行：act_root_00000…成员请求在宿主机执行测试命令批准本次拒绝待审批：net.fetch主成员（mem_root_00000…）· https://example.test/api风险：medium · 策略：policy-v7请求摘要：digest:7d1e0b代次：2 · 执行：act_root_00000…成员请求访问外部网络批准本次拒绝新建成员（默认在主成员下）fresh（独立上下文）fork（继承已完成轮次）父成员：主成员父成员：写手创建成员"
+    },
+    {
+      "name": "1280: follow-up posts runId/message with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/members/mem_writer_00000000000001/followup\",\"body\":{\"runId\":\"run_team_fixture_0001\",\"message\":\"先补上测试证据，再报告命令输出\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"91\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "1280: tasks show required and optional with CAS revision",
+      "pass": true,
+      "detail": "实现 S3 适配submittedtask_required_0001 · rev 7 · 必需负责人：写手（mem_writer_0…）依赖：无验收：npm test -- shared 通过，且没有改动 tests/在 src/shared.ts 增加对象存储适配层。查看提交通过拒绝取消任务补充使用说明submittedtask_optional_0002 · rev 4 · 可选负责人：写手（mem_writer_0…）依赖：无验收：README 里有一段可复制的例子。查看提交通过拒绝取消任务新建任务未分配（成员可自行领取）负责人：主成员负责人：写手 必需任务（必须有验收条件）创建任务"
+    },
+    {
+      "name": "1280: required task shows acceptance and owner",
+      "pass": true,
+      "detail": "实现 S3 适配submittedtask_required_0001 · rev 7 · 必需负责人：写手（mem_writer_0…）依赖：无验收：npm test -- shared 通过，且没有改动 tests/在 src/shared.ts 增加对象存储适配层。查看提交通过拒绝取消任务补充使用说明submittedtask_optional_0002 · rev 4 · 可选负责人：写手（mem_writer_0…）依赖：无验收：README 里有一段可复制的例子。查看提交通过拒绝取消任务新建任务未分配（成员可自行领取）负责人：主成员负责人：写手 必需任务（必须有验收条件）创建任务"
+    },
+    {
+      "name": "1280: 查看提交 reads the submission evidence (no claim/submit controls in this build)",
+      "pass": true,
+      "detail": "[{\"method\":\"GET\",\"path\":\"/api/teams/tasks/task_required_0001\",\"body\":null,\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "1280: accept posts expectedRevision 7 / accepted / reason",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/tasks/task_required_0001/review\",\"body\":{\"expectedRevision\":7,\"decision\":\"accepted\",\"reason\":\"证据充分，通过\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"77\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "1280: reject posts expectedRevision 4 / rejected / reason",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/tasks/task_optional_0002/review\",\"body\":{\"expectedRevision\":4,\"decision\":\"rejected\",\"reason\":\"例子不可复制，退回\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"83\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "1280: messages show stable member ids, not just names",
+      "pass": true,
+      "detail": "#1 · 主成员（mem_root_000…） → 写手（mem_writer_0…） · processed · root请描述实现步骤。#2 · 写手（mem_writer_0…） → 主成员（mem_root_000…） · processed · member已提交 diff，见 artifact_required_0001。以用户身份给成员发消息（带来源，不会被当成系统指令）主成员写手发送"
+    },
+    {
+      "name": "1280: @ mention sends recipientId/clientMessageId/body with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/runs/run_team_fixture_0001/messages\",\"body\":{\"recipientId\":\"mem_writer_00000000000001\",\"clientMessageId\":\"883fe790-9e03-4eb2-8a03-3202c010c553\",\"body\":\"@写手 请把测试证据贴上来\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"145\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "1280: approval shows action/member/generation/resource",
+      "pass": true,
+      "detail": "主成员activemem_root_0000000000000001root · 深度 1 · deepseek-flash · fresh工作区：bind · 正在执行 act_root_00000…跟进这条成员（同一上下文）发送跟进停止本轮关闭成员写手idlemem_writer_00000000000001worker · 深度 2 · deepseek-flash · fresh工作区：copy跟进这条成员（同一上下文）发送跟进停止本轮关闭成员MCP approval：写入仓库标签写手（mem_writer_000…）{\n  \"tool\": \"issues.update\",\n  \"argsDigest\": \"sha256:mcp-args\"\n}接受拒绝待审批：shell.exec主成员（mem_root_00000…）· npm test风险：high · 策略：policy-v7请求摘要：digest:4f2a9c代次：3 · 执行：act_root_00000…成员请求在宿主机执行测试命令批准本次拒绝待审批：net.fetch主成员（mem_root_00000…）· https://example.test/api风险：medium · 策略：policy-v7请求摘要：digest:7d1e0b代次：2 · 执行：act_root_00000…成员请求访问外部网络批准本次拒绝新建成员（默认在主成员下）fresh（独立上下文）fork（继承已完成轮次）父成员：主成员父成员：写手创建成员"
+    },
+    {
+      "name": "1280: MCP interaction renders title and payload",
+      "pass": true,
+      "detail": "主成员activemem_root_0000000000000001root · 深度 1 · deepseek-flash · fresh工作区：bind · 正在执行 act_root_00000…跟进这条成员（同一上下文）发送跟进停止本轮关闭成员写手idlemem_writer_00000000000001worker · 深度 2 · deepseek-flash · fresh工作区：copy跟进这条成员（同一上下文）发送跟进停止本轮关闭成员MCP approval：写入仓库标签写手（mem_writer_000…）{\n  \"tool\": \"issues.update\",\n  \"argsDigest\": \"sha256:mcp-args\"\n}接受拒绝待审批：shell.exec主成员（mem_root_00000…）· npm test风险：high · 策略：policy-v7请求摘要：digest:4f2a9c代次：3 · 执行：act_root_00000…成员请求在宿主机执行测试命令批准本次拒绝待审批：net.fetch主成员（mem_root_00000…）· https://example.test/api风险：medium · 策略：policy-v7请求摘要：digest:7d1e0b代次：2 · 执行：act_root_00000…成员请求访问外部网络批准本次拒绝新建成员（默认在主成员下）fresh（独立上下文）fork（继承已完成轮次）父成员：主成员父成员：写手创建成员"
+    },
+    {
+      "name": "1280: approve posts decision approved and reason with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/runs/run_team_fixture_0001/approvals/apr_shell_0001\",\"body\":{\"decision\":\"approved\",\"reason\":\"证据足够，批准\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"56\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "1280: reject posts decision denied with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/runs/run_team_fixture_0001/approvals/apr_network_0002\",\"body\":{\"decision\":\"denied\",\"reason\":\"用户拒绝\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"45\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "1280: MCP accept posts action/response with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/runs/run_team_fixture_0001/mcp-interactions/mcp_interaction_0001\",\"body\":{\"action\":\"accept\",\"response\":{}},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"33\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "1280: artifacts tab shows artifact and integration conflict",
+      "pass": true,
+      "detail": "patch · artifact_requi…候选哈希：cand_required_0001modified src/shared.ts sha256:candidate-sharednpm test -- shared ✓集成候选 · int_team_fixtu…候选：cand_integration_0001冲突：src/shared.ts[\n  {\n    \"at\": \"2026-01-01T00:00:00.000Z\",\n    \"action\": \"created\",\n    \"files\": [\n      \"src/shared.ts\"\n    ],\n    \"detail\": \"candidate differs from source\"\n  }\n]解决冲突重新验证从成员工作区创建集成候选实现 S3 适配（accepted）补充使用说明（pending）主成员写手创建候选发布前必须核对源目录哈希；冲突候选不会自动写入用户目录。patch · artifact_requi…候选哈希：cand_required_0001modified src/shared.ts sha256:candidate-sharednpm test -- shared ✓集成候选 · int_team_fixtu…候选：cand_integration_0001冲突：src/shared.ts[\n  {\n    \"at\": \"2026-01-01T00:00:00.000Z\",\n    \"action\": \"created\",\n    \"files\": [\n      \"src/shared.ts\"\n    ],\n    \"detail\": \"candidate differs from source\"\n  }\n]解决冲突重新验证从成员工作区创建集成候选实现 S3 适配（accepted）补充使用说明（pending）主成员写手创建候选发布前必须核对源目录哈希；冲突候选不会自动写入用户目录。"
+    },
+    {
+      "name": "1280: conflict card shows source, candidate and the other side",
+      "pass": true,
+      "detail": "patch · artifact_requi…候选哈希：cand_required_0001modified src/shared.ts sha256:candidate-sharednpm test -- shared ✓集成候选 · int_team_fixtu…候选：cand_integration_0001冲突：src/shared.ts[\n  {\n    \"at\": \"2026-01-01T00:00:00.000Z\",\n    \"action\": \"created\",\n    \"files\": [\n      \"src/shared.ts\"\n    ],\n    \"detail\": \"candidate differs from source\"\n  }\n]解决冲突重新验证src/shared.ts源文件:\nexport const shared = \"source\";\n候选:\nexport const shared = \"candidate\";\n另一方:\nexport const shared = \"other\";\n保留源文件采用候选手工合并…从成员工作区创建集成候选实现 S3 适配（accepted）补充使用说明（pending）主成员写手创建候选发布前必须核对源目录哈希；冲突候选不会自动写入用户目录。patch · artifact_requi…候选哈希：cand_required_0001modified src/shared.ts sha256:candidate-sharednpm test -- shared ✓集成候选 · int_team_fixtu…候选：cand_integration_0001冲突：src/shared.ts[\n  {\n    \"at\": \"2026-01-01T00:00:00.000Z\",\n    \"action\": \"created\",\n    \"files\": [\n      \"src/shared.ts\"\n    ],\n    \"detail\": \"candidate differs from source\"\n  }\n]解决冲突重新验证从成员工作区创建集成候选实现 S3 适配（accepted）补充使用说明（pending）主成员写手创建候选发布前必须核对源目录哈希；冲突候选不会自动写入用户目录。"
+    },
+    {
+      "name": "1280: opening conflicts reads both sides",
+      "pass": true,
+      "detail": "[{\"method\":\"GET\",\"path\":\"/api/teams/integrations/int_team_fixture_0001/conflicts\",\"body\":null,\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "1280: resolve posts path/source with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/integrations/int_team_fixture_0001/conflicts\",\"body\":{\"path\":\"src/shared.ts\",\"resolution\":\"source\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"46\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "1280: verify posts an empty JSON body with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/integrations/int_team_fixture_0001/verify\",\"body\":{},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"2\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "1280: publish posts the artifact memberId with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/integrations/int_team_fixture_0001/publish\",\"body\":{\"memberId\":\"mem_writer_00000000000001\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"40\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "1280: opening the drawer subscribes from the snapshot cursor",
+      "pass": true,
+      "detail": "[\"/api/teams/runs/run_team_fixture_0001/events/stream?after=8\",\"/api/teams/runs/run_team_fixture_0001/events/stream?after=8\"]"
+    },
+    {
+      "name": "1280: SSE reconnect resumes after the applied sequence",
+      "pass": true,
+      "detail": "[\"/api/teams/runs/run_team_fixture_0001/events/stream?after=8\",\"/api/teams/runs/run_team_fixture_0001/events/stream?after=8\",\"/api/teams/runs/run_team_fixture_0001/events/stream?after=12\"]"
+    },
+    {
+      "name": "1280: SSE event triggers a snapshot refresh, not a new run",
+      "pass": true,
+      "detail": "{\"snapshotsBefore\":14,\"snapshotsAfter\":15}"
+    },
+    {
+      "name": "1280: reconnect writes nothing and does not duplicate member cards",
+      "pass": true,
+      "detail": "{\"writesBefore\":13,\"writesAfter\":13}"
+    },
+    {
+      "name": "1280: stop posts the reason with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/runs/run_team_fixture_0001/stop\",\"body\":{\"reason\":\"用户停止整队\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"31\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "1280: stop reaches a cancelled run and hides the stop button",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "1280: opening focuses the close control",
+      "pass": true,
+      "detail": "team-close"
+    },
+    {
+      "name": "1280: Escape closes and restores focus to the opener",
+      "pass": true,
+      "detail": "team-open"
+    },
+    {
+      "name": "1280: no horizontal overflow at 1280px",
+      "pass": true,
+      "detail": "{\"viewport\":1280,\"scrollWidth\":1280,\"bodyScrollWidth\":1280,\"drawerWidth\":480,\"drawerLeft\":800,\"drawerRight\":1280,\"drawerHeight\":900,\"drawerInside\":true,\"panelScrollWidth\":439,\"panelClientWidth\":439,\"noHorizontalOverflow\":true,\"controls\":[{\"id\":\"team-pause\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-resume\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-stop\",\"hidden\":true,\"display\":\"none\"}]}"
+    },
+    {
+      "name": "1280: open drawer fits the viewport",
+      "pass": true,
+      "detail": "{\"viewport\":1280,\"scrollWidth\":1280,\"bodyScrollWidth\":1280,\"drawerWidth\":480,\"drawerLeft\":800,\"drawerRight\":1280,\"drawerHeight\":900,\"drawerInside\":true,\"panelScrollWidth\":439,\"panelClientWidth\":439,\"noHorizontalOverflow\":true,\"controls\":[{\"id\":\"team-pause\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-resume\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-stop\",\"hidden\":true,\"display\":\"none\"}]}"
+    },
+    {
+      "name": "1280: panel content does not scroll sideways",
+      "pass": true,
+      "detail": "{\"viewport\":1280,\"scrollWidth\":1280,\"bodyScrollWidth\":1280,\"drawerWidth\":480,\"drawerLeft\":800,\"drawerRight\":1280,\"drawerHeight\":900,\"drawerInside\":true,\"panelScrollWidth\":439,\"panelClientWidth\":439,\"noHorizontalOverflow\":true,\"controls\":[{\"id\":\"team-pause\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-resume\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-stop\",\"hidden\":true,\"display\":\"none\"}]}"
+    },
+    {
+      "name": "1280: drawer width follows the breakpoint",
+      "pass": true,
+      "detail": "{\"viewport\":1280,\"scrollWidth\":1280,\"bodyScrollWidth\":1280,\"drawerWidth\":480,\"drawerLeft\":800,\"drawerRight\":1280,\"drawerHeight\":900,\"drawerInside\":true,\"panelScrollWidth\":439,\"panelClientWidth\":439,\"noHorizontalOverflow\":true,\"controls\":[{\"id\":\"team-pause\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-resume\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-stop\",\"hidden\":true,\"display\":\"none\"}]}"
+    },
+    {
+      "name": "1280: every Team write carries the token and JSON content type",
+      "pass": true,
+      "detail": "[\"POST /api/teams/config\",\"POST /api/teams/config\",\"POST /api/teams/runs\",\"POST /api/teams/members/mem_writer_00000000000001/followup\",\"POST /api/teams/tasks/task_required_0001/review\",\"POST /api/teams/tasks/task_optional_0002/review\",\"POST /api/teams/runs/run_team_fixture_0001/messages\",\"POST /api/teams/runs/run_team_fixture_0001/approvals/apr_shell_0001\",\"POST /api/teams/runs/run_team_fixture_0001/approvals/apr_network_0002\",\"POST /api/teams/runs/run_team_fixture_0001/mcp-interactions/mcp_interaction_0001\",\"POST /api/teams/integrations/int_team_fixture_0001/conflicts\",\"POST /api/teams/integrations/int_team_fixture_0001/verify\",\"POST /api/teams/integrations/int_team_fixture_0001/publish\",\"POST /api/teams/runs/run_team_fixture_0001/stop\"]"
+    },
+    {
+      "name": "1280: config/start always use the stored conversation",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: Team drawer opens from #team-open",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: drawer is a modal dialog",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: closing control is labelled",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: config renders mode",
+      "pass": true,
+      "detail": "[{\"label\":\"模式\",\"value\":\"Team\"},{\"label\":\"成员上限\",\"value\":\"4\"},{\"label\":\"模型\",\"value\":\"deepseek-flash\"},{\"label\":\"请求上限\",\"value\":\"24\"},{\"label\":\"输入预算\",\"value\":\"400,000\"},{\"label\":\"输出预算\",\"value\":\"32,000\"}]"
+    },
+    {
+      "name": "390: config renders member limit",
+      "pass": true,
+      "detail": "[{\"label\":\"模式\",\"value\":\"Team\"},{\"label\":\"成员上限\",\"value\":\"4\"},{\"label\":\"模型\",\"value\":\"deepseek-flash\"},{\"label\":\"请求上限\",\"value\":\"24\"},{\"label\":\"输入预算\",\"value\":\"400,000\"},{\"label\":\"输出预算\",\"value\":\"32,000\"}]"
+    },
+    {
+      "name": "390: config renders model",
+      "pass": true,
+      "detail": "[{\"label\":\"模式\",\"value\":\"Team\"},{\"label\":\"成员上限\",\"value\":\"4\"},{\"label\":\"模型\",\"value\":\"deepseek-flash\"},{\"label\":\"请求上限\",\"value\":\"24\"},{\"label\":\"输入预算\",\"value\":\"400,000\"},{\"label\":\"输出预算\",\"value\":\"32,000\"}]"
+    },
+    {
+      "name": "390: config renders request budget",
+      "pass": true,
+      "detail": "[{\"label\":\"模式\",\"value\":\"Team\"},{\"label\":\"成员上限\",\"value\":\"4\"},{\"label\":\"模型\",\"value\":\"deepseek-flash\"},{\"label\":\"请求上限\",\"value\":\"24\"},{\"label\":\"输入预算\",\"value\":\"400,000\"},{\"label\":\"输出预算\",\"value\":\"32,000\"}]"
+    },
+    {
+      "name": "390: config renders token budgets",
+      "pass": true,
+      "detail": "[{\"label\":\"模式\",\"value\":\"Team\"},{\"label\":\"成员上限\",\"value\":\"4\"},{\"label\":\"模型\",\"value\":\"deepseek-flash\"},{\"label\":\"请求上限\",\"value\":\"24\"},{\"label\":\"输入预算\",\"value\":\"400,000\"},{\"label\":\"输出预算\",\"value\":\"32,000\"}]"
+    },
+    {
+      "name": "390: mode toggle writes config with expectedRevision (POST)",
+      "pass": true,
+      "detail": "[{\"method\":\"POST\",\"path\":\"/api/teams/config\",\"body\":{\"conversationId\":\"22222222-2222-4222-8222-222222222222\",\"expectedRevision\":1,\"config\":{\"mode\":\"delegation\"},\"enabled\":false},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"125\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "390: mode label and meta follow the response",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: second toggle uses the new revision",
+      "pass": true,
+      "detail": "[{\"method\":\"POST\",\"path\":\"/api/teams/config\",\"body\":{\"conversationId\":\"22222222-2222-4222-8222-222222222222\",\"expectedRevision\":1,\"config\":{\"mode\":\"delegation\"},\"enabled\":false},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"125\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}},{\"method\":\"POST\",\"path\":\"/api/teams/config\",\"body\":{\"conversationId\":\"22222222-2222-4222-8222-222222222222\",\"expectedRevision\":2,\"config\":{\"mode\":\"team\"},\"enabled\":true},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"118\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "390: start run posts conversationId/message/requestId and token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/runs\",\"body\":{\"conversationId\":\"22222222-2222-4222-8222-222222222222\",\"requestId\":\"ad2c7af8-d0ec-4ade-8e16-6ee3417b4de9\",\"message\":\"给 shared.ts 加一个对象存储适配，并让写手补测试证据\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"192\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "390: start run note points at the active run",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: members tab renders exactly two durable member ids",
+      "pass": true,
+      "detail": "[\"mem_root_0000000000000001\",\"mem_writer_00000000000001\"]"
+    },
+    {
+      "name": "390: members render name/role/depth/model/context/workspace",
+      "pass": true,
+      "detail": "主成员activemem_root_0000000000000001root · 深度 1 · deepseek-flash · fresh工作区：bind · 正在执行 act_root_00000…跟进这条成员（同一上下文）发送跟进停止本轮关闭成员写手idlemem_writer_00000000000001worker · 深度 2 · deepseek-flash · fresh工作区：copy跟进这条成员（同一上下文）发送跟进停止本轮关闭成员MCP approval：写入仓库标签写手（mem_writer_000…）{\n  \"tool\": \"issues.update\",\n  \"argsDigest\": \"sha256:mcp-args\"\n}接受拒绝待审批：shell.exec主成员（mem_root_00000…）· npm test风险：high · 策略：policy-v7请求摘要：digest:4f2a9c代次：3 · 执行：act_root_00000…成员请求在宿主机执行测试命令批准本次拒绝待审批：net.fetch主成员（mem_root_00000…）· https://example.test/api风险：medium · 策略：policy-v7请求摘要：digest:7d1e0b代次：2 · 执行：act_root_00000…成员请求访问外部网络批准本次拒绝新建成员（默认在主成员下）fresh（独立上下文）fork（继承已完成轮次）父成员：主成员父成员：写手创建成员"
+    },
+    {
+      "name": "390: follow-up posts runId/message with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/members/mem_writer_00000000000001/followup\",\"body\":{\"runId\":\"run_team_fixture_0001\",\"message\":\"先补上测试证据，再报告命令输出\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"91\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "390: tasks show required and optional with CAS revision",
+      "pass": true,
+      "detail": "实现 S3 适配submittedtask_required_0001 · rev 7 · 必需负责人：写手（mem_writer_0…）依赖：无验收：npm test -- shared 通过，且没有改动 tests/在 src/shared.ts 增加对象存储适配层。查看提交通过拒绝取消任务补充使用说明submittedtask_optional_0002 · rev 4 · 可选负责人：写手（mem_writer_0…）依赖：无验收：README 里有一段可复制的例子。查看提交通过拒绝取消任务新建任务未分配（成员可自行领取）负责人：主成员负责人：写手 必需任务（必须有验收条件）创建任务"
+    },
+    {
+      "name": "390: required task shows acceptance and owner",
+      "pass": true,
+      "detail": "实现 S3 适配submittedtask_required_0001 · rev 7 · 必需负责人：写手（mem_writer_0…）依赖：无验收：npm test -- shared 通过，且没有改动 tests/在 src/shared.ts 增加对象存储适配层。查看提交通过拒绝取消任务补充使用说明submittedtask_optional_0002 · rev 4 · 可选负责人：写手（mem_writer_0…）依赖：无验收：README 里有一段可复制的例子。查看提交通过拒绝取消任务新建任务未分配（成员可自行领取）负责人：主成员负责人：写手 必需任务（必须有验收条件）创建任务"
+    },
+    {
+      "name": "390: 查看提交 reads the submission evidence (no claim/submit controls in this build)",
+      "pass": true,
+      "detail": "[{\"method\":\"GET\",\"path\":\"/api/teams/tasks/task_required_0001\",\"body\":null,\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "390: accept posts expectedRevision 7 / accepted / reason",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/tasks/task_required_0001/review\",\"body\":{\"expectedRevision\":7,\"decision\":\"accepted\",\"reason\":\"证据充分，通过\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"77\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "390: reject posts expectedRevision 4 / rejected / reason",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/tasks/task_optional_0002/review\",\"body\":{\"expectedRevision\":4,\"decision\":\"rejected\",\"reason\":\"例子不可复制，退回\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"83\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "390: messages show stable member ids, not just names",
+      "pass": true,
+      "detail": "#1 · 主成员（mem_root_000…） → 写手（mem_writer_0…） · processed · root请描述实现步骤。#2 · 写手（mem_writer_0…） → 主成员（mem_root_000…） · processed · member已提交 diff，见 artifact_required_0001。以用户身份给成员发消息（带来源，不会被当成系统指令）主成员写手发送"
+    },
+    {
+      "name": "390: @ mention sends recipientId/clientMessageId/body with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/runs/run_team_fixture_0001/messages\",\"body\":{\"recipientId\":\"mem_writer_00000000000001\",\"clientMessageId\":\"edb778c6-334c-4eb6-8f76-4c5bc151e594\",\"body\":\"@写手 请把测试证据贴上来\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"145\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "390: approval shows action/member/generation/resource",
+      "pass": true,
+      "detail": "主成员activemem_root_0000000000000001root · 深度 1 · deepseek-flash · fresh工作区：bind · 正在执行 act_root_00000…跟进这条成员（同一上下文）发送跟进停止本轮关闭成员写手idlemem_writer_00000000000001worker · 深度 2 · deepseek-flash · fresh工作区：copy跟进这条成员（同一上下文）发送跟进停止本轮关闭成员MCP approval：写入仓库标签写手（mem_writer_000…）{\n  \"tool\": \"issues.update\",\n  \"argsDigest\": \"sha256:mcp-args\"\n}接受拒绝待审批：shell.exec主成员（mem_root_00000…）· npm test风险：high · 策略：policy-v7请求摘要：digest:4f2a9c代次：3 · 执行：act_root_00000…成员请求在宿主机执行测试命令批准本次拒绝待审批：net.fetch主成员（mem_root_00000…）· https://example.test/api风险：medium · 策略：policy-v7请求摘要：digest:7d1e0b代次：2 · 执行：act_root_00000…成员请求访问外部网络批准本次拒绝新建成员（默认在主成员下）fresh（独立上下文）fork（继承已完成轮次）父成员：主成员父成员：写手创建成员"
+    },
+    {
+      "name": "390: MCP interaction renders title and payload",
+      "pass": true,
+      "detail": "主成员activemem_root_0000000000000001root · 深度 1 · deepseek-flash · fresh工作区：bind · 正在执行 act_root_00000…跟进这条成员（同一上下文）发送跟进停止本轮关闭成员写手idlemem_writer_00000000000001worker · 深度 2 · deepseek-flash · fresh工作区：copy跟进这条成员（同一上下文）发送跟进停止本轮关闭成员MCP approval：写入仓库标签写手（mem_writer_000…）{\n  \"tool\": \"issues.update\",\n  \"argsDigest\": \"sha256:mcp-args\"\n}接受拒绝待审批：shell.exec主成员（mem_root_00000…）· npm test风险：high · 策略：policy-v7请求摘要：digest:4f2a9c代次：3 · 执行：act_root_00000…成员请求在宿主机执行测试命令批准本次拒绝待审批：net.fetch主成员（mem_root_00000…）· https://example.test/api风险：medium · 策略：policy-v7请求摘要：digest:7d1e0b代次：2 · 执行：act_root_00000…成员请求访问外部网络批准本次拒绝新建成员（默认在主成员下）fresh（独立上下文）fork（继承已完成轮次）父成员：主成员父成员：写手创建成员"
+    },
+    {
+      "name": "390: approve posts decision approved and reason with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/runs/run_team_fixture_0001/approvals/apr_shell_0001\",\"body\":{\"decision\":\"approved\",\"reason\":\"证据足够，批准\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"56\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "390: reject posts decision denied with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/runs/run_team_fixture_0001/approvals/apr_network_0002\",\"body\":{\"decision\":\"denied\",\"reason\":\"用户拒绝\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"45\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "390: MCP accept posts action/response with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/runs/run_team_fixture_0001/mcp-interactions/mcp_interaction_0001\",\"body\":{\"action\":\"accept\",\"response\":{}},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"33\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "390: artifacts tab shows artifact and integration conflict",
+      "pass": true,
+      "detail": "patch · artifact_requi…候选哈希：cand_required_0001modified src/shared.ts sha256:candidate-sharednpm test -- shared ✓集成候选 · int_team_fixtu…候选：cand_integration_0001冲突：src/shared.ts[\n  {\n    \"at\": \"2026-01-01T00:00:00.000Z\",\n    \"action\": \"created\",\n    \"files\": [\n      \"src/shared.ts\"\n    ],\n    \"detail\": \"candidate differs from source\"\n  }\n]解决冲突重新验证从成员工作区创建集成候选实现 S3 适配（accepted）补充使用说明（pending）主成员写手创建候选发布前必须核对源目录哈希；冲突候选不会自动写入用户目录。"
+    },
+    {
+      "name": "390: conflict card shows source, candidate and the other side",
+      "pass": true,
+      "detail": "patch · artifact_requi…候选哈希：cand_required_0001modified src/shared.ts sha256:candidate-sharednpm test -- shared ✓集成候选 · int_team_fixtu…候选：cand_integration_0001冲突：src/shared.ts[\n  {\n    \"at\": \"2026-01-01T00:00:00.000Z\",\n    \"action\": \"created\",\n    \"files\": [\n      \"src/shared.ts\"\n    ],\n    \"detail\": \"candidate differs from source\"\n  }\n]解决冲突重新验证src/shared.ts源文件:\nexport const shared = \"source\";\n候选:\nexport const shared = \"candidate\";\n另一方:\nexport const shared = \"other\";\n保留源文件采用候选手工合并…从成员工作区创建集成候选实现 S3 适配（accepted）补充使用说明（pending）主成员写手创建候选发布前必须核对源目录哈希；冲突候选不会自动写入用户目录。patch · artifact_requi…候选哈希：cand_required_0001modified src/shared.ts sha256:candidate-sharednpm test -- shared ✓集成候选 · int_team_fixtu…候选：cand_integration_0001冲突：src/shared.ts[\n  {\n    \"at\": \"2026-01-01T00:00:00.000Z\",\n    \"action\": \"created\",\n    \"files\": [\n      \"src/shared.ts\"\n    ],\n    \"detail\": \"candidate differs from source\"\n  }\n]解决冲突重新验证从成员工作区创建集成候选实现 S3 适配（accepted）补充使用说明（pending）主成员写手创建候选发布前必须核对源目录哈希；冲突候选不会自动写入用户目录。"
+    },
+    {
+      "name": "390: opening conflicts reads both sides",
+      "pass": true,
+      "detail": "[{\"method\":\"GET\",\"path\":\"/api/teams/integrations/int_team_fixture_0001/conflicts\",\"body\":null,\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}]"
+    },
+    {
+      "name": "390: resolve posts path/source with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/integrations/int_team_fixture_0001/conflicts\",\"body\":{\"path\":\"src/shared.ts\",\"resolution\":\"source\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"46\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "390: verify posts an empty JSON body with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/integrations/int_team_fixture_0001/verify\",\"body\":{},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"2\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "390: publish posts the artifact memberId with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/integrations/int_team_fixture_0001/publish\",\"body\":{\"memberId\":\"mem_writer_00000000000001\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"40\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "390: opening the drawer subscribes from the snapshot cursor",
+      "pass": true,
+      "detail": "[\"/api/teams/runs/run_team_fixture_0001/events/stream?after=8\",\"/api/teams/runs/run_team_fixture_0001/events/stream?after=8\"]"
+    },
+    {
+      "name": "390: SSE reconnect resumes after the applied sequence",
+      "pass": true,
+      "detail": "[\"/api/teams/runs/run_team_fixture_0001/events/stream?after=8\",\"/api/teams/runs/run_team_fixture_0001/events/stream?after=8\",\"/api/teams/runs/run_team_fixture_0001/events/stream?after=12\"]"
+    },
+    {
+      "name": "390: SSE event triggers a snapshot refresh, not a new run",
+      "pass": true,
+      "detail": "{\"snapshotsBefore\":14,\"snapshotsAfter\":15}"
+    },
+    {
+      "name": "390: reconnect writes nothing and does not duplicate member cards",
+      "pass": true,
+      "detail": "{\"writesBefore\":13,\"writesAfter\":13}"
+    },
+    {
+      "name": "390: stop posts the reason with token",
+      "pass": true,
+      "detail": "{\"method\":\"POST\",\"path\":\"/api/teams/runs/run_team_fixture_0001/stop\",\"body\":{\"reason\":\"用户停止整队\"},\"headers\":{\"host\":\"127.0.0.1:59384\",\"connection\":\"keep-alive\",\"content-length\":\"31\",\"sec-ch-ua-platform\":\"\\\"macOS\\\"\",\"user-agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\",\"sec-ch-ua\":\"\\\"Not:A-Brand\\\";v=\\\"8\\\", \\\"Chromium\\\";v=\\\"156\\\", \\\"Google Chrome\\\";v=\\\"156\\\"\",\"x-eunoia-token\":\"team-fixture-token\",\"content-type\":\"application/json\",\"sec-ch-ua-mobile\":\"?0\",\"accept\":\"*/*\",\"origin\":\"http://127.0.0.1:59384\",\"sec-fetch-site\":\"same-origin\",\"sec-fetch-mode\":\"cors\",\"sec-fetch-dest\":\"empty\",\"referer\":\"http://127.0.0.1:59384/\",\"accept-encoding\":\"gzip, deflate, br, zstd\",\"accept-language\":\"zh-CN,zh;q=0.9\"}}"
+    },
+    {
+      "name": "390: stop reaches a cancelled run and hides the stop button",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "390: opening focuses the close control",
+      "pass": true,
+      "detail": "team-close"
+    },
+    {
+      "name": "390: Escape closes and restores focus to the opener",
+      "pass": true,
+      "detail": "team-open"
+    },
+    {
+      "name": "390: no horizontal overflow at 390px",
+      "pass": true,
+      "detail": "{\"viewport\":390,\"scrollWidth\":390,\"bodyScrollWidth\":390,\"drawerWidth\":390,\"drawerLeft\":0,\"drawerRight\":390,\"drawerHeight\":844,\"drawerInside\":true,\"panelScrollWidth\":362,\"panelClientWidth\":362,\"noHorizontalOverflow\":true,\"controls\":[{\"id\":\"team-pause\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-resume\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-stop\",\"hidden\":true,\"display\":\"none\"}]}"
+    },
+    {
+      "name": "390: open drawer fits the viewport",
+      "pass": true,
+      "detail": "{\"viewport\":390,\"scrollWidth\":390,\"bodyScrollWidth\":390,\"drawerWidth\":390,\"drawerLeft\":0,\"drawerRight\":390,\"drawerHeight\":844,\"drawerInside\":true,\"panelScrollWidth\":362,\"panelClientWidth\":362,\"noHorizontalOverflow\":true,\"controls\":[{\"id\":\"team-pause\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-resume\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-stop\",\"hidden\":true,\"display\":\"none\"}]}"
+    },
+    {
+      "name": "390: panel content does not scroll sideways",
+      "pass": true,
+      "detail": "{\"viewport\":390,\"scrollWidth\":390,\"bodyScrollWidth\":390,\"drawerWidth\":390,\"drawerLeft\":0,\"drawerRight\":390,\"drawerHeight\":844,\"drawerInside\":true,\"panelScrollWidth\":362,\"panelClientWidth\":362,\"noHorizontalOverflow\":true,\"controls\":[{\"id\":\"team-pause\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-resume\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-stop\",\"hidden\":true,\"display\":\"none\"}]}"
+    },
+    {
+      "name": "390: drawer width follows the breakpoint",
+      "pass": true,
+      "detail": "{\"viewport\":390,\"scrollWidth\":390,\"bodyScrollWidth\":390,\"drawerWidth\":390,\"drawerLeft\":0,\"drawerRight\":390,\"drawerHeight\":844,\"drawerInside\":true,\"panelScrollWidth\":362,\"panelClientWidth\":362,\"noHorizontalOverflow\":true,\"controls\":[{\"id\":\"team-pause\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-resume\",\"hidden\":true,\"display\":\"none\"},{\"id\":\"team-stop\",\"hidden\":true,\"display\":\"none\"}]}"
+    },
+    {
+      "name": "390: every Team write carries the token and JSON content type",
+      "pass": true,
+      "detail": "[\"POST /api/teams/config\",\"POST /api/teams/config\",\"POST /api/teams/runs\",\"POST /api/teams/members/mem_writer_00000000000001/followup\",\"POST /api/teams/tasks/task_required_0001/review\",\"POST /api/teams/tasks/task_optional_0002/review\",\"POST /api/teams/runs/run_team_fixture_0001/messages\",\"POST /api/teams/runs/run_team_fixture_0001/approvals/apr_shell_0001\",\"POST /api/teams/runs/run_team_fixture_0001/approvals/apr_network_0002\",\"POST /api/teams/runs/run_team_fixture_0001/mcp-interactions/mcp_interaction_0001\",\"POST /api/teams/integrations/int_team_fixture_0001/conflicts\",\"POST /api/teams/integrations/int_team_fixture_0001/verify\",\"POST /api/teams/integrations/int_team_fixture_0001/publish\",\"POST /api/teams/runs/run_team_fixture_0001/stop\"]"
+    },
+    {
+      "name": "390: config/start always use the stored conversation",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "scenarios": [
+    {
+      "label": "1280",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/media/capabilities",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/conversations",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/preferences",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/permissions",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/workspace",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/media/capabilities",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/conversations/22222222-2222-4222-8222-222222222222/messages",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/conversations",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/preferences",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/permissions?conversationId=22222222-2222-4222-8222-222222222222",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/workspace",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams?conversationId=22222222-2222-4222-8222-222222222222",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001/events/stream?after=8",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "pragma": "no-cache",
+            "cache-control": "no-cache",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "accept": "text/event-stream",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/config",
+          "body": {
+            "conversationId": "22222222-2222-4222-8222-222222222222",
+            "expectedRevision": 1,
+            "config": {
+              "mode": "delegation"
+            },
+            "enabled": false
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "125",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/config",
+          "body": {
+            "conversationId": "22222222-2222-4222-8222-222222222222",
+            "expectedRevision": 2,
+            "config": {
+              "mode": "team"
+            },
+            "enabled": true
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "118",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/runs",
+          "body": {
+            "conversationId": "22222222-2222-4222-8222-222222222222",
+            "requestId": "ce5348fd-a8d8-43a2-8214-ef338c081e75",
+            "message": "给 shared.ts 加一个对象存储适配，并让写手补测试证据"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "192",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001/events/stream?after=8",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "pragma": "no-cache",
+            "cache-control": "no-cache",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "accept": "text/event-stream",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/members/mem_writer_00000000000001/followup",
+          "body": {
+            "runId": "run_team_fixture_0001",
+            "message": "先补上测试证据，再报告命令输出"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "91",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/tasks/task_required_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/tasks/task_required_0001/review",
+          "body": {
+            "expectedRevision": 7,
+            "decision": "accepted",
+            "reason": "证据充分，通过"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "77",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/tasks/task_optional_0002/review",
+          "body": {
+            "expectedRevision": 4,
+            "decision": "rejected",
+            "reason": "例子不可复制，退回"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "83",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/runs/run_team_fixture_0001/messages",
+          "body": {
+            "recipientId": "mem_writer_00000000000001",
+            "clientMessageId": "883fe790-9e03-4eb2-8a03-3202c010c553",
+            "body": "@写手 请把测试证据贴上来"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "145",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/runs/run_team_fixture_0001/approvals/apr_shell_0001",
+          "body": {
+            "decision": "approved",
+            "reason": "证据足够，批准"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "56",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/runs/run_team_fixture_0001/approvals/apr_network_0002",
+          "body": {
+            "decision": "denied",
+            "reason": "用户拒绝"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "45",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/runs/run_team_fixture_0001/mcp-interactions/mcp_interaction_0001",
+          "body": {
+            "action": "accept",
+            "response": {}
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "33",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001/integrations",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001/integrations",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/integrations/int_team_fixture_0001/conflicts",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/integrations/int_team_fixture_0001/conflicts",
+          "body": {
+            "path": "src/shared.ts",
+            "resolution": "source"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "46",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001/integrations",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/integrations/int_team_fixture_0001/verify",
+          "body": {},
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "2",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/integrations/int_team_fixture_0001/publish",
+          "body": {
+            "memberId": "mem_writer_00000000000001"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "40",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001/events/stream?after=12",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "pragma": "no-cache",
+            "cache-control": "no-cache",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "accept": "text/event-stream",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/runs/run_team_fixture_0001/stop",
+          "body": {
+            "reason": "用户停止整队"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "31",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams?conversationId=22222222-2222-4222-8222-222222222222",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams?conversationId=22222222-2222-4222-8222-222222222222",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        }
+      ]
+    },
+    {
+      "label": "390",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/media/capabilities",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/conversations/22222222-2222-4222-8222-222222222222/messages",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/conversations",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/preferences",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/permissions?conversationId=22222222-2222-4222-8222-222222222222",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/workspace",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/media/capabilities",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/conversations/22222222-2222-4222-8222-222222222222/messages",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/conversations",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/preferences",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/permissions?conversationId=22222222-2222-4222-8222-222222222222",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/workspace",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams?conversationId=22222222-2222-4222-8222-222222222222",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001/events/stream?after=8",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "pragma": "no-cache",
+            "cache-control": "no-cache",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "accept": "text/event-stream",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/config",
+          "body": {
+            "conversationId": "22222222-2222-4222-8222-222222222222",
+            "expectedRevision": 1,
+            "config": {
+              "mode": "delegation"
+            },
+            "enabled": false
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "125",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/config",
+          "body": {
+            "conversationId": "22222222-2222-4222-8222-222222222222",
+            "expectedRevision": 2,
+            "config": {
+              "mode": "team"
+            },
+            "enabled": true
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "118",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/runs",
+          "body": {
+            "conversationId": "22222222-2222-4222-8222-222222222222",
+            "requestId": "ad2c7af8-d0ec-4ade-8e16-6ee3417b4de9",
+            "message": "给 shared.ts 加一个对象存储适配，并让写手补测试证据"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "192",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001/events/stream?after=8",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "pragma": "no-cache",
+            "cache-control": "no-cache",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "accept": "text/event-stream",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/members/mem_writer_00000000000001/followup",
+          "body": {
+            "runId": "run_team_fixture_0001",
+            "message": "先补上测试证据，再报告命令输出"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "91",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/tasks/task_required_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/tasks/task_required_0001/review",
+          "body": {
+            "expectedRevision": 7,
+            "decision": "accepted",
+            "reason": "证据充分，通过"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "77",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/tasks/task_optional_0002/review",
+          "body": {
+            "expectedRevision": 4,
+            "decision": "rejected",
+            "reason": "例子不可复制，退回"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "83",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/runs/run_team_fixture_0001/messages",
+          "body": {
+            "recipientId": "mem_writer_00000000000001",
+            "clientMessageId": "edb778c6-334c-4eb6-8f76-4c5bc151e594",
+            "body": "@写手 请把测试证据贴上来"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "145",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/runs/run_team_fixture_0001/approvals/apr_shell_0001",
+          "body": {
+            "decision": "approved",
+            "reason": "证据足够，批准"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "56",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/runs/run_team_fixture_0001/approvals/apr_network_0002",
+          "body": {
+            "decision": "denied",
+            "reason": "用户拒绝"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "45",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/runs/run_team_fixture_0001/mcp-interactions/mcp_interaction_0001",
+          "body": {
+            "action": "accept",
+            "response": {}
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "33",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001/integrations",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001/integrations",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/integrations/int_team_fixture_0001/conflicts",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/integrations/int_team_fixture_0001/conflicts",
+          "body": {
+            "path": "src/shared.ts",
+            "resolution": "source"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "46",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/integrations/int_team_fixture_0001/verify",
+          "body": {},
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "2",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001/integrations",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/integrations/int_team_fixture_0001/publish",
+          "body": {
+            "memberId": "mem_writer_00000000000001"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "40",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001/events/stream?after=12",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "pragma": "no-cache",
+            "cache-control": "no-cache",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "accept": "text/event-stream",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/teams/runs/run_team_fixture_0001/stop",
+          "body": {
+            "reason": "用户停止整队"
+          },
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "content-length": "31",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "x-eunoia-token": "team-fixture-token",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "http://127.0.0.1:59384",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams?conversationId=22222222-2222-4222-8222-222222222222",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams?conversationId=22222222-2222-4222-8222-222222222222",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/teams/runs/run_team_fixture_0001",
+          "body": null,
+          "headers": {
+            "host": "127.0.0.1:59384",
+            "connection": "keep-alive",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "http://127.0.0.1:59384/",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "zh-CN,zh;q=0.9"
+          }
+        }
+      ]
+    }
+  ],
+  "findings": [],
+  "fixture": {
+    "conversationId": "22222222-2222-4222-8222-222222222222",
+    "teamId": "team_fixture_0001",
+    "runId": "run_team_fixture_0001",
+    "members": [
+      "mem_root_0000000000000001",
+      "mem_writer_00000000000001"
+    ],
+    "tasks": [
+      "task_required_0001",
+      "task_optional_0002"
+    ],
+    "approvals": [
+      "apr_shell_0001",
+      "apr_network_0002"
+    ],
+    "mcpInteraction": "mcp_interaction_0001",
+    "integration": "int_team_fixture_0001",
+    "conflictPath": "src/shared.ts"
+  },
+  "notes": [
+    "The HTTP server is a local fixture. The page, team.js and the requests it sends are real.",
+    "This build writes Team config with POST /api/teams/config (CAS expectedRevision); it has no PUT/PATCH route.",
+    "This build has no human claim/submit controls: task submission evidence is read through 查看提交 (GET /api/teams/tasks/:id) and review uses accept/reject with expectedRevision.",
+    "A second pending approval exists only so both approve and reject request shapes are exercised."
+  ],
+  "pageProbe": {
+    "text": "主成员idlemem_root_0000000000000001root · 深度 1 · deepseek-flash · fresh工作区：bind · 正在执行 act_root_00000…跟进这条成员（同一上下文）发送跟进停止本轮关闭成员写手idlemem_writer_00000000000001worker · 深度 2 · deepseek-flash · fresh工作区：copy跟进这条成员（同一上下文）发送跟进停止本轮关闭成员",
+    "drawerOpen": true,
+    "activeTab": "members",
+    "bodyText": "\n\n  \n    \n      \n      \n      \n    \n    \n      \n      \n    \n    \n      \n      \n    \n    \n      \n      \n    \n    \n      \n      \n    \n    \n      \n      \n    \n\n    \n      \n      \n      \n      \n      \n      \n      \n      \n      \n      \n      \n    \n\n    \n      \n      \n      \n      \n      \n      \n      \n      \n      \n      \n      \n      \n      \n    \n\n    \n      \n      \n      \n      \n      \n      \n      \n      \n      \n      \n    \n\n    \n      \n      \n      \n      \n      \n      \n      \n    \n\n    \n      \n"
+  }
+}

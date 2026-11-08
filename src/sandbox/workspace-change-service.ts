@@ -709,17 +709,21 @@ export class WorkspaceChangeService implements WorkspaceChangeRecorder {
       changeset.conversationId,
       1_000,
     );
-    const later = all.filter(
-      (entry) => entry.id !== changeset.id && entry.createdAt > changeset.createdAt,
-    );
-    if (later.length === 0) return [];
     const blocked: Array<{ path: string; reason: string }> = [];
-    for (const summary of later) {
-      if (summary.status === 'undone') continue;
+    for (const summary of all) {
+      if (summary.id === changeset.id || summary.status === 'undone') continue;
       const record = await this.#changesets.getWorkspaceChangeset(changeset.userId, summary.id);
       if (!record) continue;
       for (const file of selected) {
-        if (record.files.some((entry) => entry.path === file.path)) {
+        const currentAfter = changeset.files.find((entry) => entry.path === file.path)?.afterSha ?? null;
+        const laterFile = record.files.find((entry) => entry.path === file.path);
+        if (!laterFile) continue;
+        // A later record that started exactly from this record's after state is
+        // a dependency even when both rows share the same millisecond (common in
+        // tests and fast turns). Timestamp is only a fallback for a later
+        // independent edit of the same path.
+        const chained = laterFile.beforeSha === currentAfter;
+        if (chained || summary.createdAt > changeset.createdAt) {
           blocked.push({
             path: file.path,
             reason: `后续第 ${record.turnId.slice(0, 8)} 轮仍引用了这个文件`,

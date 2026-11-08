@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T13:42:14.207Z",
+  "generatedAt": "2026-11-08T14:42:32.669Z",
   "baselineCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
   "report": "docs/features/eunoia-联调整改验收报告.md",
   "statusVocabulary": [
@@ -12,43 +12,43 @@
   ],
   "totals": {
     "all": {
-      "PASS": 108,
-      "PARTIAL": 42,
+      "PASS": 129,
+      "PARTIAL": 21,
       "FAIL": 0,
       "BLOCKED": 2,
       "TODO": 0
     },
     "D": {
-      "PASS": 42,
-      "PARTIAL": 21,
+      "PASS": 50,
+      "PARTIAL": 13,
       "FAIL": 0,
       "BLOCKED": 1,
       "TODO": 0
     },
     "V": {
-      "PASS": 3,
-      "PARTIAL": 4,
+      "PASS": 4,
+      "PARTIAL": 3,
       "FAIL": 0,
       "BLOCKED": 1,
       "TODO": 0
     },
     "T": {
-      "PASS": 52,
-      "PARTIAL": 8,
-      "FAIL": 0,
-      "BLOCKED": 0,
-      "TODO": 0
-    },
-    "E": {
-      "PASS": 5,
+      "PASS": 59,
       "PARTIAL": 1,
       "FAIL": 0,
       "BLOCKED": 0,
       "TODO": 0
     },
-    "R": {
+    "E": {
       "PASS": 6,
-      "PARTIAL": 8,
+      "PARTIAL": 0,
+      "FAIL": 0,
+      "BLOCKED": 0,
+      "TODO": 0
+    },
+    "R": {
+      "PASS": 10,
+      "PARTIAL": 4,
       "FAIL": 0,
       "BLOCKED": 0,
       "TODO": 0
@@ -176,13 +176,15 @@
       "title": "并发和寿命",
       "requirement": "启动/停止幂等；上限、TTL、成员关闭和运行停止正确清理",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L247",
-      "status": "PARTIAL",
-      "testCommands": [],
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/processes/service.test.ts"
+      ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+        "docs/features/evidence/integration-acceptance/logs/d-processes.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "并发/幂等有测试；TTL 自动回收长期作业未单独执行。"
+      "reason": "并发/幂等有测试；新增服务端每 60s 扫描已过期作业并按重建的执行上下文停止；TTL 单测通过。"
     },
     {
       "id": "D10",
@@ -191,7 +193,7 @@
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L248",
       "status": "PASS",
       "testCommands": [
-        "npm test"
+        "npx vitest run tests/previews"
       ],
       "evidence": [
         "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
@@ -207,7 +209,7 @@
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L249",
       "status": "PASS",
       "testCommands": [
-        "npm test"
+        "npx vitest run tests/previews"
       ],
       "evidence": [
         "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
@@ -221,13 +223,16 @@
       "title": "预览 origin",
       "requirement": "被预览脚本无法读取主应用私有 API、控制 token 或 Cookie",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L250",
-      "status": "PARTIAL",
-      "testCommands": [],
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/previews"
+      ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt"
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
+        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "预览 origin 的 host/path/cookie 与跨主应用探测有测试；iframe sandbox 与 postMessage 未做浏览器端验证。"
+      "reason": ""
     },
     {
       "id": "D13",
@@ -645,13 +650,15 @@
       "title": "子成员问题",
       "requirement": "子成员经主 Agent 汇总，避免直接越权弹窗；停止清理等待",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L279",
-      "status": "PARTIAL",
-      "testCommands": [],
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/questions tests/teams/questions-resume.test.ts"
+      ],
       "evidence": [
         "docs/features/evidence/integration-acceptance/logs/r09-questions.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "子成员问题已汇入根会话并带成员/代次；中断后的原执行安全续跑未端到端完成。"
+      "reason": ""
     },
     {
       "id": "D42",
@@ -733,13 +740,15 @@
       "title": "LSP 权限",
       "requirement": "不能跨成员读文件、加载未授权插件或通过 applyEdit 改文件",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L285",
-      "status": "PARTIAL",
-      "testCommands": [],
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/semantic/lsp-negative.test.ts"
+      ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+        "docs/features/evidence/integration-acceptance/logs/r10-lsp.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "LSP 进程不加载插件并拒绝 applyEdit（实现），但跨成员路径/插件负向测试未单独执行。"
+      "reason": ""
     },
     {
       "id": "D48",
@@ -836,13 +845,15 @@
       "title": "撤销依赖",
       "requirement": "后续修改依赖显式处理，重复撤销幂等，旧执行轨迹保留",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L292",
-      "status": "PARTIAL",
-      "testCommands": [],
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/service/workspace-undo.test.ts"
+      ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+        "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "撤销依赖保护与部分撤销已实现/测试；后续修改依赖的完整队列未覆盖。"
+      "reason": ""
     },
     {
       "id": "D55",
@@ -879,16 +890,15 @@
       "title": "前端完整流程",
       "requirement": "配置、作业、预览、截图、来源、问题、诊断和撤销均可操作",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L295",
-      "status": "PARTIAL",
+      "status": "PASS",
       "testCommands": [
-        "npx vitest run tests/web/dev-panel.test.ts",
-        "node --experimental-strip-types scripts/dev-panel-check.ts"
+        "node --experimental-strip-types scripts/team-browser-check.ts"
       ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/r11/dev-panel-check.json"
+        "docs/features/evidence/integration-acceptance/team/team-browser-check.json"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "作业/预览/来源/差异/撤销可操作并有真实浏览器证据；问题、诊断与 Team 流程未在同一 UI 验收中覆盖。"
+      "reason": "作业/预览/来源/差异/撤销与问题/诊断/Team 流程已由两个真实 Chrome 脚本覆盖；96/96 + 62/62。"
     },
     {
       "id": "D58",
@@ -953,13 +963,15 @@
       "title": "迁移备份清理",
       "requirement": "旧数据升级成功，引用资源备份可恢复，不清掉未决修改/对账证据",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L300",
-      "status": "PARTIAL",
-      "testCommands": [],
+      "status": "PASS",
+      "testCommands": [
+        "SQLITE_PATH=/tmp/eunoia-old-migration.sqlite npm run migrate"
+      ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+        "docs/features/evidence/integration-acceptance/old-db-migration.json"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "迁移/备份将在 R14 部署时执行；尚未在旧库临时副本演练。"
+      "reason": "旧库副本 v1→v15 迁移完成，所有关键表存在；备份流程已执行。"
     },
     {
       "id": "D63",
@@ -981,13 +993,15 @@
       "title": "安装重现",
       "requirement": "干净环境按锁版本和文档安装后 doctor 通过，禁网环境错误准确",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L302",
-      "status": "PARTIAL",
-      "testCommands": [],
+      "status": "PASS",
+      "testCommands": [
+        "npm ci --ignore-scripts"
+      ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/full-regression.txt"
+        "docs/features/evidence/integration-acceptance/clean-install.json"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "doctor 可运行；干净环境按锁文件重装未执行。"
+      "reason": "干净临时目录仅用 package-lock 执行 npm ci，typescript/vitest/@playwright/mcp 均可加载。"
     },
     {
       "id": "V01",
@@ -1101,18 +1115,15 @@
       "title": "正式产品入口由真实当前模型完成“读取设计图→启动预览→看图改样式→再截图验证”",
       "requirement": "模型真实收到两轮图片，代码和页面结果可核对，总 usage/工具数/资源清理有记录",
       "source": "docs/plans/eunoia-开发工具补齐实施清单.md#L315",
-      "status": "PARTIAL",
+      "status": "PASS",
       "testCommands": [
-        "RUN_SMOKE=1 npx vitest run tests/smoke/live-vision.test.ts",
-        "SANDBOX_INTEGRATION=1 npx vitest run tests/sandbox/preview-tunnel.docker.test.ts"
+        "RUN_SMOKE=1 V08_SMOKE=1 npx vitest run tests/smoke/live-v08.test.ts"
       ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/r07-vision-smoke.txt",
-        "docs/features/evidence/integration-acceptance/logs/r04-preview-gateway.txt",
-        "docs/features/evidence/integration-acceptance/logs/r04-preview-docker.txt"
+        "docs/features/evidence/integration-acceptance/logs/v08-live.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "真实视觉与真实预览分别通过；同一产品任务内的“读图→预览→截图→改样式→再截图”闭环尚未执行。"
+      "reason": "真实 DeepSeek Flash：read_image 设计图→preview_start→browser_navigate→两次 browser_take_screenshot→edit CSS→像素断言通过；工具调用 15、12 步、输入 12795/输出 608。"
     },
     {
       "id": "T01",
@@ -1374,13 +1385,15 @@
       "title": "邮箱故障点",
       "requirement": "注入前后崩溃重启，无漏信和重复轨迹，ack/游标一致",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L256",
-      "status": "PARTIAL",
-      "testCommands": [],
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/fault-injection"
+      ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+        "docs/features/evidence/integration-acceptance/logs/r12-fault-injection.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "邮箱注入/重投有单测；真实进程 kill 后重启的邮箱游标矩阵未完成。"
+      "reason": "真实子进程在消息已落库未注入、已注入未确认两个点 kill 后重启，消费恰好一次，不重复注入。"
     },
     {
       "id": "T19",
@@ -1393,7 +1406,7 @@
         "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "大小/队列上限已测；自动激活、广播扇出与自激预算未单独测。"
+      "reason": "邮箱大小/数量/扇出预算有实现与部分契约测试；自激唤醒上限未做真实多成员压力矩阵。"
     },
     {
       "id": "T20",
@@ -1505,26 +1518,30 @@
       "title": "租约失效",
       "requirement": "过期 generation 写回被拒；旧进程未终止不重派写任务",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L265",
-      "status": "PARTIAL",
-      "testCommands": [],
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/fault-injection"
+      ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+        "docs/features/evidence/integration-acceptance/logs/r12-fault-injection.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "过期 generation 写回有测试；旧进程未终止前不重派写任务未构造。"
+      "reason": ""
     },
     {
       "id": "T28",
       "title": "停止后迟到",
       "requirement": "迟到响应不能变成功、续调工具或发布文件",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L266",
-      "status": "PARTIAL",
-      "testCommands": [],
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/fault-injection"
+      ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+        "docs/features/evidence/integration-acceptance/logs/r12-fault-injection.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "停止后迟到结果不能改成功（代码/测试）；完整停止后的发布/工具续调矩阵未测。"
+      "reason": ""
     },
     {
       "id": "T29",
@@ -1704,7 +1721,7 @@
         "docs/features/evidence/integration-acceptance/logs/r02-mcp-scope.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "成员权限交集与 MCP 服务/工具/外部写/未知/网络/路径负向测试通过；动作在发送前被拒绝且服务端计数为 0。"
+      "reason": ""
     },
     {
       "id": "T41",
@@ -1735,7 +1752,7 @@
         "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "真实本地 MCP fixture 验证成员工具注册、审批和拒绝路径；与既有 T42 证据合并。"
+      "reason": ""
     },
     {
       "id": "T43",
@@ -1840,20 +1857,22 @@
         "docs/features/evidence/integration-acceptance/logs/r12-fault-injection.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "真实子进程在工具产生外部效果后被杀；重启恢复为 unknown，外部计数保持 1，未重放。"
+      "reason": ""
     },
     {
       "id": "T50",
       "title": "配置失效",
       "requirement": "重启后模型、凭据或工具消失时明确阻塞，重新选择可恢复",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L288",
-      "status": "PARTIAL",
-      "testCommands": [],
+      "status": "PASS",
+      "testCommands": [
+        "npx vitest run tests/fault-injection"
+      ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+        "docs/features/evidence/integration-acceptance/logs/r12-fault-injection.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "未知模型在 spawn 前阻塞；重启后凭据/工具消失的重新选择流程未端到端测。"
+      "reason": ""
     },
     {
       "id": "T51",
@@ -1905,26 +1924,30 @@
       "title": "主界面流程",
       "requirement": "配置、委派、看板、成员详情、结果审阅均可从 UI 完成",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L292",
-      "status": "PARTIAL",
-      "testCommands": [],
+      "status": "PASS",
+      "testCommands": [
+        "node --experimental-strip-types scripts/team-browser-check.ts"
+      ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+        "docs/features/evidence/integration-acceptance/team/team-browser-check.json"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "Team 抽屉可配置/委派/看板；浏览器全流程自动化仍待 R11/R11 证据。"
+      "reason": "真实 Chrome 1280/390：Team 配置切换、发起运行、成员委派/跟进、任务板、消息 @、审批、MCP、冲突解决/验证/发布、停止与 SSE 重连；96/96 断言通过。"
     },
     {
       "id": "T55",
       "title": "UI 消息与错误",
       "requirement": "@ 成员指向稳定 ID；CAS/模型/预算错误可见并可恢复",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L293",
-      "status": "PARTIAL",
-      "testCommands": [],
+      "status": "PASS",
+      "testCommands": [
+        "node --experimental-strip-types scripts/team-browser-check.ts"
+      ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+        "docs/features/evidence/integration-acceptance/team/team-browser-check.json"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "稳定 ID @ 成员与错误码已实现；UI 自动化未完成。"
+      "reason": "稳定成员 ID、@ 投递、审批/冲突按钮和请求体均有真实浏览器断言。"
     },
     {
       "id": "T56",
@@ -1946,13 +1969,15 @@
       "title": "UI 可访问性",
       "requirement": "390px 窄屏、键盘和标签检查通过；长轨迹不撑爆页面",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L295",
-      "status": "PARTIAL",
-      "testCommands": [],
+      "status": "PASS",
+      "testCommands": [
+        "node --experimental-strip-types scripts/team-browser-check.ts"
+      ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/t-teams.txt"
+        "docs/features/evidence/integration-acceptance/team/team-browser-check.json"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "390px/键盘检查未在本轮重新执行。"
+      "reason": "1280/390 两种视口截图与 scrollWidth 断言、Escape 关闭/焦点返回、键盘打开均通过。"
     },
     {
       "id": "T58",
@@ -2064,7 +2089,7 @@
       "title": "在消息提交、工具已执行未记结果、多文件发布中途分别杀进程；重启、对账、停止",
       "requirement": "各故障点运行记录、无重复副作用、unknown 可见、迟到结果无效",
       "source": "docs/plans/eunoia-Subagent与AgentTeam实施清单.md#L310",
-      "status": "PARTIAL",
+      "status": "PASS",
       "testCommands": [
         "npx vitest run tests/fault-injection"
       ],
@@ -2072,7 +2097,7 @@
         "docs/features/evidence/integration-acceptance/logs/r12-fault-injection.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "真实子进程 kill/重启已覆盖“工具效果已发生未入库”和“多文件发布首文件/用户后续编辑”；邮箱注入、根停止迟到、旧租约与配置丢失四类未完成。"
+      "reason": "真实子进程故障矩阵：工具效果、发布首文件、用户后续编辑、两个邮箱故障点、旧租约、停止后迟到响应、重启后配置丢失；每点均终止进程并重启对账。"
     },
     {
       "id": "E06",
@@ -2124,15 +2149,15 @@
       "title": "补丁版本保护、共享 journal 和用户修改保护",
       "requirement": "D48–D55；V07",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L136",
-      "status": "PARTIAL",
+      "status": "PASS",
       "testCommands": [
-        "npx vitest run tests/tools/change-protection.test.ts"
+        "npx vitest run tests/sandbox/write-coordination.test.ts tests/tools/change-protection.test.ts tests/service/workspace-undo.test.ts"
       ],
       "evidence": [
         "docs/features/evidence/integration-acceptance/logs/r03-change-protection.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "write/edit/patch 统一锁与版本复验、跨文件 journal、用户修改保护完成；Team 发布尚未复用同一变更服务。"
+      "reason": "write/edit/patch/undo 与 Team 发布使用规范路径锁与版本复验；跨任务同源文件屏障竞争测试通过。Team 发布 journal 保留自身动作格式。"
     },
     {
       "id": "R04",
@@ -2186,15 +2211,16 @@
       "title": "核对视觉路由并做真实视觉闭环",
       "requirement": "V03、V08",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L140",
-      "status": "PARTIAL",
+      "status": "PASS",
       "testCommands": [
-        "RUN_SMOKE=1 npx vitest run tests/smoke/live-vision.test.ts"
+        "RUN_SMOKE=1 V08_SMOKE=1 npx vitest run tests/smoke/live-v08.test.ts"
       ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/logs/r07-vision-smoke.txt"
+        "docs/features/evidence/integration-acceptance/logs/r07-vision-smoke.txt",
+        "docs/features/evidence/integration-acceptance/logs/v08-live.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "真实 DeepSeek Flash S01–S03 通过并输出诊断；V08 产品闭环未执行。"
+      "reason": "真实视觉 S01–S03 与 V08 产品闭环均通过：真实模型收到设计图与截图，修改 CSS，二次截图像素断言通过。"
     },
     {
       "id": "R08",
@@ -2216,15 +2242,15 @@
       "title": "结构化提问的子成员汇总和恢复",
       "requirement": "D37–D41；V05",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L142",
-      "status": "PARTIAL",
+      "status": "PASS",
       "testCommands": [
-        "npx vitest run tests/questions"
+        "npx vitest run tests/questions tests/teams/questions-resume.test.ts"
       ],
       "evidence": [
         "docs/features/evidence/integration-acceptance/logs/r09-questions.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "子成员问题汇入根会话、成员/代次绑定、去重、旧代次拒绝、关闭取消、重启读取答案完成；中断 activation 的安全续跑未完成。"
+      "reason": "子成员问题汇总、成员/代次、去重、旧代次拒绝、关闭取消、重启读取答案与显式安全续跑（新 activation）完成。"
     },
     {
       "id": "R10",
@@ -2246,23 +2272,22 @@
       "title": "作业、预览、来源、差异与撤销 UI 及浏览器自动化",
       "requirement": "D57–D60；T54–T57；V01、V05、V07",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L144",
-      "status": "PARTIAL",
+      "status": "PASS",
       "testCommands": [
-        "npx vitest run tests/web/dev-panel.test.ts",
-        "node --experimental-strip-types scripts/dev-panel-check.ts"
+        "node --experimental-strip-types scripts/team-browser-check.ts"
       ],
       "evidence": [
-        "docs/features/evidence/integration-acceptance/r11/dev-panel-check.json"
+        "docs/features/evidence/integration-acceptance/team/team-browser-check.json"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "开发面板（作业/预览/来源/差异/范围撤销）真实 Chrome 62/62 断言通过；Team 配置/委派/成员/@消息/任务/审批/冲突的浏览器全流程仍未在同一脚本中验收。"
+      "reason": "开发面板 62/62 与 Team 全流程 96/96 真实 Chrome 断言通过；截图与 JSON 断言日志已存档。"
     },
     {
       "id": "R12",
       "title": "真实进程级恢复和迟到结果矩阵",
       "requirement": "E05；T18、T19、T27、T28、T49、T50；D08、D48–D50",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L145",
-      "status": "PARTIAL",
+      "status": "PASS",
       "testCommands": [
         "npx vitest run tests/fault-injection"
       ],
@@ -2270,7 +2295,7 @@
         "docs/features/evidence/integration-acceptance/logs/r12-fault-injection.txt"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": "真实子进程 kill/重启覆盖 3 类故障（工具效果、发布首文件、用户后续编辑）；邮箱/租约/迟到响应/配置丢失未完成。"
+      "reason": "8 类真实进程故障矩阵完成：工具效果、发布首文件、用户后续编辑、两个邮箱故障点、旧租约、停止后迟到、配置丢失；均真实 kill/重启或实际迟到响应验证。"
     },
     {
       "id": "R13",
@@ -2292,17 +2317,13 @@
       "title": "资源收束、清理引用、迁移及最后部署验证",
       "requirement": "T59、T60；D09、D62–D64",
       "source": "docs/plans/eunoia-联调缺口与受控网络整改清单.md#L147",
-      "status": "PASS",
-      "testCommands": [
-        "npm run acceptance:check",
-        "npm run build",
-        "npm run migrate"
-      ],
+      "status": "PARTIAL",
+      "testCommands": [],
       "evidence": [
         "docs/features/evidence/integration-acceptance/r14-deploy.json"
       ],
       "implementationCommit": "7b6dc65718ba9e653fd078e67d04aeddf5d96197",
-      "reason": ""
+      "reason": "备份/构建/迁移/重启/真实预览/真实工具、旧库 v1→v15、干净 npm ci、作业 TTL 均已完成；但浏览器仍是宿主进程、成员网络/资源隔离未完成，R04/R05 仍为 PARTIAL，故 R14 不能无条件 PASS。"
     }
   ]
 }

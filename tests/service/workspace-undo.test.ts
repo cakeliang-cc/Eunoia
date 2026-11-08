@@ -281,4 +281,35 @@ describe('a patch turn', () => {
     await expect(readFile(join(workspace.storageLocation, 'added.ts'), 'utf8')).rejects.toThrow();
     await expect(readFile(join(workspace.storageLocation, 'moved.ts'), 'utf8')).rejects.toThrow();
   });
+
+  it('blocks a partial undo whose file is still referenced by a later turn', async () => {
+    const { service, workspaces, workspace } = await setup();
+    const ws = files(workspaces, workspace);
+    await service.arm({ userId: 'u1', conversationId: 'conv-1', turnId: 'turn-a', taskId: 'conv-1' });
+    await service.beforeWrite({ taskId: 'conv-1', path: 'a.ts' });
+    await ws.writeText('a.ts', 'first turn\n');
+    const first = await service.finish({ userId: 'u1', turnId: 'turn-a' });
+
+    await service.arm({ userId: 'u1', conversationId: 'conv-1', turnId: 'turn-b', taskId: 'conv-1' });
+    await service.beforeWrite({ taskId: 'conv-1', path: 'a.ts' });
+    await ws.writeText('a.ts', 'second turn\n');
+    await service.finish({ userId: 'u1', turnId: 'turn-b' });
+
+        const plan = await service.planUndo({
+      userId: 'u1',
+      conversationId: 'conv-1',
+      changesetId: first!.id,
+      paths: ['a.ts'],
+    });
+    expect(plan.blocked.some((entry) => entry.path === 'a.ts')).toBe(true);
+    await expect(
+      service.undo({
+        userId: 'u1',
+        conversationId: 'conv-1',
+        changesetId: first!.id,
+        paths: ['a.ts'],
+      }),
+    ).rejects.toMatchObject({ code: 'UNDO_SCOPE_BLOCKED' });
+    expect(await readFile(join(workspace.storageLocation, 'a.ts'), 'utf8')).toBe('second turn\n');
+  });
 });

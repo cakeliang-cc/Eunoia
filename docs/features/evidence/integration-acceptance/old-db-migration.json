@@ -1,0 +1,20 @@
+{
+  "sourceBackup": "backups/eunoia-2026-11-01T15-20-17-217Z.sqlite",
+  "beforeUserVersion": 1,
+  "afterUserVersion": 15,
+  "migratedCopy": "/tmp/eunoia-old-migration.sqlite",
+  "sha256": "77ad09c696770d2b63b398119d9ab865d3893267bb6185e247c8aba28c1f3797",
+  "tablesVerified": [
+    "conversations",
+    "messages",
+    "media_assets",
+    "workspace_changesets",
+    "teams",
+    "team_tasks",
+    "dev_jobs",
+    "user_questions"
+  ],
+  "command": "SQLITE_PATH=/tmp/eunoia-old-migration.sqlite npm run migrate",
+  "result": "schema ready; all tables present",
+  "note": "A copy of an old backup was migrated; the production database was not touched by this drill."
+}

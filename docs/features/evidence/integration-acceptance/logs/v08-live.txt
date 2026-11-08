@@ -1,0 +1,4 @@
+V08 real model flow (RUN_SMOKE=1 V08_SMOKE=1)
+{"ts":"2026-11-08T14:28:06.730Z","level":"info","event":"agent.turn_completed","duration_ms":26054,"reply_fingerprint":"len=608","reasoning_chars":1379,"used_tools":true,"tool_calls":15,"tool_chars":3735,"steps":12,"input_tokens":12795,"cached_tokens":12544,"cache_hit_rate":0.9804}
+V08_TOOL_NAMES ["read_image","read","read","preview_start","bash","preview_start","mcp__PlaywrightV08_d51a34__browser_navigate","mcp__PlaywrightV08_d51a34__browser_take_screenshot","mcp__PlaywrightV08_d51a34__browser_console_messages","mcp__PlaywrightV08_d51a34__browser_take_screenshot","edit","read","mcp__PlaywrightV08_d51a34__browser_navigate","mcp__PlaywrightV08_d51a34__browser_take_screenshot","mcp__PlaywrightV08_d51a34__browser_evaluate"]
+      Tests  1 passed (1)

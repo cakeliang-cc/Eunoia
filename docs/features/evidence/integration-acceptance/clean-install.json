@@ -1,0 +1,15 @@
+{
+  "command": "npm ci --ignore-scripts --cache /tmp/eunoia-clean-cache",
+  "directory": "/tmp/eunoia-clean-install",
+  "node": "v24.7.0",
+  "npm": "11.5.1",
+  "packageLockSha256": "1bdede44640db38a8717674edbefb25d2929015e60c848f2e8636e2c1d9f7c95",
+  "dependencies": 16,
+  "verifiedRequires": [
+    "typescript",
+    "vitest",
+    "@playwright/mcp"
+  ],
+  "result": "clean-install-ok",
+  "note": "A fresh temp directory with only package.json/package-lock.json installed from the lock; typecheck/test execution was performed in the working tree because the temp install is dependency-only."
+}
