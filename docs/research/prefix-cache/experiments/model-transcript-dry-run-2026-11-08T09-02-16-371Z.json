@@ -1,0 +1,549 @@
+{
+  "version": 1,
+  "runId": "2026-11-08T09-02-16-371Z",
+  "live": false,
+  "scenario": "all",
+  "startedAt": "2026-11-08T09:02:16.371Z",
+  "limits": {
+    "maxRequests": 24,
+    "maxInputTokens": 200000,
+    "maxOutputTokensPerRequest": 2048
+  },
+  "budgetUsed": {
+    "requests": 15,
+    "inputTokens": 70500,
+    "outputTokens": 15000
+  },
+  "metrics": [
+    {
+      "mode": "legacy",
+      "group": "legacy-first",
+      "turn": 1,
+      "requestId": "8bef27d9-13e1-45dc-9199-f4c24490aa5c",
+      "steps": 1,
+      "inputTokens": 3500,
+      "outputTokens": 1000,
+      "cachedTokens": 0,
+      "cachedKnown": true,
+      "contextTokens": 2538,
+      "firstTokenMs": 24,
+      "replyChars": 1118,
+      "finishReason": "completed",
+      "transcriptEpochs": null,
+      "transcriptSteps": null,
+      "historyAssistantMessages": 1,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第1轮 legacy 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段"
+    },
+    {
+      "mode": "legacy",
+      "group": "legacy-first",
+      "turn": 2,
+      "requestId": "1547c65d-6119-4ec1-8823-a1d4595e1405",
+      "steps": 1,
+      "inputTokens": 5000,
+      "outputTokens": 1000,
+      "cachedTokens": 4200,
+      "cachedKnown": true,
+      "contextTokens": 3676,
+      "firstTokenMs": 4,
+      "replyChars": 1118,
+      "finishReason": "completed",
+      "transcriptEpochs": null,
+      "transcriptSteps": null,
+      "historyAssistantMessages": 2,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第2轮 legacy 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段"
+    },
+    {
+      "mode": "legacy",
+      "group": "legacy-first",
+      "turn": 3,
+      "requestId": "dc0ef79a-7adc-4cc5-93fd-6641f427ed0a",
+      "steps": 1,
+      "inputTokens": 6500,
+      "outputTokens": 1000,
+      "cachedTokens": 5400,
+      "cachedKnown": true,
+      "contextTokens": 4806,
+      "firstTokenMs": 2,
+      "replyChars": 1118,
+      "finishReason": "completed",
+      "transcriptEpochs": null,
+      "transcriptSteps": null,
+      "historyAssistantMessages": 3,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第3轮 legacy 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段"
+    },
+    {
+      "mode": "durable",
+      "group": "durable-second",
+      "turn": 1,
+      "requestId": "a1f0d82e-7b6b-41da-9009-9436c7bf656f",
+      "steps": 1,
+      "inputTokens": 3500,
+      "outputTokens": 1000,
+      "cachedTokens": 0,
+      "cachedKnown": true,
+      "contextTokens": 2786,
+      "firstTokenMs": 6,
+      "replyChars": 1120,
+      "finishReason": "completed",
+      "transcriptEpochs": 1,
+      "transcriptSteps": 1,
+      "historyAssistantMessages": 1,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第1轮 durable 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这"
+    },
+    {
+      "mode": "durable",
+      "group": "durable-second",
+      "turn": 2,
+      "requestId": "8b3d3d15-6b42-4d08-b980-326ab075874e",
+      "steps": 1,
+      "inputTokens": 5000,
+      "outputTokens": 1000,
+      "cachedTokens": 4200,
+      "cachedKnown": true,
+      "contextTokens": 4127,
+      "firstTokenMs": 3,
+      "replyChars": 1120,
+      "finishReason": "completed",
+      "transcriptEpochs": 1,
+      "transcriptSteps": 1,
+      "historyAssistantMessages": 2,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第2轮 durable 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这"
+    },
+    {
+      "mode": "durable",
+      "group": "durable-second",
+      "turn": 3,
+      "requestId": "de9cc3b7-de36-4825-bb62-9528c966ac72",
+      "steps": 1,
+      "inputTokens": 6500,
+      "outputTokens": 1000,
+      "cachedTokens": 5400,
+      "cachedKnown": true,
+      "contextTokens": 5460,
+      "firstTokenMs": 4,
+      "replyChars": 1120,
+      "finishReason": "completed",
+      "transcriptEpochs": 1,
+      "transcriptSteps": 1,
+      "historyAssistantMessages": 3,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第3轮 durable 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这"
+    },
+    {
+      "mode": "durable",
+      "group": "durable-first",
+      "turn": 1,
+      "requestId": "f8642160-78bf-4a4b-9193-2d30f6767282",
+      "steps": 1,
+      "inputTokens": 3500,
+      "outputTokens": 1000,
+      "cachedTokens": 0,
+      "cachedKnown": true,
+      "contextTokens": 2767,
+      "firstTokenMs": 4,
+      "replyChars": 1120,
+      "finishReason": "completed",
+      "transcriptEpochs": 1,
+      "transcriptSteps": 1,
+      "historyAssistantMessages": 1,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第1轮 durable 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这"
+    },
+    {
+      "mode": "durable",
+      "group": "durable-first",
+      "turn": 2,
+      "requestId": "480ce4c5-ee1e-4b41-bb7c-ac2f6aeb5378",
+      "steps": 1,
+      "inputTokens": 5000,
+      "outputTokens": 1000,
+      "cachedTokens": 4200,
+      "cachedKnown": true,
+      "contextTokens": 4089,
+      "firstTokenMs": 3,
+      "replyChars": 1120,
+      "finishReason": "completed",
+      "transcriptEpochs": 1,
+      "transcriptSteps": 1,
+      "historyAssistantMessages": 2,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第2轮 durable 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这"
+    },
+    {
+      "mode": "durable",
+      "group": "durable-first",
+      "turn": 3,
+      "requestId": "32fe00d4-98b7-4b06-8280-a2a1e82f995c",
+      "steps": 1,
+      "inputTokens": 6500,
+      "outputTokens": 1000,
+      "cachedTokens": 5400,
+      "cachedKnown": true,
+      "contextTokens": 5403,
+      "firstTokenMs": 9,
+      "replyChars": 1120,
+      "finishReason": "completed",
+      "transcriptEpochs": 1,
+      "transcriptSteps": 1,
+      "historyAssistantMessages": 3,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第3轮 durable 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这"
+    },
+    {
+      "mode": "legacy",
+      "group": "legacy-second",
+      "turn": 1,
+      "requestId": "04817fc3-84bd-43ba-9e85-ad5f50f9437f",
+      "steps": 1,
+      "inputTokens": 3500,
+      "outputTokens": 1000,
+      "cachedTokens": 0,
+      "cachedKnown": true,
+      "contextTokens": 2519,
+      "firstTokenMs": 1,
+      "replyChars": 1118,
+      "finishReason": "completed",
+      "transcriptEpochs": null,
+      "transcriptSteps": null,
+      "historyAssistantMessages": 1,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第1轮 legacy 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段"
+    },
+    {
+      "mode": "legacy",
+      "group": "legacy-second",
+      "turn": 2,
+      "requestId": "804a629e-ff4b-4ece-a3d0-2dab62a73221",
+      "steps": 1,
+      "inputTokens": 5000,
+      "outputTokens": 1000,
+      "cachedTokens": 4200,
+      "cachedKnown": true,
+      "contextTokens": 3657,
+      "firstTokenMs": 2,
+      "replyChars": 1118,
+      "finishReason": "completed",
+      "transcriptEpochs": null,
+      "transcriptSteps": null,
+      "historyAssistantMessages": 2,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第2轮 legacy 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段"
+    },
+    {
+      "mode": "legacy",
+      "group": "legacy-second",
+      "turn": 3,
+      "requestId": "b7609b34-6907-4a2d-8d08-6418c62cb564",
+      "steps": 1,
+      "inputTokens": 6500,
+      "outputTokens": 1000,
+      "cachedTokens": 5400,
+      "cachedKnown": true,
+      "contextTokens": 4787,
+      "firstTokenMs": 2,
+      "replyChars": 1118,
+      "finishReason": "completed",
+      "transcriptEpochs": null,
+      "transcriptSteps": null,
+      "historyAssistantMessages": 3,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第3轮 legacy 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段"
+    },
+    {
+      "mode": "durable",
+      "group": "s02-tool",
+      "turn": 1,
+      "requestId": "3d2ce094-7422-4e36-ada1-ef2f8dba84e8",
+      "steps": 1,
+      "inputTokens": 3500,
+      "outputTokens": 1000,
+      "cachedTokens": 0,
+      "cachedKnown": true,
+      "contextTokens": 2860,
+      "firstTokenMs": 3,
+      "replyChars": 1120,
+      "finishReason": "completed",
+      "transcriptEpochs": 1,
+      "transcriptSteps": 1,
+      "historyAssistantMessages": 1,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第1轮 durable 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这"
+    },
+    {
+      "mode": "durable",
+      "group": "s03-after",
+      "turn": 1,
+      "requestId": "1c3375c5-12dd-4e5c-aee9-469798bf592d",
+      "steps": 1,
+      "inputTokens": 3500,
+      "outputTokens": 1000,
+      "cachedTokens": 0,
+      "cachedKnown": true,
+      "contextTokens": 2843,
+      "firstTokenMs": 4,
+      "replyChars": 1120,
+      "finishReason": "completed",
+      "transcriptEpochs": 1,
+      "transcriptSteps": 1,
+      "historyAssistantMessages": 1,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第1轮 durable 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这"
+    },
+    {
+      "mode": "durable",
+      "group": "s03-after",
+      "turn": 1,
+      "requestId": "e55338b1-e0f5-4291-90df-7ea7cc579d2b",
+      "steps": 1,
+      "inputTokens": 3500,
+      "outputTokens": 1000,
+      "cachedTokens": 0,
+      "cachedKnown": true,
+      "contextTokens": 4380,
+      "firstTokenMs": 4,
+      "replyChars": 1120,
+      "finishReason": "completed",
+      "transcriptEpochs": 1,
+      "transcriptSteps": 1,
+      "historyAssistantMessages": 2,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "第1轮 durable 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这"
+    }
+  ],
+  "checks": [
+    {
+      "scenario": "S02",
+      "ok": true,
+      "detail": "{\"toolCalls\":0,\"toolResults\":0,\"replyPreview\":\"第1轮 durable 样本：这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这段文本用于验证跨轮前缀复用与真实助手逐字回填。这\"}"
+    },
+    {
+      "scenario": "S03",
+      "ok": true,
+      "detail": "{\"turn1Completed\":true,\"turn2Completed\":true,\"epochsBefore\":1,\"epochsAfter\":1,\"toolCallsTurn1\":0,\"toolCallsTurn2\":0,\"clockUpdates\":2,\"clockUpdatesBefore\":1}"
+    }
+  ],
+  "summary": {
+    "groups": [
+      {
+        "group": "legacy-first",
+        "mode": "legacy",
+        "requests": 3,
+        "inputTokens": 15000,
+        "cachedTokens": 9600,
+        "missTokens": 5400,
+        "hitRate": 0.64,
+        "outputTokens": 3000,
+        "inputCost": 0.0008388,
+        "outputCost": 0.0018,
+        "totalCost": 0.0026388,
+        "firstTokenMs": [
+          24,
+          4,
+          2
+        ],
+        "replyChars": [
+          1118,
+          1118,
+          1118
+        ],
+        "epochs": [
+          null,
+          null,
+          null
+        ],
+        "finishReasons": [
+          "completed",
+          "completed",
+          "completed"
+        ],
+        "cachedKnown": true
+      },
+      {
+        "group": "durable-second",
+        "mode": "durable",
+        "requests": 3,
+        "inputTokens": 15000,
+        "cachedTokens": 9600,
+        "missTokens": 5400,
+        "hitRate": 0.64,
+        "outputTokens": 3000,
+        "inputCost": 0.0008388,
+        "outputCost": 0.0018,
+        "totalCost": 0.0026388,
+        "firstTokenMs": [
+          6,
+          3,
+          4
+        ],
+        "replyChars": [
+          1120,
+          1120,
+          1120
+        ],
+        "epochs": [
+          1,
+          1,
+          1
+        ],
+        "finishReasons": [
+          "completed",
+          "completed",
+          "completed"
+        ],
+        "cachedKnown": true
+      },
+      {
+        "group": "durable-first",
+        "mode": "durable",
+        "requests": 3,
+        "inputTokens": 15000,
+        "cachedTokens": 9600,
+        "missTokens": 5400,
+        "hitRate": 0.64,
+        "outputTokens": 3000,
+        "inputCost": 0.0008388,
+        "outputCost": 0.0018,
+        "totalCost": 0.0026388,
+        "firstTokenMs": [
+          4,
+          3,
+          9
+        ],
+        "replyChars": [
+          1120,
+          1120,
+          1120
+        ],
+        "epochs": [
+          1,
+          1,
+          1
+        ],
+        "finishReasons": [
+          "completed",
+          "completed",
+          "completed"
+        ],
+        "cachedKnown": true
+      },
+      {
+        "group": "legacy-second",
+        "mode": "legacy",
+        "requests": 3,
+        "inputTokens": 15000,
+        "cachedTokens": 9600,
+        "missTokens": 5400,
+        "hitRate": 0.64,
+        "outputTokens": 3000,
+        "inputCost": 0.0008388,
+        "outputCost": 0.0018,
+        "totalCost": 0.0026388,
+        "firstTokenMs": [
+          1,
+          2,
+          2
+        ],
+        "replyChars": [
+          1118,
+          1118,
+          1118
+        ],
+        "epochs": [
+          null,
+          null,
+          null
+        ],
+        "finishReasons": [
+          "completed",
+          "completed",
+          "completed"
+        ],
+        "cachedKnown": true
+      },
+      {
+        "group": "s02-tool",
+        "mode": "durable",
+        "requests": 1,
+        "inputTokens": 3500,
+        "cachedTokens": 0,
+        "missTokens": 3500,
+        "hitRate": 0,
+        "outputTokens": 1000,
+        "inputCost": 0.000525,
+        "outputCost": 0.0006,
+        "totalCost": 0.001125,
+        "firstTokenMs": [
+          3
+        ],
+        "replyChars": [
+          1120
+        ],
+        "epochs": [
+          1
+        ],
+        "finishReasons": [
+          "completed"
+        ],
+        "cachedKnown": true
+      },
+      {
+        "group": "s03-after",
+        "mode": "durable",
+        "requests": 2,
+        "inputTokens": 7000,
+        "cachedTokens": 0,
+        "missTokens": 7000,
+        "hitRate": 0,
+        "outputTokens": 2000,
+        "inputCost": 0.00105,
+        "outputCost": 0.0012,
+        "totalCost": 0.00225,
+        "firstTokenMs": [
+          4,
+          4
+        ],
+        "replyChars": [
+          1120,
+          1120
+        ],
+        "epochs": [
+          1,
+          1
+        ],
+        "finishReasons": [
+          "completed",
+          "completed"
+        ],
+        "cachedKnown": true
+      }
+    ],
+    "comparison": "legacy input=30000 cost=0.005277600 · durable input=40500 cost=0.008652600 · input delta=35.00% · total cost delta=63.95%",
+    "note": "Numbers are reference-rate estimates, not a bill."
+  },
+  "caveats": [
+    "成本按文档参考单价折算，不是账户扣费核对。",
+    "dry-run：使用确定性假模型，不证明真实供应商行为。",
+    "两组语义任务相同但模型输出不完全相同；长度与费用差异均列出。"
+  ]
+}

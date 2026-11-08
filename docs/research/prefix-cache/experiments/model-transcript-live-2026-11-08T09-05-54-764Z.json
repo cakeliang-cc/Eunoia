@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "runId": "2026-11-08T09-05-54-764Z",
+  "live": true,
+  "scenario": "s03",
+  "startedAt": "2026-11-08T09:05:54.764Z",
+  "limits": {
+    "maxRequests": 24,
+    "maxInputTokens": 200000,
+    "maxOutputTokensPerRequest": 2048
+  },
+  "budgetUsed": {
+    "requests": 3,
+    "inputTokens": 8245,
+    "outputTokens": 86
+  },
+  "metrics": [
+    {
+      "mode": "durable",
+      "group": "s03-before",
+      "turn": 1,
+      "requestId": "eceab325-7fdb-4439-86f0-09c74f83e869",
+      "steps": 2,
+      "inputTokens": 5269,
+      "outputTokens": 73,
+      "cachedTokens": 4608,
+      "cachedKnown": true,
+      "contextTokens": 2880,
+      "firstTokenMs": 7683,
+      "replyChars": 5,
+      "finishReason": "completed",
+      "transcriptEpochs": 1,
+      "transcriptSteps": 2,
+      "historyAssistantMessages": 1,
+      "toolCalls": 1,
+      "toolResults": 1,
+      "replyPreview": "READY"
+    },
+    {
+      "mode": "durable",
+      "group": "s03-before",
+      "turn": 1,
+      "requestId": "340c8b85-a755-4f09-8940-8d0f2ce6dcd9",
+      "steps": 1,
+      "inputTokens": 2976,
+      "outputTokens": 13,
+      "cachedTokens": 2688,
+      "cachedKnown": true,
+      "contextTokens": 3316,
+      "firstTokenMs": 1004,
+      "replyChars": 21,
+      "finishReason": "completed",
+      "transcriptEpochs": 1,
+      "transcriptSteps": 1,
+      "historyAssistantMessages": 2,
+      "toolCalls": 0,
+      "toolResults": 0,
+      "replyPreview": "RESTART-MARK-d8b37e7d"
+    }
+  ],
+  "checks": [
+    {
+      "scenario": "S03",
+      "ok": true,
+      "detail": "{\"turn1Completed\":true,\"turn2Completed\":true,\"epochsBefore\":1,\"epochsAfter\":1,\"toolCallsTurn1\":1,\"toolCallsTurn2\":0,\"clockUpdates\":2,\"clockUpdatesBefore\":1}"
+    }
+  ],
+  "summary": {
+    "groups": [
+      {
+        "group": "s03-before",
+        "mode": "durable",
+        "requests": 3,
+        "inputTokens": 8245,
+        "cachedTokens": 7296,
+        "missTokens": 949,
+        "hitRate": 0.8848999393571861,
+        "outputTokens": 86,
+        "inputCost": 0.000164238,
+        "outputCost": 0.0000516,
+        "totalCost": 0.00021583800000000002,
+        "firstTokenMs": [
+          7683,
+          1004
+        ],
+        "replyChars": [
+          5,
+          21
+        ],
+        "epochs": [
+          1,
+          1
+        ],
+        "finishReasons": [
+          "completed",
+          "completed"
+        ],
+        "cachedKnown": true
+      }
+    ],
+    "comparison": "only one mode measured",
+    "note": "Numbers are reference-rate estimates, not a bill."
+  },
+  "caveats": [
+    "成本按文档参考单价折算，不是账户扣费核对。",
+    "真实调用；缓存是否命中由供应商决定，无法强制冷缓存。",
+    "两组语义任务相同但模型输出不完全相同；长度与费用差异均列出。"
+  ]
+}

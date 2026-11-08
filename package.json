@@ -30,7 +30,9 @@
     "migrate:legacy": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types scripts/migrate-legacy-postgres.ts",
     "backup:verify": "node --experimental-strip-types scripts/verify-media-backup.ts",
     "cleanup:media": "node --env-file-if-exists=.env --experimental-sqlite --disable-warning=ExperimentalWarning --experimental-strip-types src/media/cli.ts",
-    "browser:check": "node --experimental-strip-types scripts/browser-check.ts"
+    "browser:check": "node --experimental-strip-types scripts/browser-check.ts",
+    "experiment:transcript": "node --experimental-strip-types scripts/model-transcript-experiment.ts",
+    "experiment:transcript:live": "node --env-file-if-exists=.env --experimental-strip-types scripts/model-transcript-experiment.ts --live"
   },
   "dependencies": {
     "@openai/agents": "^0.18.0",

@@ -20,6 +20,20 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    // Reproducible research scripts run in Node; JSON parse probes intentionally
+    // keep an empty catch when testing alternative response formats.
+    files: ['docs/research/**/experiments/*.mjs'],
+    languageOptions: {
+      globals: Object.fromEntries(
+        ['URL', 'performance', 'fetch', 'AbortSignal', 'TextDecoder', 'console', 'setTimeout', 'process']
+          .map((name) => [name, 'readonly']),
+      ),
+    },
+    rules: {
+      'no-empty': ['error', { allowEmptyCatch: true }],
+    },
+  },
+  {
     // The browser client is a plain ES module served as-is. It used to be inline
     // in index.html, which meant 2,700 lines of JavaScript that no linter or
     // compiler ever saw.

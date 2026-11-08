@@ -30,6 +30,8 @@ import type {
   ModelUsage,
 } from './model-port.ts';
 import { cacheUsageOf, reasoningChunkOf, textDeltaOf } from './stream-events.ts';
+import type { RequestProjection } from '../session/model-transcript.ts';
+import { canonicalJson, sha256 } from '../session/model-transcript.ts';
 
 /** Build a model step bound to one SDK model. */
 export function createSdkModelTurn(model: Model): ModelTurn {
@@ -52,6 +54,12 @@ export function createSdkModelTurn(model: Model): ModelTurn {
       tracing: false,
       ...(request.signal ? { signal: request.signal } : {}),
     };
+
+    // Capture the encoded request rather than the loop's neutral input. The
+    // projection is hashes and sizes only; image bytes become their digest and
+    // credentials never enter it. A test that only inspects LoopInputItem would
+    // not prove what the adapter actually encoded.
+    request.capture?.(projectModelRequest(modelRequest, request));
 
     for await (const event of model.getStreamedResponse(modelRequest)) {
       if (event.type === 'output_text_delta') {
@@ -136,6 +144,73 @@ export function createModelTurnResolver(
     const turn = createSdkModelTurn(model);
     cache.set(modelId, turn);
     return turn;
+  };
+}
+
+/**
+ * Canonical, comparable projection of an encoded SDK request.
+ *
+ * Excludes the API key (never in this object), request/trace ids and any
+ * response id. Images are represented by the SHA-256 of their encoded bytes, so
+ * the projection answers "same pixels" without storing Base64.
+ */
+export function projectModelRequest(
+  request: ModelRequest,
+  source: { readonly media?: PreparedMediaPlan },
+): RequestProjection {
+  const entries: { type: string; role?: string; hash: string; chars: number }[] = [];
+  const imageDigests: string[] = [];
+  let textChars = 0;
+
+  for (const item of request.input) {
+    const record = item as Record<string, unknown>;
+    const type = typeof record.type === 'string' ? record.type : 'message';
+    const role = typeof record.role === 'string' ? record.role : undefined;
+    const content = record.content;
+    if (Array.isArray(content)) {
+      let chars = 0;
+      for (const part of content) {
+        const partRecord = part as Record<string, unknown>;
+        if (partRecord.type === 'input_image' && typeof partRecord.image === 'string') {
+          const data = partRecord.image;
+          const comma = data.indexOf(',');
+          const bytes = comma >= 0 ? Buffer.from(data.slice(comma + 1), 'base64') : Buffer.from('');
+          imageDigests.push(sha256(bytes.toString('base64')));
+          entries.push({
+            type: 'input_image',
+            hash: sha256(canonicalJson({ detail: partRecord.detail ?? null, bytes: imageDigests.at(-1) })),
+            chars: 0,
+          });
+          continue;
+        }
+        const text = typeof partRecord.text === 'string' ? partRecord.text : '';
+        chars += text.length;
+        textChars += text.length;
+        entries.push({
+          type: typeof partRecord.type === 'string' ? partRecord.type : 'part',
+          hash: sha256(text),
+          chars: text.length,
+        });
+      }
+      entries.push({ type, ...(role ? { role } : {}), hash: sha256(canonicalJson(content.length)), chars });
+      continue;
+    }
+    const text = typeof content === 'string' ? content : canonicalJson(item);
+    textChars += text.length;
+    entries.push({ type, ...(role ? { role } : {}), hash: sha256(text), chars: text.length });
+  }
+
+  return {
+    instructionsHash: sha256(request.systemInstructions ?? ''),
+    toolsHash: sha256(canonicalJson(request.tools ?? [])),
+    modelId: '',
+    providerId: '',
+    encoderRevision: 'sdk-responses@1',
+    entries,
+    imageDigests,
+    mediaPolicyRevision: source.media?.policyRevision ?? null,
+    textChars,
+    estimatedTokens: source.media?.estimatedInputTokens ?? null,
   };
 }
 
@@ -295,11 +370,19 @@ function usageOf(
   responseModel?: string,
 ): ModelUsage {
   const cache = cacheUsageOf(usage);
+  const reported =
+    usage.inputTokens !== undefined ||
+    usage.outputTokens !== undefined ||
+    usage.totalTokens !== undefined;
   return {
     inputTokens: usage.inputTokens ?? 0,
     outputTokens: usage.outputTokens ?? 0,
     totalTokens: usage.totalTokens ?? 0,
     cachedTokens: cache?.cached_tokens ?? 0,
+    // Only present when the provider omitted something. Keeping the fields
+    // absent on the measured path preserves the existing usage contract.
+    ...(reported ? {} : { reported: false }),
+    ...(cache ? {} : { cacheReported: false }),
     ...(responseModel ? { responseModel } : {}),
   };
 }

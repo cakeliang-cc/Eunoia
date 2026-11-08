@@ -44,10 +44,17 @@ import { SANDBOX_SCHEMA } from '../sandbox/schema.ts';
  * rows), `media_assets` (private immutable images plus their derived variants)
  * and `message_assets` (the ordered reference join). Version 9 is additive and
  * idempotent, so an interrupted migration can be run again.
+ * Version 10 adds the persistent model transcript: `model_epochs` (a frozen
+ * prompt/tool/provider interval), `model_items` (immutable ordered replay
+ * entries), `model_steps` (one row per request attempt with ordered input and
+ * output item ids and per-request usage) and `model_context_state` (the
+ * background-block comparison baseline). It also adds `turn_requests.turn_usage`
+ * so a turn can report summed step usage without pretending it is a bill.
+ * Version 10 is additive and idempotent.
  * The base schema is idempotent, so a version-1 file gets the tables by executing
  * the full schema; later files get the new columns by `ALTER TABLE`.
  */
-export const SQLITE_SCHEMA_VERSION = 9;
+export const SQLITE_SCHEMA_VERSION = 10;
 
 export const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -292,6 +299,10 @@ CREATE TABLE IF NOT EXISTS turn_requests (
   -- no usage was observed, which is not the same as zero. Image-token detail is
   -- not split by the provider and is marked unknown rather than inferred.
   usage           TEXT,
+  -- Summed known usage across every attempt of the turn, with measuredSteps /
+  -- totalSteps / incomplete. Separate from usage on purpose: last request and
+  -- whole turn are different numbers (ADR 032).
+  turn_usage      TEXT,
   started_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ended_at        TEXT
 );
@@ -354,6 +365,117 @@ CREATE TABLE IF NOT EXISTS evaluation_results (
 
 CREATE INDEX IF NOT EXISTS evaluation_results_run_idx ON evaluation_results (run_id);
 CREATE INDEX IF NOT EXISTS evaluation_results_case_idx ON evaluation_results (case_id);
+
+-- ------------------------------------------------------- model transcript ---
+-- One frozen replay interval. Ordinary turns append inside it; compaction, a
+-- model/provider/prompt/tool change or an explicit recovery boundary starts a
+-- new epoch and leaves the old one readable for audit.
+CREATE TABLE IF NOT EXISTS model_epochs (
+  id                TEXT PRIMARY KEY,
+  user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  conversation_id   TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  parent_epoch_id   TEXT REFERENCES model_epochs(id) ON DELETE SET NULL,
+  reason            TEXT NOT NULL,
+  instructions      TEXT NOT NULL,
+  prompt_version    TEXT NOT NULL,
+  tools             TEXT NOT NULL DEFAULT '[]',
+  tools_hash        TEXT NOT NULL,
+  provider_id       TEXT NOT NULL,
+  model_id          TEXT NOT NULL,
+  protocol_revision TEXT NOT NULL,
+  encoder_revision  TEXT NOT NULL,
+  window_item_ids   TEXT NOT NULL DEFAULT '[]',
+  window_revision   INTEGER NOT NULL DEFAULT 0,
+  seeded_through_seq INTEGER NOT NULL DEFAULT 0,
+  active            INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+  created_at        TEXT NOT NULL,
+  ended_at          TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS model_epochs_active_idx
+  ON model_epochs (conversation_id) WHERE active = 1;
+CREATE INDEX IF NOT EXISTS model_epochs_conversation_idx
+  ON model_epochs (conversation_id, created_at);
+
+-- Immutable ordered entries. idempotency_key is what makes a retried step
+-- append nothing; seq is the conversation-wide order a window references.
+CREATE TABLE IF NOT EXISTS model_items (
+  id              TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  epoch_id        TEXT NOT NULL REFERENCES model_epochs(id) ON DELETE CASCADE,
+  seq             INTEGER NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_id      TEXT,
+  turn_id         TEXT,
+  step            INTEGER,
+  kind            TEXT NOT NULL,
+  source          TEXT NOT NULL,
+  scope           TEXT NOT NULL,
+  content_version TEXT NOT NULL,
+  payload         TEXT NOT NULL,
+  content_hash    TEXT NOT NULL,
+  message_id      TEXT,
+  call_id         TEXT,
+  status          TEXT NOT NULL DEFAULT 'complete',
+  created_at      TEXT NOT NULL,
+  UNIQUE (conversation_id, idempotency_key),
+  UNIQUE (conversation_id, seq)
+);
+
+CREATE INDEX IF NOT EXISTS model_items_epoch_idx
+  ON model_items (epoch_id, seq);
+CREATE INDEX IF NOT EXISTS model_items_message_idx
+  ON model_items (conversation_id, message_id);
+CREATE INDEX IF NOT EXISTS model_items_request_idx
+  ON model_items (request_id, step);
+
+-- One request attempt. Unknown usage stays NULL; the status distinguishes a
+-- local preparation from a provider acknowledgement.
+CREATE TABLE IF NOT EXISTS model_steps (
+  attempt_id            TEXT PRIMARY KEY,
+  request_id            TEXT NOT NULL,
+  turn_id               TEXT NOT NULL,
+  conversation_id       TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  step                  INTEGER NOT NULL,
+  attempt_no            INTEGER NOT NULL,
+  epoch_id              TEXT NOT NULL REFERENCES model_epochs(id) ON DELETE CASCADE,
+  epoch_revision        INTEGER NOT NULL,
+  input_item_ids        TEXT NOT NULL DEFAULT '[]',
+  output_item_ids       TEXT NOT NULL DEFAULT '[]',
+  request_config_digest TEXT NOT NULL,
+  projection            TEXT,
+  status                TEXT NOT NULL,
+  response_id           TEXT,
+  usage                 TEXT,
+  error                 TEXT,
+  finish_reason         TEXT,
+  created_at            TEXT NOT NULL,
+  completed_at          TEXT,
+  UNIQUE (request_id, step, attempt_no)
+);
+
+CREATE INDEX IF NOT EXISTS model_steps_request_idx ON model_steps (request_id, step);
+CREATE INDEX IF NOT EXISTS model_steps_conversation_idx
+  ON model_steps (conversation_id, created_at DESC);
+
+-- The block baseline the active window has incorporated. cleared = 1 is a
+-- real state: an explicit tombstone that later re-activation must supersede.
+CREATE TABLE IF NOT EXISTS model_context_state (
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  epoch_id        TEXT NOT NULL REFERENCES model_epochs(id) ON DELETE CASCADE,
+  key             TEXT NOT NULL,
+  scope           TEXT NOT NULL,
+  content_hash    TEXT NOT NULL,
+  render_version  TEXT NOT NULL,
+  revision        INTEGER NOT NULL,
+  latest_item_id  TEXT NOT NULL,
+  cleared         INTEGER NOT NULL DEFAULT 0 CHECK (cleared IN (0, 1)),
+  updated_at      TEXT NOT NULL,
+  PRIMARY KEY (epoch_id, key)
+);
+
+CREATE INDEX IF NOT EXISTS model_context_state_conversation_idx
+  ON model_context_state (conversation_id, epoch_id);
 
 ${SANDBOX_SCHEMA}
 `;
@@ -548,4 +670,114 @@ CREATE TABLE IF NOT EXISTS message_assets (
 CREATE INDEX IF NOT EXISTS message_assets_asset_idx ON message_assets (asset_id);
 CREATE INDEX IF NOT EXISTS message_assets_conversation_idx
   ON message_assets (conversation_id);
+`;
+
+/**
+ * Version 9 → 10: the persistent model transcript.
+ *
+ * Additive and idempotent. `turn_requests.turn_usage` is added by the caller
+ * after a `PRAGMA table_info` check, because SQLite has no
+ * `ADD COLUMN IF NOT EXISTS`; everything else is `IF NOT EXISTS` DDL.
+ */
+export const SQLITE_MIGRATION_10 = `
+CREATE TABLE IF NOT EXISTS model_epochs (
+  id                TEXT PRIMARY KEY,
+  user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  conversation_id   TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  parent_epoch_id   TEXT REFERENCES model_epochs(id) ON DELETE SET NULL,
+  reason            TEXT NOT NULL,
+  instructions      TEXT NOT NULL,
+  prompt_version    TEXT NOT NULL,
+  tools             TEXT NOT NULL DEFAULT '[]',
+  tools_hash        TEXT NOT NULL,
+  provider_id       TEXT NOT NULL,
+  model_id          TEXT NOT NULL,
+  protocol_revision TEXT NOT NULL,
+  encoder_revision  TEXT NOT NULL,
+  window_item_ids   TEXT NOT NULL DEFAULT '[]',
+  window_revision   INTEGER NOT NULL DEFAULT 0,
+  seeded_through_seq INTEGER NOT NULL DEFAULT 0,
+  active            INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+  created_at        TEXT NOT NULL,
+  ended_at          TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS model_epochs_active_idx
+  ON model_epochs (conversation_id) WHERE active = 1;
+CREATE INDEX IF NOT EXISTS model_epochs_conversation_idx
+  ON model_epochs (conversation_id, created_at);
+
+CREATE TABLE IF NOT EXISTS model_items (
+  id              TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  epoch_id        TEXT NOT NULL REFERENCES model_epochs(id) ON DELETE CASCADE,
+  seq             INTEGER NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_id      TEXT,
+  turn_id         TEXT,
+  step            INTEGER,
+  kind            TEXT NOT NULL,
+  source          TEXT NOT NULL,
+  scope           TEXT NOT NULL,
+  content_version TEXT NOT NULL,
+  payload         TEXT NOT NULL,
+  content_hash    TEXT NOT NULL,
+  message_id      TEXT,
+  call_id         TEXT,
+  status          TEXT NOT NULL DEFAULT 'complete',
+  created_at      TEXT NOT NULL,
+  UNIQUE (conversation_id, idempotency_key),
+  UNIQUE (conversation_id, seq)
+);
+
+CREATE INDEX IF NOT EXISTS model_items_epoch_idx
+  ON model_items (epoch_id, seq);
+CREATE INDEX IF NOT EXISTS model_items_message_idx
+  ON model_items (conversation_id, message_id);
+CREATE INDEX IF NOT EXISTS model_items_request_idx
+  ON model_items (request_id, step);
+
+CREATE TABLE IF NOT EXISTS model_steps (
+  attempt_id            TEXT PRIMARY KEY,
+  request_id            TEXT NOT NULL,
+  turn_id               TEXT NOT NULL,
+  conversation_id       TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  step                  INTEGER NOT NULL,
+  attempt_no            INTEGER NOT NULL,
+  epoch_id              TEXT NOT NULL REFERENCES model_epochs(id) ON DELETE CASCADE,
+  epoch_revision        INTEGER NOT NULL,
+  input_item_ids        TEXT NOT NULL DEFAULT '[]',
+  output_item_ids       TEXT NOT NULL DEFAULT '[]',
+  request_config_digest TEXT NOT NULL,
+  projection            TEXT,
+  status                TEXT NOT NULL,
+  response_id           TEXT,
+  usage                 TEXT,
+  error                 TEXT,
+  finish_reason         TEXT,
+  created_at            TEXT NOT NULL,
+  completed_at          TEXT,
+  UNIQUE (request_id, step, attempt_no)
+);
+
+CREATE INDEX IF NOT EXISTS model_steps_request_idx ON model_steps (request_id, step);
+CREATE INDEX IF NOT EXISTS model_steps_conversation_idx
+  ON model_steps (conversation_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS model_context_state (
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  epoch_id        TEXT NOT NULL REFERENCES model_epochs(id) ON DELETE CASCADE,
+  key             TEXT NOT NULL,
+  scope           TEXT NOT NULL,
+  content_hash    TEXT NOT NULL,
+  render_version  TEXT NOT NULL,
+  revision        INTEGER NOT NULL,
+  latest_item_id  TEXT NOT NULL,
+  cleared         INTEGER NOT NULL DEFAULT 0 CHECK (cleared IN (0, 1)),
+  updated_at      TEXT NOT NULL,
+  PRIMARY KEY (epoch_id, key)
+);
+
+CREATE INDEX IF NOT EXISTS model_context_state_conversation_idx
+  ON model_context_state (conversation_id, epoch_id);
 `;

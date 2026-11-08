@@ -70,6 +70,27 @@ export interface TurnUsage {
   readonly imageTokensUnknown: boolean;
 }
 
+/**
+ * Summed usage over every request attempt of a turn.
+ *
+ * Kept separate from `TurnUsage` (which is the last request, for compatibility)
+ * because a turn with tool rounds has several requests and summing only the last
+ * one understates it. `incomplete` says at least one attempt reported nothing; it
+ * is not an invitation to fill the gap with zero.
+ */
+export interface TurnUsageTotals {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly cachedTokens: number;
+  readonly cacheWriteTokens: number;
+  readonly measuredSteps: number;
+  readonly totalSteps: number;
+  readonly incomplete: boolean;
+  readonly missingUsageSteps: number;
+  readonly missingCacheSteps: number;
+}
+
 /** A request that has been accepted, is running, or has finished. */
 export interface TurnRecord {
   /** The client-supplied request id. Primary key. */
@@ -102,6 +123,8 @@ export interface TurnRecord {
   readonly acceptance: readonly AcceptanceCheck[];
   /** Real usage for the last request, or null when the provider reported none. */
   readonly usage: TurnUsage | null;
+  /** Summed known usage for the whole turn, including retries (ADR 032). */
+  readonly turnUsage?: TurnUsageTotals | null;
   readonly startedAt: Date;
   readonly endedAt: Date | null;
 }
@@ -118,6 +141,7 @@ export interface TurnFinishPatch {
   readonly accepted?: boolean;
   readonly acceptance?: readonly AcceptanceCheck[];
   readonly usage?: TurnUsage | null;
+  readonly turnUsage?: TurnUsageTotals | null;
 }
 
 /**

@@ -230,3 +230,16 @@ missing. `npm run backup:verify` re-checks a backup without writing to it.
   `src/provider/deepseek/image-tokens.ts`; the local policy revision records the
   date because a moving branch has no stable commit in this checkout.
 - ADR 026 for the attachment path that remains for non-visual files.
+
+---
+
+## 2026-11-08 补充：媒体与模型轨迹（ADR 032）
+
+- 模型轨迹保存图片的 `assetId` 与内容块顺序，不保存 Base64；媒体引用统计同时检查
+  `messages`/`message_assets` 与仍可回放的 `model_items`，避免重新生成删除 UI 行后
+  图片先被清理。
+- 活动轨迹中的图片按最终请求视图的出现次数计数，同一 asset 出现两次就是两次视觉
+  输入；模型切换后若目标路由不支持历史图片，仍返回 `MODEL_INPUT_UNSUPPORTED`
+  （scope=history），不静默删图。
+- 预算裁剪删除图片时，图片计划必须按裁剪后的窗口重新计算；发送变体字节与编码策略
+  的变化记录为显式边界。

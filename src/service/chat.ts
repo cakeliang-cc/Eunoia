@@ -83,6 +83,12 @@ import { modelProfile } from '../models/registry.ts';
 import type { Store } from '../store.ts';
 import { StoreTurnRecorder } from './turn-recorder.ts';
 import { TurnCoordinator } from './turns.ts';
+import { DurableTranscript } from './model-transcript.ts';
+import type { ContextBlockInput } from '../agent/context-projection.ts';
+import type { TranscriptMode } from '../session/model-transcript.ts';
+import { transcriptMode } from '../session/model-transcript.ts';
+import type { TurnUsageTotals } from '../session/turn-types.ts';
+import { toolsDigest } from '../session/model-transcript.ts';
 
 /**
  * What the model is told when the person resumes an interrupted reply.
@@ -147,6 +153,13 @@ export interface TurnDependencies {
    */
   readonly runner?: TurnRunner;
   /**
+   * A pre-built model step for tests. Production leaves this unset and the
+   * adapter resolves the provider model.
+   */
+  readonly modelTurn?: import('../agent/model-port.ts').ModelTurn;
+  /** Extra tool definitions, used by offline acceptance runs. */
+  readonly additionalTools?: readonly import('../tools/types.ts').ToolDefinition[];
+  /**
    * Admission control for this process.
    *
    * Optional so an evaluation run that never touches HTTP does not have to
@@ -178,6 +191,11 @@ export interface TurnDependencies {
   readonly modelProfileFor?: (id: string) => ModelProfile;
   /** Routes that can accept images, for the client's actionable error details. */
   readonly availableImageModels?: readonly string[];
+  /**
+   * Replay implementation for persisted turns. Server configuration only; a
+   * request can never choose durable mode for itself.
+   */
+  readonly transcriptMode?: TranscriptMode;
 }
 
 /**
@@ -291,6 +309,7 @@ export async function* runTurn(
             : {}),
           ...(event.steps !== undefined ? { steps: event.steps } : {}),
           ...(event.contextTokens !== undefined ? { contextTokens: event.contextTokens } : {}),
+          ...(event.turnUsage ? { turnUsage: event.turnUsage } : {}),
         };
       } else if (event.type === 'interrupted') {
         outcome = {
@@ -298,6 +317,7 @@ export async function* runTurn(
           finishReason: 'cancelled',
           reply: event.text,
           messageId: event.messageId ?? null,
+          ...(event.turnUsage ? { turnUsage: event.turnUsage } : {}),
         };
       } else if (event.type === 'error') {
         outcome = {
@@ -336,6 +356,8 @@ async function* runTurnInner(
   const runId = randomUUID();
   const persist = request.persist ?? true;
   const runner = deps.runner ?? streamReply;
+  const mode = deps.transcriptMode ?? transcriptMode();
+  const durable = mode === 'durable' && persist && Boolean(request.requestId);
   const session = deps.session ?? new SessionService(deps.store);
   const config = deps.sessionConfig ?? sessionConfig();
   const profileFor = deps.modelProfileFor ?? modelProfile;
@@ -540,6 +562,7 @@ async function* runTurnInner(
         now,
       }),
     );
+    if (deps.additionalTools) toolRegistry.registerAll(deps.additionalTools);
     if (sandboxSession) toolRegistry.registerAll(codingTools);
     const skills = deps.skills ?? null;
     if (skills && skills.count() > 0) {
@@ -590,9 +613,91 @@ async function* runTurnInner(
       ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
       ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
       ...(recorder ? { recorder } : {}),
+      ...(deps.modelTurn ? { modelTurn: deps.modelTurn } : {}),
       now,
     };
     const agent = createCompanionAgent(agentOptions);
+
+    /**
+     * Durable replay: the model input comes from persisted items, not from the
+     * chat text. The session replay still decides compaction boundaries; this
+     * service turns that window and the structured background into immutable
+     * items and records each request attempt.
+     */
+    let transcript: DurableTranscript | null = null;
+    let loopInput: readonly import('../agent/model-port.ts').LoopInputItem[] | undefined;
+    if (durable) {
+      const contextBlocks: ContextBlockInput = {
+        relationshipBlock: context.relationshipBlock,
+        narrativeBlock: context.narrativeBlock,
+        situationBlock: context.situationBlock,
+        ...(sandboxSession
+          ? {
+              workspaceBlock: workspaceStateBlock(sandboxSession.displayPath),
+              permissionBlock: permissionStateBlock(policy),
+            }
+          : {}),
+        skillsBlock: skills?.indexBlock() ?? '',
+        toolGuidelines: toolRegistry.guidelines(),
+        memoryBlock: context.memoryBlock,
+        ...(request.attachments && request.attachments.length > 0
+          ? { attachmentsBlock: renderAttachments(request.attachments) }
+          : {}),
+        ...(request.continue ? { continuationBlock: CONTINUATION_DIRECTIVE } : {}),
+        safetyDirective: safetyDirectiveFor(riskLevel),
+      };
+      try {
+        const begun = await DurableTranscript.begin({
+          store: deps.store,
+          userId: request.userId,
+          conversationId,
+          requestId: request.requestId as string,
+          turnId: request.requestId as string,
+          instructions: agent.instructions,
+          promptVersion: PROMPT_VERSION,
+          tools: toolRegistry.schemas(),
+          profile,
+          replay,
+          user: userMessage
+            ? {
+                content,
+                messageId: userMessage.id,
+                seq: userMessage.seq,
+              }
+            : null,
+          regenerate: request.regenerate === true,
+          context: contextBlocks,
+          policy,
+          now,
+        });
+        transcript = begun.transcript;
+        loopInput = begun.input;
+        log.info('turn.transcript_begin', {
+          conversation_id: conversationId,
+          epoch_reason: begun.epochReason,
+          seeded: begun.seeded,
+          input_items: begun.input.length,
+        });
+      } catch (error) {
+        // Durable mode is a promise that the model request can be replayed. If
+        // that cannot be recorded, the request is not sent; the shown text and
+        // the user message are not destroyed.
+        const described = describeTurnError(error);
+        log.error('turn.transcript_unavailable', {
+          code: described.code,
+          error: described.message,
+        });
+        yield {
+          type: 'error',
+          message: `模型轨迹无法建立，本次请求没有发送（MODEL_TRANSCRIPT_UNAVAILABLE）。${described.message}`,
+          retryable: false,
+          finishReason: 'failed',
+          code: 'MODEL_TRANSCRIPT_UNAVAILABLE',
+        };
+        return;
+      }
+    }
+
     const runtimeContext = buildRuntimeContext({
       relationshipBlock: context.relationshipBlock,
       narrativeBlock: context.narrativeBlock,
@@ -634,23 +739,29 @@ async function* runTurnInner(
     let turnUsage:
       | (import('../agent/model-port.ts').ModelUsage & { readonly imageTokensUnknown: boolean })
       | null = null;
+    let lastContextTokens: number | undefined;
 
     // The current user content is passed as structured blocks when the request
     // had them; a legacy request stays a string so its wire shape is unchanged.
     for await (const event of runner(agent, message, {
       signal: request.signal,
-      history,
-      context: runtimeContext,
-      // A regeneration has no `request.content`, but its stored user message
-      // does. Passing only the text projection here silently dropped the image
-      // from a rerun — the exact failure S03 caught on a live endpoint.
-      ...(request.content || request.regenerate ? { content } : {}),
+      ...(loopInput && transcript
+        ? { input: loopInput, transcript }
+        : {
+            history,
+            context: runtimeContext,
+            // A regeneration has no `request.content`, but its stored user message
+            // does. Passing only the text projection here silently dropped the image
+            // from a rerun — the exact failure S03 caught on a live endpoint.
+            ...(request.content || request.regenerate ? { content } : {}),
+          }),
       ...(mediaPlan ? { media: mediaPlan } : {}),
       ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
     })) {
       if (event.type === 'completed') {
         reply = event.text;
         finishReason = event.finishReason ?? 'completed';
+        if (event.contextTokens !== undefined) lastContextTokens = event.contextTokens;
         if (event.usage) {
           turnUsage = {
             ...event.usage,
@@ -690,8 +801,26 @@ async function* runTurnInner(
       yield event;
     }
 
+    let transcriptUsage: TurnUsageTotals | null = null;
+    if (transcript) {
+      try {
+        transcriptUsage = (await transcript.usage()).turnUsage;
+      } catch (error) {
+        log.warn('turn.transcript_usage_failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
     if (interrupted) {
       const partial = streamed.trim();
+      if (transcript) {
+        await transcript.recordInterrupted(partial).catch((error: unknown) => {
+          log.warn('turn.transcript_interrupt_failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
       let assistantMessageId: string | null = null;
       if (persist) {
         assistantMessageId = await persistTurn(deps.store, session, {
@@ -716,12 +845,18 @@ async function* runTurnInner(
         used_tools: usedTools,
         tool_calls: toolCalls.length,
       });
+      if (transcript && assistantMessageId) {
+        await transcript
+          .linkAssistantMessage(assistantMessageId)
+          .catch(() => undefined);
+      }
       yield {
         type: 'interrupted',
         text: partial,
         conversationId: persist ? conversationId : null,
         messageId: assistantMessageId,
         finishReason: 'cancelled',
+        ...(transcriptUsage ? { turnUsage: transcriptUsage } : {}),
       };
       return;
     }
@@ -798,6 +933,30 @@ async function* runTurnInner(
       });
     }
 
+    if (transcript && assistantMessageId) {
+      await transcript.linkAssistantMessage(assistantMessageId).catch(() => undefined);
+    }
+
+    if (transcript && outcome.replaced) {
+      await transcript
+        .recordSafetyBoundary(outcome.reply, {
+          toolsHash: toolsDigest(agent.tools.schemas()),
+          now,
+        })
+        .catch((error: unknown) => {
+          log.warn('turn.transcript_safety_boundary_failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      // The aggregate was read before the boundary; recompute so the discarded
+      // attempt is still counted as a real provider request.
+      try {
+        transcriptUsage = (await transcript.usage()).turnUsage;
+      } catch {
+        // Keep the earlier aggregate.
+      }
+    }
+
     yield {
       type: 'completed',
       text: outcome.reply,
@@ -807,6 +966,9 @@ async function* runTurnInner(
       accepted: verdict.succeeded,
       acceptance: verdict.acceptance,
       ...(turnUsage ? { usage: turnUsage } : {}),
+      ...(transcriptUsage ? { turnUsage: transcriptUsage } : {}),
+      ...(lastContextTokens !== undefined ? { contextTokens: lastContextTokens } : {}),
+      transcriptMode: durable ? ('durable' as const) : ('legacy' as const),
     };
   } catch (error) {
     // Errors raised outside the runner (route preflight, asset resolution, a
@@ -1001,6 +1163,26 @@ function formatBytes(bytes: number): string {
  * context, so changing a permission does not invalidate the cached prompt and
  * history — and the model cannot infer a permission it was not given.
  */
+/**
+ * The workspace state split from permission state (ADR 032).
+ *
+ * Durable replay compares blocks by key. Keeping the directory and the policy in
+ * one block would make a permission change append the whole workspace text and
+ * lose the ability to say which state actually changed.
+ */
+function workspaceStateBlock(displayPath: string): string {
+  return [
+    '# 工作目录',
+    `你现在可以在一个隔离沙箱里工作：${displayPath}`,
+    '所有路径都相对于这个目录；不要使用绝对路径，也不要尝试访问目录之外的文件。',
+    '沙箱只挂载了当前任务的目录，网络默认关闭。命令在沙箱容器内执行，不会碰到宿主机。',
+  ].join('\n');
+}
+
+function permissionStateBlock(policy: ToolPolicy): string {
+  return ['# 当前权限', `当前权限：${describePolicy(policy)}。`, '工具执行始终以服务端真实策略为准；这里的文字只是让模型知道当前边界。'].join('\n');
+}
+
 function workspaceBlock(displayPath: string, policy: ToolPolicy): string {
   return [
     '# 工作目录',

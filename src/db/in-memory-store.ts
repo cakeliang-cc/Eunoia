@@ -37,6 +37,23 @@ import type {
 } from '../session/store.ts';
 import type { CreateTurnResult, TurnStore } from '../session/turn-store.ts';
 import type {
+  CreateEpochInput,
+  ModelTranscriptStore,
+  PrepareStepInput,
+  PrepareStepResult,
+  StepPatch,
+} from '../session/model-transcript-store.ts';
+import { TranscriptRevisionConflictError } from '../session/model-transcript-store.ts';
+import type {
+  ModelContextState,
+  ModelEpoch,
+  ModelItem,
+  ModelStepRecord,
+  NewModelContextState,
+  NewModelItem,
+} from '../session/model-transcript.ts';
+import { itemContentHash, MODEL_TRANSCRIPT_VERSION } from '../session/model-transcript.ts';
+import type {
   NewTurnEvent,
   TurnEventRecord,
   TurnFinishPatch,
@@ -65,7 +82,7 @@ interface StoredConversation {
   messages: Message[];
 }
 
-export class InMemoryStore implements Store, TurnStore, MediaAssetStore {
+export class InMemoryStore implements Store, TurnStore, MediaAssetStore, ModelTranscriptStore {
   readonly #memories = new Map<string, Memory>();
   readonly #conversations = new Map<string, StoredConversation>();
   readonly #summaries = new Map<string, ConversationSummary>();
@@ -79,6 +96,13 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore {
   readonly #media = new Map<string, ImageAsset>();
   /** Message id → asset ids in content order; the reference index. */
   readonly #messageAssets = new Map<string, string[]>();
+  /** Model transcript state (ADR 032). */
+  readonly #epochs = new Map<string, ModelEpoch>();
+  readonly #modelItems = new Map<string, ModelItem>();
+  readonly #itemKeys = new Map<string, string>();
+  readonly #itemsByConversation = new Map<string, string[]>();
+  readonly #steps = new Map<string, ModelStepRecord>();
+  readonly #contextState = new Map<string, ModelContextState>();
   #evaluationCases: readonly EvaluationCaseRecord[] = [];
 
   /**
@@ -124,6 +148,7 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore {
     for (const id of conversations) {
       this.#conversations.delete(id);
       this.#summaries.delete(id);
+      this.#deleteTranscript(id);
     }
     for (const [id, asset] of this.#media) {
       if (asset.userId === userId) this.#media.delete(id);
@@ -312,6 +337,7 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore {
     if (!conversation || conversation.userId !== userId) return false;
     this.#conversations.delete(conversationId);
     this.#summaries.delete(conversationId);
+    this.#deleteTranscript(conversationId);
     for (const [id, asset] of this.#media) {
       if (asset.conversationId === conversationId) this.#media.delete(id);
     }
@@ -609,6 +635,12 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore {
     for (const ids of this.#messageAssets.values()) {
       if (ids.includes(assetId)) return true;
     }
+    // A replayed model item also references the image. Dropping the UI message
+    // on regeneration must not let the collector remove bytes the active window
+    // can still replay.
+    for (const item of this.#modelItems.values()) {
+      if (JSON.stringify(item.payload).includes(assetId)) return true;
+    }
     return false;
   }
 
@@ -661,6 +693,7 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore {
       accepted: patch.accepted ?? existing.accepted,
       acceptance: patch.acceptance ?? existing.acceptance,
       usage: patch.usage !== undefined ? patch.usage : existing.usage,
+      turnUsage: patch.turnUsage !== undefined ? patch.turnUsage : existing.turnUsage,
       endedAt: new Date(),
     };
     this.#turns.set(id, updated);
@@ -801,6 +834,317 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore {
       .reverse();
   }
 
+
+  // ---------------------------------------------------- model transcript -----
+
+  async createEpoch(input: CreateEpochInput): Promise<ModelEpoch> {
+    const existing = [...this.#epochs.values()].find(
+      (epoch) => epoch.conversationId === input.conversationId && epoch.endedAt === null,
+    );
+    if (existing) {
+      this.#epochs.set(existing.id, { ...existing, endedAt: input.createdAt });
+    }
+    this.#assertItemsBelongToConversation(input.conversationId, input.windowItemIds);
+    const epoch: ModelEpoch = {
+      id: input.id,
+      userId: input.userId,
+      conversationId: input.conversationId,
+      parentEpochId: input.parentEpochId,
+      reason: input.reason,
+      instructions: input.instructions,
+      promptVersion: input.promptVersion,
+      tools: input.tools,
+      toolsHash: input.toolsHash,
+      providerId: input.providerId,
+      modelId: input.modelId,
+      protocolRevision: input.protocolRevision,
+      encoderRevision: input.encoderRevision,
+      windowItemIds: [...input.windowItemIds],
+      windowRevision: input.windowRevision,
+      seededThroughSeq: input.seededThroughSeq,
+      createdAt: input.createdAt,
+      endedAt: null,
+    };
+    this.#epochs.set(epoch.id, epoch);
+    return epoch;
+  }
+
+  async activeEpoch(conversationId: string): Promise<ModelEpoch | null> {
+    return (
+      [...this.#epochs.values()].find(
+        (epoch) => epoch.conversationId === conversationId && epoch.endedAt === null,
+      ) ?? null
+    );
+  }
+
+  async listEpochs(conversationId: string): Promise<ModelEpoch[]> {
+    return [...this.#epochs.values()]
+      .filter((epoch) => epoch.conversationId === conversationId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  async getEpoch(epochId: string): Promise<ModelEpoch | null> {
+    return this.#epochs.get(epochId) ?? null;
+  }
+
+  async appendItems(items: readonly NewModelItem[]): Promise<ModelItem[]> {
+    return items.map((entry) => this.#appendItem(entry));
+  }
+
+  async listItems(conversationId: string, ids?: readonly string[]): Promise<ModelItem[]> {
+    const wanted = ids ? new Set(ids) : null;
+    const order = this.#itemsByConversation.get(conversationId) ?? [];
+    return order
+      .map((id) => this.#modelItems.get(id))
+      .filter((item): item is ModelItem => item !== undefined && (!wanted || wanted.has(item.id)));
+  }
+
+  async listEpochItems(epochId: string): Promise<ModelItem[]> {
+    return [...this.#modelItems.values()]
+      .filter((item) => item.epochId === epochId)
+      .sort((a, b) => a.seq - b.seq);
+  }
+
+  async knownMessageIds(conversationId: string): Promise<Set<string>> {
+    const set = new Set<string>();
+    for (const id of this.#itemsByConversation.get(conversationId) ?? []) {
+      const messageId = this.#modelItems.get(id)?.messageId;
+      if (messageId) set.add(messageId);
+    }
+    return set;
+  }
+
+  async contextState(conversationId: string, epochId: string): Promise<ModelContextState[]> {
+    return [...this.#contextState.values()].filter(
+      (state) => state.conversationId === conversationId && state.epochId === epochId,
+    );
+  }
+
+  async saveContextState(states: readonly NewModelContextState[]): Promise<void> {
+    for (const state of states) this.#applyState(state);
+  }
+
+  async updateWindow(
+    epochId: string,
+    expectedRevision: number,
+    itemIds: readonly string[],
+  ): Promise<ModelEpoch> {
+    return this.#applyWindow({ epochId, expectedRevision, itemIds });
+  }
+
+  async prepareStep(input: PrepareStepInput): Promise<PrepareStepResult> {
+    const dedupeKey = `${input.step.requestId}\u0000${input.step.step}\u0000${input.step.attemptNo}`;
+    const existing = [...this.#steps.values()].find(
+      (step) =>
+        step.requestId === input.step.requestId &&
+        step.step === input.step.step &&
+        step.attemptNo === input.step.attemptNo,
+    );
+    if (existing) {
+      const items = await this.listItems(input.step.conversationId, input.step.inputItemIds);
+      return {
+        items,
+        step: existing,
+        epoch: this.#epochs.get(existing.epochId) ?? null,
+      };
+    }
+    void dedupeKey;
+
+    const appended = input.items.map((entry) => this.#appendItem(entry));
+    let epoch = this.#epochs.get(input.step.epochId) ?? null;
+    if (input.window) {
+      epoch = this.#applyWindow(input.window);
+    }
+    for (const state of input.state ?? []) this.#applyState(state);
+    const step: ModelStepRecord = {
+      attemptId: input.step.attemptId,
+      requestId: input.step.requestId,
+      turnId: input.step.turnId,
+      conversationId: input.step.conversationId,
+      step: input.step.step,
+      attemptNo: input.step.attemptNo,
+      epochId: input.step.epochId,
+      epochRevision: input.step.epochRevision,
+      inputItemIds: [...input.step.inputItemIds],
+      outputItemIds: [...(input.step.outputItemIds ?? [])],
+      requestConfigDigest: input.step.requestConfigDigest,
+      projection: input.step.projection,
+      status: input.step.status,
+      responseId: null,
+      usage: null,
+      error: null,
+      finishReason: null,
+      createdAt: input.step.createdAt,
+      completedAt: null,
+    };
+    this.#steps.set(step.attemptId, step);
+    return { items: appended, step, epoch };
+  }
+
+  async updateStep(attemptId: string, patch: StepPatch): Promise<ModelStepRecord | null> {
+    const step = this.#steps.get(attemptId);
+    if (!step) return null;
+    const updated: ModelStepRecord = {
+      ...step,
+      ...(patch.status ? { status: patch.status } : {}),
+      ...(patch.outputItemIds ? { outputItemIds: [...patch.outputItemIds] } : {}),
+      ...(patch.usage !== undefined ? { usage: patch.usage } : {}),
+      ...(patch.responseId !== undefined ? { responseId: patch.responseId } : {}),
+      ...(patch.error !== undefined ? { error: patch.error } : {}),
+      ...(patch.finishReason !== undefined ? { finishReason: patch.finishReason } : {}),
+      ...(patch.projection !== undefined ? { projection: patch.projection } : {}),
+      ...(patch.completedAt !== undefined ? { completedAt: patch.completedAt } : {}),
+    };
+    this.#steps.set(attemptId, updated);
+    return updated;
+  }
+
+  async getStep(attemptId: string): Promise<ModelStepRecord | null> {
+    return this.#steps.get(attemptId) ?? null;
+  }
+
+  async listSteps(requestId: string): Promise<ModelStepRecord[]> {
+    return [...this.#steps.values()]
+      .filter((step) => step.requestId === requestId)
+      .sort((a, b) => a.step - b.step || a.attemptNo - b.attemptNo);
+  }
+
+  async listRecentSteps(conversationId: string, limit: number): Promise<ModelStepRecord[]> {
+    return [...this.#steps.values()]
+      .filter((step) => step.conversationId === conversationId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit);
+  }
+
+  async linkAssistantMessage(
+    conversationId: string,
+    requestId: string,
+    messageId: string,
+  ): Promise<void> {
+    let latest: ModelItem | null = null;
+    for (const id of this.#itemsByConversation.get(conversationId) ?? []) {
+      const item = this.#modelItems.get(id);
+      if (item?.requestId === requestId && item.kind === 'assistant') latest = item;
+    }
+    if (latest) this.#modelItems.set(latest.id, { ...latest, messageId });
+  }
+
+  async deleteTranscript(conversationId: string): Promise<void> {
+    this.#deleteTranscript(conversationId);
+  }
+
+  #appendItem(entry: NewModelItem): ModelItem {
+    const key = `${entry.conversationId}\u0000${entry.idempotencyKey}`;
+    const existingId = this.#itemKeys.get(key);
+    if (existingId) {
+      const existing = this.#modelItems.get(existingId);
+      if (existing) return existing;
+    }
+    const epoch = this.#epochs.get(entry.epochId);
+    if (!epoch) throw new Error(`model item references unknown epoch ${entry.epochId}`);
+    if (epoch.conversationId !== entry.conversationId) {
+      throw new Error(`model item ${entry.idempotencyKey} belongs to another conversation`);
+    }
+    const order = this.#itemsByConversation.get(entry.conversationId) ?? [];
+    const seq = (order.at(-1) ? this.#modelItems.get(order.at(-1) as string)?.seq ?? 0 : 0) + 1;
+    const payload = entry.payload;
+    const item: ModelItem = {
+      id: entry.id ?? randomUUID(),
+      conversationId: entry.conversationId,
+      epochId: entry.epochId,
+      seq,
+      requestId: entry.requestId ?? null,
+      turnId: entry.turnId ?? null,
+      step: entry.step ?? null,
+      kind: entry.kind,
+      source: entry.source,
+      scope: entry.scope,
+      contentVersion: entry.contentVersion ?? MODEL_TRANSCRIPT_VERSION,
+      payload,
+      contentHash: entry.contentHash ?? itemContentHash(payload),
+      messageId: entry.messageId ?? null,
+      callId: entry.callId ?? null,
+      status: entry.status ?? 'complete',
+      createdAt: new Date(),
+    };
+    this.#modelItems.set(item.id, item);
+    this.#itemKeys.set(key, item.id);
+    this.#itemsByConversation.set(entry.conversationId, [...order, item.id]);
+    return item;
+  }
+
+  #applyWindow(window: {
+    readonly epochId: string;
+    readonly expectedRevision: number;
+    readonly itemIds: readonly string[];
+  }): ModelEpoch {
+    const epoch = this.#epochs.get(window.epochId);
+    if (!epoch) throw new Error(`model epoch ${window.epochId} not found`);
+    if (epoch.windowRevision !== window.expectedRevision) {
+      throw new TranscriptRevisionConflictError(
+        epoch.id,
+        window.expectedRevision,
+        epoch.windowRevision,
+      );
+    }
+    this.#assertItemsBelongToConversation(epoch.conversationId, window.itemIds);
+    const updated: ModelEpoch = {
+      ...epoch,
+      windowItemIds: [...window.itemIds],
+      windowRevision: epoch.windowRevision + 1,
+    };
+    this.#epochs.set(updated.id, updated);
+    return updated;
+  }
+
+  #applyState(input: NewModelContextState): void {
+    const key = `${input.epochId}\u0000${input.key}`;
+    this.#contextState.set(key, {
+      conversationId: input.conversationId,
+      epochId: input.epochId,
+      key: input.key,
+      scope: input.scope,
+      contentHash: input.contentHash,
+      renderVersion: input.renderVersion ?? 'runtime-block-v1',
+      revision: input.revision,
+      latestItemId: input.latestItemId,
+      cleared: input.cleared,
+      updatedAt: new Date(),
+    });
+  }
+
+  #assertItemsBelongToConversation(
+    conversationId: string,
+    ids: readonly string[],
+  ): void {
+    for (const id of ids) {
+      const item = this.#modelItems.get(id);
+      if (!item) throw new Error(`model item ${id} not found`);
+      if (item.conversationId !== conversationId) {
+        throw new Error(`model item ${id} belongs to another conversation`);
+      }
+    }
+  }
+
+  #deleteTranscript(conversationId: string): void {
+    for (const [id, epoch] of this.#epochs) {
+      if (epoch.conversationId === conversationId) this.#epochs.delete(id);
+    }
+    for (const [id, item] of this.#modelItems) {
+      if (item.conversationId === conversationId) this.#modelItems.delete(id);
+    }
+    for (const [key, itemId] of this.#itemKeys) {
+      if (!this.#modelItems.has(itemId)) this.#itemKeys.delete(key);
+    }
+    this.#itemsByConversation.delete(conversationId);
+    for (const [id, step] of this.#steps) {
+      if (step.conversationId === conversationId) this.#steps.delete(id);
+    }
+    for (const [key, state] of this.#contextState) {
+      if (state.conversationId === conversationId) this.#contextState.delete(key);
+    }
+  }
+
   // ------------------------------------------------------------ plumbing -----
 
   async ping(): Promise<boolean> {
@@ -816,6 +1160,12 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore {
     this.#turns.clear();
     this.#turnEvents.length = 0;
     this.#users.clear();
+    this.#epochs.clear();
+    this.#modelItems.clear();
+    this.#itemKeys.clear();
+    this.#itemsByConversation.clear();
+    this.#steps.clear();
+    this.#contextState.clear();
   }
 }
 

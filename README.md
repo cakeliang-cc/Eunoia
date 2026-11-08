@@ -35,6 +35,7 @@ npm run dev                # http://127.0.0.1:8787
 
 ## 文档
 
+- [项目文档目录](docs/README.md)
 - [为什么做 Eunoia](docs/story.md)
 - [ADR](docs/adr/)
 - [当前环境](CURRENT_STACK.md)

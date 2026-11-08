@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Model, StreamEvent } from '@openai/agents';
-import { createSdkModelTurn } from '../../src/agent/model-turn.ts';
+import { createModelTurnResolver, createSdkModelTurn } from '../../src/agent/model-turn.ts';
 import { createCompanionAgent, streamReply } from '../../src/agent/infp-agent.ts';
 import type { ModelTurnEvent } from '../../src/agent/model-port.ts';
 
@@ -166,4 +166,59 @@ describe('the companion run', () => {
     },
     30_000,
   );
+});
+
+
+describe('A26: the resolver cache is not keyed by model id alone', () => {
+  it('keeps two providers with the same model id apart', async () => {
+    const make = (text: string): Model =>
+      ({
+        getResponse: async () => {
+          throw new Error('unused');
+        },
+        getStreamedResponse: () => {
+          return (async function* stream() {
+            yield {
+              type: 'response_done',
+              response: {
+                id: `resp-${text}`,
+                usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                output: [
+                  {
+                    type: 'message',
+                    role: 'assistant',
+                    status: 'completed',
+                    content: [{ type: 'output_text', text }],
+                  },
+                ],
+              },
+            };
+          })();
+        },
+      }) as Model;
+    const providerA = { getModel: async () => make('A') } as never;
+    const providerB = { getModel: async () => make('B') } as never;
+    const a = createModelTurnResolver(providerA);
+    const b = createModelTurnResolver(providerB);
+    const first = await a('same-id');
+    expect(await a('same-id')).toBe(first);
+    const second = await b('same-id');
+    expect(second).not.toBe(first);
+
+    const textOf = async (turn: typeof first): Promise<string> => {
+      for await (const event of turn({
+        instructions: '',
+        input: [{ type: 'message', role: 'user', content: 'hi' }],
+        tools: [],
+      })) {
+        if (event.type === 'done') {
+          const message = event.output.find((item) => item.type === 'message');
+          return message?.type === 'message' ? message.content : '';
+        }
+      }
+      return '';
+    };
+    expect(await textOf(first)).toBe('A');
+    expect(await textOf(second)).toBe('B');
+  });
 });

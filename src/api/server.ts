@@ -58,6 +58,8 @@ import {
 import type { TurnRecord } from '../session/turn-types.ts';
 import { selectStore } from '../db/select.ts';
 import { agentMaxSteps, skillsEnabled, workspaceConfig } from '../config.ts';
+import { transcriptMode } from '../session/model-transcript.ts';
+import type { TranscriptMode } from '../session/model-transcript.ts';
 import type { UserContentV1 } from '../agent/content.ts';
 import {
   contentHasImages,
@@ -687,6 +689,8 @@ export interface AppDependencies {
   readonly sessionConfig?: SessionConfig;
   /** Profile lookup, injectable so tests can add a second offline route. */
   readonly modelProfiles?: (id: string) => ModelProfile;
+  /** Server-side replay switch. Defaults to the process environment. */
+  readonly transcriptMode?: TranscriptMode;
 }
 
 function defaultModelProfileFor(id: string): ModelProfile {
@@ -958,6 +962,7 @@ export function createApp(deps: AppDependencies) {
       ...(deps.toolPolicy ? { toolPolicy: deps.toolPolicy } : {}),
       ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
       ...(deps.skills ? { skills: deps.skills } : {}),
+      ...(deps.transcriptMode ? { transcriptMode: deps.transcriptMode } : {}),
     };
   }
 
@@ -2634,7 +2639,9 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     imagePolicies: defaultImagePolicies(),
     mediaLimits: mediaLimitConfig,
     sessionConfig: config,
+    transcriptMode: transcriptMode(),
   });
+  log.info('server.model_transcript', { mode: transcriptMode() });
 
   // Turns still marked running belong to a process that no longer exists. The
   // sweep runs before the listener exists: a stale lock would otherwise answer

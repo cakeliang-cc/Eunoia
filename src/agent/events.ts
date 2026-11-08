@@ -14,7 +14,7 @@
  */
 
 import type { FinishReason } from '../finish-reason.ts';
-import type { AcceptanceCheck } from '../session/turn-types.ts';
+import type { AcceptanceCheck, TurnUsageTotals } from '../session/turn-types.ts';
 
 /**
  * Why a turn ended, re-exported here because this module is the event contract
@@ -183,6 +183,15 @@ export interface CompletedEvent {
     /** True when the provider did not split image tokens out of the total. */
     readonly imageTokensUnknown?: boolean;
   };
+  /**
+   * Summed known usage over every attempt, with completeness markers (ADR 032).
+   *
+   * Optional and additive: a client that only knows `usage` keeps working, and a
+   * turn with one request has the same numbers in both fields.
+   */
+  readonly turnUsage?: TurnUsageTotals;
+  /** True when the turn ran on a persisted model transcript. */
+  readonly transcriptMode?: 'legacy' | 'durable';
   /** Model/tool steps taken. Diagnostic, and useful for budget questions. */
   readonly steps?: number;
   /** Estimated size of the last model request, system prompt included. */
@@ -224,6 +233,8 @@ export interface InterruptedEvent {
    * never has to infer a reason from an absent field.
    */
   readonly finishReason?: FinishReason;
+  /** Summed known usage before the stop; unknown attempts stay marked. */
+  readonly turnUsage?: TurnUsageTotals;
   /** True when this is a stored outcome being replayed, not a live stop. */
   readonly replayed?: boolean;
 }

@@ -2,9 +2,9 @@
 
 - 日期：2026-11-08
 - 分支：`feat/multimodal`（基于并行 Agent 的 `feat/turn-integrity` 最新提交）
-- 依据：[实施计划](./myfree/Agent/eunoia-多模态实施计划与验收.md)、
-  [接口设计](./myfree/Agent/eunoia-多模态接口设计.md)、
-  [图片 Token 与请求预算](./myfree/Agent/eunoia-图片Token与请求预算.md)
+- 依据：[实施计划](plans/eunoia-多模态实施计划与验收.md)、
+  [接口设计](design/eunoia-多模态接口设计.md)、
+  [图片 Token 与请求预算](design/eunoia-图片Token与请求预算.md)
 - 架构决定：[ADR 031](./adr/031-multimodal.md)
 
 ## 结论

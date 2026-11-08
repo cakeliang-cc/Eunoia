@@ -27,6 +27,15 @@ export type LoopInputItem =
        * array.
        */
       readonly content: ModelMessageContent;
+      /**
+       * Who authored the message. Budget protection, turn boundaries and user
+       * counting key on this, never on `role === 'user'`: an adapter may encode
+       * background as a user message for cache-friendly ordering, and that must
+       * not make it look like the person's current turn.
+       */
+      readonly source?: 'conversation' | 'background' | 'summary';
+      /** The real turn a background update belongs to, when scope=turn. */
+      readonly turnId?: string;
     }
   | {
       readonly type: 'function_call';
@@ -75,6 +84,17 @@ export interface ModelUsage {
   readonly cachedTokens: number;
   /** The provider's response model, when it differs from the requested one. */
   readonly responseModel?: string;
+  /**
+   * False when the provider omitted the whole usage object's numeric fields.
+   *
+   * The adapter keeps the numeric type for the common path, but a transcript
+   * must be able to store null rather than a fabricated zero.
+   */
+  readonly reported?: boolean;
+  /** False when cache detail was absent, so cachedTokens is not known to be 0. */
+  readonly cacheReported?: boolean;
+  /** Provider cache-write tokens, when the route exposes them. */
+  readonly cacheWriteTokens?: number;
 }
 
 export type ModelTurnEvent =
@@ -115,6 +135,13 @@ export interface ModelTurnRequest {
    * any input item contains an image part.
    */
   readonly media?: PreparedMediaPlan;
+  /**
+   * Called by the adapter with a canonical projection of the encoded request.
+   *
+   * It carries hashes and sizes, never credentials, image bytes or response
+   * ids. The transcript uses it to prove what was actually sent.
+   */
+  readonly capture?: (projection: import('../session/model-transcript.ts').RequestProjection) => void;
 }
 
 /**

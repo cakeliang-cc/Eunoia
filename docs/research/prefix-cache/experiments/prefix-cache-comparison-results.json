@@ -1,0 +1,711 @@
+{
+  "runId": "3002f819-0753-4726-b694-9b75384b62e4",
+  "createdAt": "2026-11-08T07:52:52.865Z",
+  "model": "deepseek-flash",
+  "promptVersion": "ec490dad544f",
+  "fixture": {
+    "turns": 6,
+    "contextChars": 812,
+    "toolCount": 11
+  },
+  "limits": {
+    "maxCalls": 24,
+    "maxInputTokens": 200000,
+    "maxOutputTokensPerCall": 96
+  },
+  "methodology": "Two six-turn cohorts; cohort 0 current then retain-all, cohort 1 reverse. Synthetic fixed assistant history. One-step state query, no tools executed. No forced cache purge. 1.5-second spacing. Local prefix statistics use JSON characters/heuristic, not provider token identity.",
+  "sourceHashes": {
+    "src/agent/infp-agent.ts": "bbf7418d5149851af6712224d6bce9209aecd1876e9d84386c95c178a4dae8b0",
+    "src/agent/runtime-context.ts": "5e0c84df22b986347a1f07fb5f588788ca27364e035cf37a2ef63c59d51ae3ae",
+    "src/agent/instructions.ts": "9ec2b507c54638ff94f738673bcf9f7a31a3be0d3e0b4072e3424eab8534953c"
+  },
+  "local": [
+    {
+      "strategy": "current",
+      "turns": [
+        {
+          "turn": 1,
+          "inputChars": 10182,
+          "estimatedTokens": 4254,
+          "commonPrefixChars": 0,
+          "estimatedCommonPrefixTokens": 0,
+          "contextCopies": 1,
+          "staleStateCopies": 0
+        },
+        {
+          "turn": 2,
+          "inputChars": 10445,
+          "estimatedTokens": 4362,
+          "commonPrefixChars": 9292,
+          "estimatedCommonPrefixTokens": 3519,
+          "contextCopies": 1,
+          "staleStateCopies": 0
+        },
+        {
+          "turn": 3,
+          "inputChars": 10707,
+          "estimatedTokens": 4470,
+          "commonPrefixChars": 9555,
+          "estimatedCommonPrefixTokens": 3627,
+          "contextCopies": 1,
+          "staleStateCopies": 0
+        },
+        {
+          "turn": 4,
+          "inputChars": 10970,
+          "estimatedTokens": 4577,
+          "commonPrefixChars": 9818,
+          "estimatedCommonPrefixTokens": 3734,
+          "contextCopies": 1,
+          "staleStateCopies": 0
+        },
+        {
+          "turn": 5,
+          "inputChars": 11233,
+          "estimatedTokens": 4685,
+          "commonPrefixChars": 10081,
+          "estimatedCommonPrefixTokens": 3842,
+          "contextCopies": 1,
+          "staleStateCopies": 0
+        },
+        {
+          "turn": 6,
+          "inputChars": 11497,
+          "estimatedTokens": 4793,
+          "commonPrefixChars": 10344,
+          "estimatedCommonPrefixTokens": 3950,
+          "contextCopies": 1,
+          "staleStateCopies": 0
+        }
+      ],
+      "totalEstimatedTokens": 27141
+    },
+    {
+      "strategy": "retain-all",
+      "turns": [
+        {
+          "turn": 1,
+          "inputChars": 10182,
+          "estimatedTokens": 4254,
+          "commonPrefixChars": 0,
+          "estimatedCommonPrefixTokens": 0,
+          "contextCopies": 1,
+          "staleStateCopies": 0
+        },
+        {
+          "turn": 2,
+          "inputChars": 11360,
+          "estimatedTokens": 5104,
+          "commonPrefixChars": 10180,
+          "estimatedCommonPrefixTokens": 4254,
+          "contextCopies": 2,
+          "staleStateCopies": 0
+        },
+        {
+          "turn": 3,
+          "inputChars": 12537,
+          "estimatedTokens": 5953,
+          "commonPrefixChars": 11358,
+          "estimatedCommonPrefixTokens": 5103,
+          "contextCopies": 3,
+          "staleStateCopies": 2
+        },
+        {
+          "turn": 4,
+          "inputChars": 13714,
+          "estimatedTokens": 6802,
+          "commonPrefixChars": 12535,
+          "estimatedCommonPrefixTokens": 5953,
+          "contextCopies": 4,
+          "staleStateCopies": 2
+        },
+        {
+          "turn": 5,
+          "inputChars": 14891,
+          "estimatedTokens": 7652,
+          "commonPrefixChars": 13712,
+          "estimatedCommonPrefixTokens": 6802,
+          "contextCopies": 5,
+          "staleStateCopies": 4
+        },
+        {
+          "turn": 6,
+          "inputChars": 16069,
+          "estimatedTokens": 8501,
+          "commonPrefixChars": 14889,
+          "estimatedCommonPrefixTokens": 7651,
+          "contextCopies": 6,
+          "staleStateCopies": 3
+        }
+      ],
+      "totalEstimatedTokens": 38266
+    }
+  ],
+  "live": [
+    {
+      "cohort": 0,
+      "strategy": "current",
+      "turn": 1,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 1731,
+      "cachedTokens": 0,
+      "outputTokens": 15,
+      "reasoningTokens": 0,
+      "firstTextMs": 6046,
+      "totalMs": 6187,
+      "expected": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "correct": true
+    },
+    {
+      "cohort": 0,
+      "strategy": "current",
+      "turn": 2,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 1782,
+      "cachedTokens": 1024,
+      "outputTokens": 15,
+      "reasoningTokens": 0,
+      "firstTextMs": 812,
+      "totalMs": 948,
+      "expected": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "correct": true
+    },
+    {
+      "cohort": 0,
+      "strategy": "current",
+      "turn": 3,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 1832,
+      "cachedTokens": 1152,
+      "outputTokens": 14,
+      "reasoningTokens": 0,
+      "firstTextMs": 880,
+      "totalMs": 1076,
+      "expected": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "answer": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "correct": true
+    },
+    {
+      "cohort": 0,
+      "strategy": "current",
+      "turn": 4,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 1883,
+      "cachedTokens": 1152,
+      "outputTokens": 14,
+      "reasoningTokens": 0,
+      "firstTextMs": 961,
+      "totalMs": 1096,
+      "expected": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "answer": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "correct": true
+    },
+    {
+      "cohort": 0,
+      "strategy": "current",
+      "turn": 5,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 1934,
+      "cachedTokens": 1280,
+      "outputTokens": 14,
+      "reasoningTokens": 0,
+      "firstTextMs": 593,
+      "totalMs": 751,
+      "expected": {
+        "cwd": "/project/backend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/backend",
+        "commands": false
+      },
+      "correct": true
+    },
+    {
+      "cohort": 0,
+      "strategy": "current",
+      "turn": 6,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 1986,
+      "cachedTokens": 1280,
+      "outputTokens": 15,
+      "reasoningTokens": 0,
+      "firstTextMs": 616,
+      "totalMs": 741,
+      "expected": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "correct": true
+    },
+    {
+      "cohort": 0,
+      "strategy": "retain-all",
+      "turn": 1,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 1732,
+      "cachedTokens": 0,
+      "outputTokens": 15,
+      "reasoningTokens": 0,
+      "firstTextMs": 495,
+      "totalMs": 631,
+      "expected": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "correct": true
+    },
+    {
+      "cohort": 0,
+      "strategy": "retain-all",
+      "turn": 2,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 2237,
+      "cachedTokens": 1664,
+      "outputTokens": 15,
+      "reasoningTokens": 0,
+      "firstTextMs": 572,
+      "totalMs": 700,
+      "expected": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "correct": true
+    },
+    {
+      "cohort": 0,
+      "strategy": "retain-all",
+      "turn": 3,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 2741,
+      "cachedTokens": 2176,
+      "outputTokens": 14,
+      "reasoningTokens": 0,
+      "firstTextMs": 654,
+      "totalMs": 790,
+      "expected": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "answer": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "correct": true
+    },
+    {
+      "cohort": 0,
+      "strategy": "retain-all",
+      "turn": 4,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 3245,
+      "cachedTokens": 2688,
+      "outputTokens": 14,
+      "reasoningTokens": 0,
+      "firstTextMs": 467,
+      "totalMs": 604,
+      "expected": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "answer": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "correct": true
+    },
+    {
+      "cohort": 0,
+      "strategy": "retain-all",
+      "turn": 5,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 3749,
+      "cachedTokens": 3200,
+      "outputTokens": 6,
+      "reasoningTokens": 0,
+      "firstTextMs": 704,
+      "totalMs": 839,
+      "expected": {
+        "cwd": "/project/backend",
+        "commands": false
+      },
+      "answer": null,
+      "correct": false
+    },
+    {
+      "cohort": 0,
+      "strategy": "retain-all",
+      "turn": 6,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 4254,
+      "cachedTokens": 3712,
+      "outputTokens": 15,
+      "reasoningTokens": 0,
+      "firstTextMs": 698,
+      "totalMs": 737,
+      "expected": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "correct": true
+    },
+    {
+      "cohort": 1,
+      "strategy": "retain-all",
+      "turn": 1,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 1732,
+      "cachedTokens": 0,
+      "outputTokens": 15,
+      "reasoningTokens": 0,
+      "firstTextMs": 815,
+      "totalMs": 972,
+      "expected": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "correct": true
+    },
+    {
+      "cohort": 1,
+      "strategy": "retain-all",
+      "turn": 2,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 2237,
+      "cachedTokens": 1664,
+      "outputTokens": 15,
+      "reasoningTokens": 0,
+      "firstTextMs": 643,
+      "totalMs": 759,
+      "expected": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "correct": true
+    },
+    {
+      "cohort": 1,
+      "strategy": "retain-all",
+      "turn": 3,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 2741,
+      "cachedTokens": 2176,
+      "outputTokens": 14,
+      "reasoningTokens": 0,
+      "firstTextMs": 446,
+      "totalMs": 490,
+      "expected": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "answer": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "correct": true
+    },
+    {
+      "cohort": 1,
+      "strategy": "retain-all",
+      "turn": 4,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 3245,
+      "cachedTokens": 2688,
+      "outputTokens": 14,
+      "reasoningTokens": 0,
+      "firstTextMs": 764,
+      "totalMs": 929,
+      "expected": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "answer": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "correct": true
+    },
+    {
+      "cohort": 1,
+      "strategy": "retain-all",
+      "turn": 5,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 3749,
+      "cachedTokens": 3200,
+      "outputTokens": 14,
+      "reasoningTokens": 0,
+      "firstTextMs": 547,
+      "totalMs": 548,
+      "expected": {
+        "cwd": "/project/backend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/backend",
+        "commands": false
+      },
+      "correct": true
+    },
+    {
+      "cohort": 1,
+      "strategy": "retain-all",
+      "turn": 6,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 4254,
+      "cachedTokens": 3712,
+      "outputTokens": 15,
+      "reasoningTokens": 0,
+      "firstTextMs": 558,
+      "totalMs": 687,
+      "expected": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "correct": true
+    },
+    {
+      "cohort": 1,
+      "strategy": "current",
+      "turn": 1,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 1731,
+      "cachedTokens": 0,
+      "outputTokens": 15,
+      "reasoningTokens": 0,
+      "firstTextMs": 395,
+      "totalMs": 525,
+      "expected": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "correct": true
+    },
+    {
+      "cohort": 1,
+      "strategy": "current",
+      "turn": 2,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 1782,
+      "cachedTokens": 1024,
+      "outputTokens": 15,
+      "reasoningTokens": 0,
+      "firstTextMs": 507,
+      "totalMs": 748,
+      "expected": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "correct": true
+    },
+    {
+      "cohort": 1,
+      "strategy": "current",
+      "turn": 3,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 1832,
+      "cachedTokens": 1152,
+      "outputTokens": 14,
+      "reasoningTokens": 0,
+      "firstTextMs": 577,
+      "totalMs": 695,
+      "expected": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "answer": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "correct": true
+    },
+    {
+      "cohort": 1,
+      "strategy": "current",
+      "turn": 4,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 1883,
+      "cachedTokens": 1152,
+      "outputTokens": 14,
+      "reasoningTokens": 0,
+      "firstTextMs": 766,
+      "totalMs": 923,
+      "expected": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "answer": {
+        "cwd": "/project/backend",
+        "commands": true
+      },
+      "correct": true
+    },
+    {
+      "cohort": 1,
+      "strategy": "current",
+      "turn": 5,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 1934,
+      "cachedTokens": 1280,
+      "outputTokens": 14,
+      "reasoningTokens": 0,
+      "firstTextMs": 476,
+      "totalMs": 606,
+      "expected": {
+        "cwd": "/project/backend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/backend",
+        "commands": false
+      },
+      "correct": true
+    },
+    {
+      "cohort": 1,
+      "strategy": "current",
+      "turn": 6,
+      "actualModel": "deepseek-flash",
+      "status": "completed",
+      "inputTokens": 1986,
+      "cachedTokens": 1280,
+      "outputTokens": 15,
+      "reasoningTokens": 0,
+      "firstTextMs": 723,
+      "totalMs": 879,
+      "expected": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "answer": {
+        "cwd": "/project/frontend",
+        "commands": false
+      },
+      "correct": true
+    }
+  ],
+  "errors": [],
+  "summary": {
+    "strategies": {
+      "current": {
+        "calls": 12,
+        "inputTokens": 22296,
+        "cachedTokens": 11776,
+        "uncachedTokens": 10520,
+        "outputTokens": 174,
+        "hitRate": 0.5281664872622892,
+        "medianFirstTextMs": 669.5,
+        "checksPassed": 12,
+        "referenceInputUsd": 0.001613328,
+        "referenceTotalUsd": 0.001717728
+      },
+      "retain-all": {
+        "calls": 12,
+        "inputTokens": 35916,
+        "cachedTokens": 26880,
+        "uncachedTokens": 9036,
+        "outputTokens": 166,
+        "hitRate": 0.7484129635816906,
+        "medianFirstTextMs": 607.5,
+        "checksPassed": 11,
+        "referenceInputUsd": 0.00143604,
+        "referenceTotalUsd": 0.0015356399999999998
+      }
+    },
+    "inputGrowth": 0.6108719052744886,
+    "inputCostReduction": 0.10988961946981646,
+    "totalCostReduction": 0.10600514167551567,
+    "breakEvenCachedMissPriceRatio": 0.0982521186440678,
+    "referencePrices": {
+      "currency": "USD",
+      "perMillionInputMiss": 0.15,
+      "perMillionInputHit": 0.003,
+      "perMillionOutput": 0.6,
+      "basis": "DeepSeek published Flash off-peak prices, 2026-11-08; reference calculation, not account bill"
+    }
+  }
+}

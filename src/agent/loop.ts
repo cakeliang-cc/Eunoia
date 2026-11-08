@@ -34,7 +34,7 @@ import { policyDenial } from '../tools/policy.ts';
 import { parseToolArguments } from '../tools/schema.ts';
 import { summarizeToolCall, summarizeToolResult } from '../tools/summary.ts';
 import { truncateLine, truncateMiddle } from '../tools/truncate.ts';
-import type { ToolCall, ToolContext, ToolDefinition, ToolResult } from '../tools/types.ts';
+import type { ToolCall, ToolContext, ToolDefinition, ToolResult, ToolSchema } from '../tools/types.ts';
 import { renderToolResult, toolError } from '../tools/types.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import type { AgentEvent, ThinkingDoneEvent } from './events.ts';
@@ -48,6 +48,7 @@ import type {
   ModelUsage,
 } from './model-port.ts';
 import { log } from '../observability/logging.ts';
+import type { RequestProjection } from '../session/model-transcript.ts';
 
 export const DEFAULT_MAX_STEPS = 12;
 const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
@@ -60,6 +61,83 @@ const MAX_PARALLEL_READS = 4;
  * refusal and a suggestion to narrow the request, which it can act on.
  */
 const MAX_TURN_TOOL_CHARS = 240_000;
+
+/**
+ * The transcript seam the loop writes through (ADR 032).
+ *
+ * Keeping this an interface means the loop stays storage-agnostic: a CLI or an
+ * evaluation can run it with no transcript, and the durable implementation in
+ * `service/model-transcript.ts` is the only thing that knows about epochs.
+ *
+ * Two failure rules are non-negotiable and enforced by the loop:
+ *
+ *   - `prepareStep` failing means the model is not called at all;
+ *   - `completeStep`/`recordToolResult` failing means no further model request
+ *     is sent. A tool that already ran is not re-run; the turn ends and recovery
+ *     reconciles the side effect.
+ */
+export interface LoopTranscriptStepRequest {
+  readonly step: number;
+  readonly attemptNo: number;
+  readonly input: readonly LoopInputItem[];
+  readonly requestInput: readonly LoopInputItem[];
+  readonly instructions: string;
+  readonly tools: readonly ToolSchema[];
+  readonly media?: PreparedMediaPlan;
+  readonly estimatedTokens: number | null;
+}
+
+export interface LoopTranscriptPreparation {
+  readonly attemptId: string;
+  readonly inputItemIds: readonly string[];
+  /**
+   * The view the loop should carry into later steps when the actual request had
+   * to be trimmed. Persisting the trimmed view is what stops a trimmed tool
+   * result from reappearing on the next step or after restart.
+   */
+  readonly replacementInput?: readonly LoopInputItem[];
+}
+
+export interface LoopTranscriptCompletion {
+  readonly step: number;
+  readonly attemptNo: number;
+  readonly attemptId: string;
+  readonly inputItemIds: readonly string[];
+  readonly output: readonly LoopOutputItem[];
+  readonly usage?: ModelUsage;
+  readonly responseId?: string;
+  readonly projection?: RequestProjection;
+  readonly status: 'completed' | 'incomplete' | 'failed';
+  readonly finishReason?: string;
+  readonly error?: string;
+}
+
+export interface LoopTranscript {
+  prepareStep(request: LoopTranscriptStepRequest): Promise<LoopTranscriptPreparation>;
+  completeStep(completion: LoopTranscriptCompletion): Promise<void>;
+  recordToolResult(result: {
+    readonly step: number;
+    readonly item: Extract<LoopInputItem, { type: 'function_call_result' }>;
+    readonly meta?: Record<string, unknown>;
+    readonly ok: boolean;
+  }): Promise<void>;
+  failStep(result: {
+    readonly step: number;
+    readonly attemptId: string;
+    readonly status: 'incomplete' | 'failed' | 'unknown';
+    readonly error: string;
+  }): Promise<void>;
+}
+
+export class ModelTranscriptUnavailableError extends Error {
+  readonly code = 'MODEL_TRANSCRIPT_UNAVAILABLE';
+  readonly retryable = false;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'ModelTranscriptUnavailableError';
+  }
+}
 
 export interface AgentLoopOptions {
   readonly modelTurn: ModelTurn;
@@ -92,6 +170,8 @@ export interface AgentLoopOptions {
    * another.
    */
   readonly media?: PreparedMediaPlan;
+  /** Durable replay recorder. Absent in legacy mode and in evaluation runs. */
+  readonly transcript?: LoopTranscript;
 }
 
 interface CallPlan {
@@ -110,7 +190,7 @@ interface Invocation {
 export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<AgentEvent> {
   const startedAt = Date.now();
   const maxSteps = Math.max(1, options.maxSteps ?? DEFAULT_MAX_STEPS);
-  const input: LoopInputItem[] = [...options.input];
+  let input: LoopInputItem[] = [...options.input];
   const recorder = options.recorder ?? null;
   // Serialised once: the same bytes are sent and counted, so the estimate cannot
   // drift from the request it is budgeting.
@@ -146,6 +226,15 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
    * not something the model finished, even if a later step returns cleanly.
    */
   let streamIncomplete = false;
+  /**
+   * The attempt currently in flight, so the catch path can close it. A resolved
+   * attempt is cleared after `completeStep`; an unresolved one on error becomes
+   * failed/incomplete rather than being silently forgotten.
+   */
+  const attemptRef: {
+    current: { step: number; attemptId: string } | null;
+    completed: boolean;
+  } = { current: null, completed: false };
 
   /**
    * Close the reasoning block, once.
@@ -206,9 +295,49 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
         }
       }
 
+      /**
+       * Persist the exact request first. If this fails, the model is not
+       * called: a request the transcript cannot account for is not a request
+       * this product sends.
+       */
+      let attempt: LoopTranscriptPreparation | null = null;
+      let capturedProjection: RequestProjection | undefined;
+      if (options.transcript) {
+        try {
+          attempt = await options.transcript.prepareStep({
+            step,
+            attemptNo: 1,
+            input,
+            requestInput,
+            instructions: options.instructions,
+            tools: toolSchemas,
+            ...(options.media ? { media: options.media } : {}),
+            estimatedTokens: requestTokens,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log.error('agent.model_transcript_unavailable', { step, error: message });
+          yield {
+            type: 'error',
+            message: `模型轨迹无法保存，本次请求没有发送（MODEL_TRANSCRIPT_UNAVAILABLE）。${message}`,
+            retryable: false,
+            finishReason: 'failed',
+            code: 'MODEL_TRANSCRIPT_UNAVAILABLE',
+          };
+          return;
+        }
+        attemptRef.current = { step, attemptId: attempt.attemptId };
+        attemptRef.completed = false;
+        if (attempt.replacementInput) {
+          input = [...attempt.replacementInput];
+          requestInput = input;
+        }
+      }
+
       const output: LoopOutputItem[] = [];
       let sawTextDelta = false;
       let done = false;
+      let responseId: string | undefined;
       /** The text this step produced, which is the unit recovery can trust. */
       let stepText = '';
 
@@ -218,6 +347,9 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
         tools: toolSchemas,
         ...(options.signal ? { signal: options.signal } : {}),
         ...(options.media ? { media: options.media } : {}),
+        capture: (projection) => {
+          capturedProjection = projection;
+        },
       })) {
         if (event.type === 'text_delta') {
           const closed = closeThinking();
@@ -245,6 +377,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
         if (event.type === 'incomplete') streamIncomplete = true;
         output.push(...event.output);
         if (event.usage) lastUsage = event.usage;
+        responseId = event.responseId;
         done = true;
       }
 
@@ -274,6 +407,40 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       // result row exists.
       if (recorder && stepText.trim().length > 0) {
         await record(() => recorder.assistantText(step, stepText));
+      }
+
+      /**
+       * Persist the step's output before any tool runs and before the next
+       * request. `incomplete` is sticky for the turn; the step status records
+       * what the provider actually delivered.
+       */
+      if (options.transcript && attempt) {
+        try {
+          await options.transcript.completeStep({
+            step,
+            attemptNo: 1,
+            attemptId: attempt.attemptId,
+            inputItemIds: attempt.inputItemIds,
+            output,
+            ...(lastUsage ? { usage: lastUsage } : {}),
+            ...(responseId ? { responseId } : {}),
+            ...(capturedProjection ? { projection: capturedProjection } : {}),
+            status: streamIncomplete ? 'incomplete' : 'completed',
+            finishReason: streamIncomplete ? 'incomplete_stream' : 'completed',
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log.error('agent.model_transcript_write_failed', { step, error: message });
+          yield {
+            type: 'error',
+            message: `模型输出无法写入可回放轨迹，已停止后续步骤（MODEL_TRANSCRIPT_UNAVAILABLE）。${message}`,
+            retryable: false,
+            finishReason: 'failed',
+            code: 'MODEL_TRANSCRIPT_UNAVAILABLE',
+          };
+          return;
+        }
+        attemptRef.completed = true;
       }
 
       // The model must see its own calls before their results, and reasoning is
@@ -308,7 +475,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       }
 
       toolCount += calls.length;
-      yield* executeCalls(calls);
+      yield* executeCalls(calls, step);
     }
 
     // Cap reached. Everything the model did is still a valid partial turn, so
@@ -332,6 +499,16 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
 
     const message = error instanceof Error ? error.message : String(error);
     const aborted = options.signal?.aborted === true || (error instanceof Error && error.name === 'AbortError');
+    if (options.transcript && attemptRef.current && !attemptRef.completed) {
+      await options.transcript
+        .failStep({
+          step: attemptRef.current.step,
+          attemptId: attemptRef.current.attemptId,
+          status: aborted ? 'incomplete' : 'failed',
+          error: message,
+        })
+        .catch(() => undefined);
+    }
     log.error('agent.turn_failed', {
       duration_ms: Date.now() - startedAt,
       error: message,
@@ -342,7 +519,38 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       message: aborted ? 'cancelled' : message,
       retryable: !aborted,
       finishReason: 'failed',
+      ...(error instanceof ModelTranscriptUnavailableError || message.includes('MODEL_TRANSCRIPT_UNAVAILABLE')
+        ? { code: 'MODEL_TRANSCRIPT_UNAVAILABLE' }
+        : {}),
     };
+  }
+
+  /**
+   * Persist a tool result before the next model request.
+   *
+   * The output here is the bounded result the model actually received, not the
+   * 2000-character audit slice. If this write fails, the turn stops with a
+   * typed error: the tool has already run, so silently continuing would leave a
+   * replayable gap and may cause a later step to act on an unrecorded result.
+   */
+  async function recordTranscriptToolResult(
+    step: number,
+    item: Extract<LoopInputItem, { type: 'function_call_result' }>,
+    invocation: Invocation,
+  ): Promise<void> {
+    if (!options.transcript) return;
+    try {
+      await options.transcript.recordToolResult({
+        step,
+        item,
+        ok: invocation.result.ok,
+        ...(invocation.result.meta ? { meta: invocation.result.meta } : {}),
+      });
+    } catch (error) {
+      throw new ModelTranscriptUnavailableError(
+        `tool result could not be persisted: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /**
@@ -354,6 +562,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
    */
   async function* executeCalls(
     calls: readonly Extract<LoopOutputItem, { type: 'function_call' }>[],
+    step: number,
   ): AsyncIterable<AgentEvent> {
     let index = 0;
     while (index < calls.length) {
@@ -400,13 +609,15 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
         const results = await Promise.all(plans.map((plan) => invoke(plan)));
         for (const [offset, plan] of plans.entries()) {
           const invocation = results[offset] as Invocation;
-          input.push({
-            type: 'function_call_result',
+          const resultItem = {
+            type: 'function_call_result' as const,
             callId: plan.call.callId,
             name: plan.call.name,
             output: renderToolResult(invocation.result),
-          });
+          };
+          input.push(resultItem);
           await recordInvocation(plan, invocation);
+          await recordTranscriptToolResult(step, resultItem, invocation);
           yield toolResultEvent(plan, invocation);
         }
         continue;
@@ -414,13 +625,15 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
 
       const plan = plans[0] as CallPlan;
       const invocation = await invoke(plan);
-      input.push({
-        type: 'function_call_result',
+      const resultItem = {
+        type: 'function_call_result' as const,
         callId: plan.call.callId,
         name: plan.call.name,
         output: renderToolResult(invocation.result),
-      });
+      };
+      input.push(resultItem);
       await recordInvocation(plan, invocation);
+      await recordTranscriptToolResult(step, resultItem, invocation);
       yield toolResultEvent(plan, invocation);
     }
   }

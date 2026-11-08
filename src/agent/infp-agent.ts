@@ -29,6 +29,7 @@ import type { UserContentV1 } from './content.ts';
 import { contentText } from './content.ts';
 import type { PreparedMediaPlan } from './request-plan.ts';
 import type { AgentEvent } from './events.ts';
+import type { LoopTranscript } from './loop.ts';
 import type { ExecutionRecorder } from './execution-log.ts';
 import type { ContextBudget } from './context-budget.ts';
 import { ToolRegistry } from '../tools/registry.ts';
@@ -201,10 +202,26 @@ export interface StreamReplyOptions {
   readonly content?: UserContentV1;
   /** Fixed media plan; the adapter may not re-read or re-scale its images. */
   readonly media?: PreparedMediaPlan;
+  /**
+   * A pre-built replay input. Present in durable mode, where the model-facing
+   * items come from the persisted transcript rather than from chat text.
+   */
+  readonly input?: readonly LoopInputItem[];
+  /** Durable transcript hooks. Absent in legacy mode. */
+  readonly transcript?: LoopTranscript;
 }
 
-/** Resolvers are process-wide: the SDK model object is immutable config. */
-let cachedResolver: ((modelId: string) => Promise<ModelTurn>) | null = null;
+/**
+ * Resolvers are keyed by the provider object that built them.
+ *
+ * The old single cache was keyed by model id alone, so a second provider with
+ * the same model id could be handed the first provider's endpoint. Provider
+ * identity is part of the cache key now; model id alone never is.
+ */
+const resolverByProvider = new WeakMap<
+  ModelProvider,
+  (modelId: string) => Promise<ModelTurn>
+>();
 
 /**
  * Run one turn and yield the reply as a transport-agnostic event stream.
@@ -218,14 +235,18 @@ export async function* streamReply(
   message: string | UserContentV1,
   options: StreamReplyOptions = {},
 ): AsyncIterable<AgentEvent> {
-  // A structured current message is the fact; `message` is its text projection.
-  const input = buildRunInput(options.content ?? message, options.history, options.context);
+  // Durable mode supplies the exact items. Legacy mode derives them from chat
+  // text; a structured current message is the fact there, and `message` is its
+  // text projection.
+  const input =
+    options.input ??
+    buildRunInput(options.content ?? message, options.history, options.context);
   // A bare string remains a string on the common path; the loop needs the item
   // form, so it is wrapped here once.
   const items: LoopInputItem[] =
     typeof input === 'string'
       ? [{ type: 'message', role: 'user', content: input }]
-      : input;
+      : [...input];
 
   let modelTurn: ModelTurn;
   try {
@@ -260,6 +281,7 @@ export async function* streamReply(
     ...(agent.recorder ? { recorder: agent.recorder } : {}),
     ...(agent.contextBudget ? { contextBudget: agent.contextBudget } : {}),
     ...(options.media ? { media: options.media } : {}),
+    ...(options.transcript ? { transcript: options.transcript } : {}),
   });
 }
 
@@ -267,10 +289,13 @@ async function resolveModelTurn(
   agent: CompanionRun,
   options: StreamReplyOptions,
 ): Promise<ModelTurn> {
-  if (!cachedResolver) {
-    cachedResolver = createModelTurnResolver(options.modelProvider ?? agent.modelProvider ?? createProvider());
+  const provider = options.modelProvider ?? agent.modelProvider ?? createProvider();
+  let resolver = resolverByProvider.get(provider);
+  if (!resolver) {
+    resolver = createModelTurnResolver(provider);
+    resolverByProvider.set(provider, resolver);
   }
-  return cachedResolver(agent.model);
+  return resolver(agent.model);
 }
 
 /** The prompt identity recorded with a run. Re-exported for composition roots. */

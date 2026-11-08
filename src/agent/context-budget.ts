@@ -296,11 +296,19 @@ function countUnplannedImages(
   return unplanned;
 }
 
-/** The index of the current turn's user message; everything after it is protected. */
+/**
+ * The index of the current turn's user message; everything after it is protected.
+ *
+ * Identity, not wire role: a persisted background update may be encoded as a
+ * user message (it is a better cache tail than a system message on some routes)
+ * and it must not move the protected boundary past the real request.
+ */
 function lastUserIndex(items: readonly LoopInputItem[]): number {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index];
-    if (item?.type === 'message' && item.role === 'user') return index;
+    if (item?.type === 'message' && item.role === 'user' && item.source !== 'background') {
+      return index;
+    }
   }
   // No user message at all (a bare continuation request): protect the tail.
   return Math.max(0, items.length - 2);

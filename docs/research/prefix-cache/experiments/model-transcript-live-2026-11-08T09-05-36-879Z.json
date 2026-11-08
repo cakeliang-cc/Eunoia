@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "runId": "2026-11-08T09-05-36-879Z",
+  "live": true,
+  "scenario": "s02",
+  "startedAt": "2026-11-08T09:05:36.879Z",
+  "limits": {
+    "maxRequests": 24,
+    "maxInputTokens": 200000,
+    "maxOutputTokensPerRequest": 2048
+  },
+  "budgetUsed": {
+    "requests": 2,
+    "inputTokens": 5331,
+    "outputTokens": 97
+  },
+  "metrics": [
+    {
+      "mode": "durable",
+      "group": "s02-tool",
+      "turn": 1,
+      "requestId": "59d0b60c-a96b-404e-a15e-52dcb745e37d",
+      "steps": 2,
+      "inputTokens": 5331,
+      "outputTokens": 97,
+      "cachedTokens": 4608,
+      "cachedKnown": true,
+      "contextTokens": 2913,
+      "firstTokenMs": 7541,
+      "replyChars": 38,
+      "finishReason": "completed",
+      "transcriptEpochs": 1,
+      "transcriptSteps": 2,
+      "historyAssistantMessages": 1,
+      "toolCalls": 1,
+      "toolResults": 1,
+      "replyPreview": "结果中的 LIVE-MARK 是 `LIVE-MARK-730d3702`。"
+    }
+  ],
+  "checks": [
+    {
+      "scenario": "S02",
+      "ok": true,
+      "detail": "{\"toolCalls\":1,\"toolResults\":1,\"replyPreview\":\"结果中的 LIVE-MARK 是 `LIVE-MARK-730d3702`。\"}"
+    }
+  ],
+  "summary": {
+    "groups": [
+      {
+        "group": "s02-tool",
+        "mode": "durable",
+        "requests": 2,
+        "inputTokens": 5331,
+        "cachedTokens": 4608,
+        "missTokens": 723,
+        "hitRate": 0.8643781654473832,
+        "outputTokens": 97,
+        "inputCost": 0.000122274,
+        "outputCost": 0.0000582,
+        "totalCost": 0.000180474,
+        "firstTokenMs": [
+          7541
+        ],
+        "replyChars": [
+          38
+        ],
+        "epochs": [
+          1
+        ],
+        "finishReasons": [
+          "completed"
+        ],
+        "cachedKnown": true
+      }
+    ],
+    "comparison": "only one mode measured",
+    "note": "Numbers are reference-rate estimates, not a bill."
+  },
+  "caveats": [
+    "成本按文档参考单价折算，不是账户扣费核对。",
+    "真实调用；缓存是否命中由供应商决定，无法强制冷缓存。",
+    "两组语义任务相同但模型输出不完全相同；长度与费用差异均列出。"
+  ]
+}

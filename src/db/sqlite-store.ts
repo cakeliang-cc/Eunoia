@@ -70,11 +70,35 @@ import {
   SQLITE_MIGRATION_6,
   SQLITE_MIGRATION_8,
   SQLITE_MIGRATION_9,
+  SQLITE_MIGRATION_10,
   SQLITE_SCHEMA,
   SQLITE_SCHEMA_VERSION,
 } from './sqlite-schema.ts';
 import { CWD_SCHEMA, PERMISSION_SCHEMA } from '../sandbox/schema.ts';
 import { StatementCache } from './statements.ts';
+import type {
+  CreateEpochInput,
+  ModelTranscriptStore,
+  PrepareStepInput,
+  PrepareStepResult,
+  StepPatch,
+} from '../session/model-transcript-store.ts';
+import { TranscriptRevisionConflictError } from '../session/model-transcript-store.ts';
+import type {
+  ModelContextState,
+  ModelEpoch,
+  ModelItem,
+  ModelStepRecord,
+  NewModelContextState,
+  NewModelItem,
+  RequestProjection,
+  StepUsage,
+} from '../session/model-transcript.ts';
+import {
+  itemContentHash,
+  MODEL_TRANSCRIPT_VERSION,
+  TRANSCRIPT_RENDER_VERSION,
+} from '../session/model-transcript.ts';
 
 type SqlValue = string | number | null;
 
@@ -157,6 +181,84 @@ interface SummaryRow {
   updated_at: string;
 }
 
+interface ModelEpochRow {
+  id: string;
+  user_id: string;
+  conversation_id: string;
+  parent_epoch_id: string | null;
+  reason: string;
+  instructions: string;
+  prompt_version: string;
+  tools: string;
+  tools_hash: string;
+  provider_id: string;
+  model_id: string;
+  protocol_revision: string;
+  encoder_revision: string;
+  window_item_ids: string;
+  window_revision: number;
+  seeded_through_seq: number;
+  active: number;
+  created_at: string;
+  ended_at: string | null;
+}
+
+interface ModelItemRow {
+  id: string;
+  conversation_id: string;
+  epoch_id: string;
+  seq: number;
+  idempotency_key: string;
+  request_id: string | null;
+  turn_id: string | null;
+  step: number | null;
+  kind: string;
+  source: string;
+  scope: string;
+  content_version: string;
+  payload: string;
+  content_hash: string;
+  message_id: string | null;
+  call_id: string | null;
+  status: string;
+  created_at: string;
+}
+
+interface ModelStepRow {
+  attempt_id: string;
+  request_id: string;
+  turn_id: string;
+  conversation_id: string;
+  step: number;
+  attempt_no: number;
+  epoch_id: string;
+  epoch_revision: number;
+  input_item_ids: string;
+  output_item_ids: string;
+  request_config_digest: string;
+  projection: string | null;
+  status: string;
+  response_id: string | null;
+  usage: string | null;
+  error: string | null;
+  finish_reason: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+interface ModelContextStateRow {
+  conversation_id: string;
+  epoch_id: string;
+  key: string;
+  scope: string;
+  content_hash: string;
+  render_version: string;
+  revision: number;
+  latest_item_id: string;
+  cleared: number;
+  updated_at: string;
+}
+
 interface TurnRow {
   id: string;
   turn_id: string;
@@ -174,6 +276,7 @@ interface TurnRow {
   accepted: number | null;
   acceptance: string;
   usage: string | null;
+  turn_usage: string | null;
   started_at: string;
   ended_at: string | null;
 }
@@ -215,7 +318,7 @@ const MEDIA_COLUMNS = `id, user_id, conversation_id, name, media_type, bytes, wi
 
 const TURN_COLUMNS = `id, turn_id, user_id, conversation_id, request_hash, status, finish_reason,
   reply, message_id, error, model, steps, context_tokens, accepted, acceptance, usage,
-  started_at, ended_at`;
+  turn_usage, started_at, ended_at`;
 
 const TURN_EVENT_COLUMNS = `id, turn_id, conversation_id, seq, kind, call_id, tool_name,
   status, execution_id, payload, created_at`;
@@ -231,7 +334,7 @@ const UPDATABLE_COLUMNS: Readonly<Record<keyof MemoryPatch, string>> = {
   tags: 'tags',
 };
 
-export class SqliteStore implements Store, TurnStore, MediaAssetStore {
+export class SqliteStore implements Store, TurnStore, MediaAssetStore, ModelTranscriptStore {
   /**
    * The raw connection, for tests and diagnostics.
    *
@@ -1005,7 +1108,10 @@ export class SqliteStore implements Store, TurnStore, MediaAssetStore {
       `DELETE FROM media_assets
         WHERE id = ? AND user_id = ? AND status = 'pending'
           AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
-          AND NOT EXISTS (SELECT 1 FROM message_assets WHERE asset_id = ?)`,
+          AND NOT EXISTS (SELECT 1 FROM message_assets WHERE asset_id = ?)
+          AND NOT EXISTS (SELECT 1 FROM model_items AS mi
+                           WHERE mi.conversation_id = media_assets.conversation_id
+                             AND mi.payload LIKE '%' || media_assets.id || '%')`,
       assetId,
       userId,
       now.toISOString(),
@@ -1029,7 +1135,10 @@ export class SqliteStore implements Store, TurnStore, MediaAssetStore {
           AND (
             a.status = 'released'
             OR (a.status = 'pending'
-                AND NOT EXISTS (SELECT 1 FROM message_assets AS r WHERE r.asset_id = a.id))
+                AND NOT EXISTS (SELECT 1 FROM message_assets AS r WHERE r.asset_id = a.id)
+                AND NOT EXISTS (SELECT 1 FROM model_items AS mi
+                                 WHERE mi.conversation_id = a.conversation_id
+                                   AND mi.payload LIKE '%' || a.id || '%'))
           )
         ORDER BY a.created_at ASC`,
       cutoff,
@@ -1041,7 +1150,10 @@ export class SqliteStore implements Store, TurnStore, MediaAssetStore {
     this.#run(
       `UPDATE media_assets SET status = 'released', lease_expires_at = NULL
         WHERE conversation_id = ? AND status = 'bound'
-          AND NOT EXISTS (SELECT 1 FROM message_assets AS r WHERE r.asset_id = media_assets.id)`,
+          AND NOT EXISTS (SELECT 1 FROM message_assets AS r WHERE r.asset_id = media_assets.id)
+          AND NOT EXISTS (SELECT 1 FROM model_items AS mi
+                           WHERE mi.conversation_id = media_assets.conversation_id
+                             AND mi.payload LIKE '%' || media_assets.id || '%')`,
       conversationId,
     );
   }
@@ -1085,8 +1197,8 @@ export class SqliteStore implements Store, TurnStore, MediaAssetStore {
         `INSERT INTO turn_requests
            (id, turn_id, user_id, conversation_id, request_hash, status, finish_reason,
             reply, message_id, error, model, steps, context_tokens, accepted, acceptance,
-            started_at, ended_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            usage, turn_usage, started_at, ended_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO NOTHING`,
         record.id,
         record.turnId,
@@ -1103,6 +1215,8 @@ export class SqliteStore implements Store, TurnStore, MediaAssetStore {
         record.contextTokens,
         record.accepted === null ? null : record.accepted ? 1 : 0,
         JSON.stringify(record.acceptance),
+        record.usage ? JSON.stringify(record.usage) : null,
+        record.turnUsage ? JSON.stringify(record.turnUsage) : null,
         record.startedAt.toISOString(),
         record.endedAt ? record.endedAt.toISOString() : null,
       );
@@ -1164,6 +1278,10 @@ export class SqliteStore implements Store, TurnStore, MediaAssetStore {
     if (patch.usage !== undefined) {
       values.push(patch.usage === null ? null : JSON.stringify(patch.usage));
       assignments.push('usage = ?');
+    }
+    if (patch.turnUsage !== undefined) {
+      values.push(patch.turnUsage === null ? null : JSON.stringify(patch.turnUsage));
+      assignments.push('turn_usage = ?');
     }
 
     values.push(id);
@@ -1319,6 +1437,446 @@ export class SqliteStore implements Store, TurnStore, MediaAssetStore {
     ).map(toFeedback);
   }
 
+
+  // ---------------------------------------------------- model transcript -----
+
+  async createEpoch(input: CreateEpochInput): Promise<ModelEpoch> {
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      this.#run(
+        `UPDATE model_epochs SET active = 0, ended_at = ?
+          WHERE conversation_id = ? AND active = 1`,
+        input.createdAt.toISOString(),
+        input.conversationId,
+      );
+      this.#assertItemsBelongToConversation(input.conversationId, input.windowItemIds);
+      this.#run(
+        `INSERT INTO model_epochs
+           (id, user_id, conversation_id, parent_epoch_id, reason, instructions,
+            prompt_version, tools, tools_hash, provider_id, model_id,
+            protocol_revision, encoder_revision, window_item_ids, window_revision,
+            seeded_through_seq, active, created_at, ended_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NULL)`,
+        input.id,
+        input.userId,
+        input.conversationId,
+        input.parentEpochId,
+        input.reason,
+        input.instructions,
+        input.promptVersion,
+        JSON.stringify(input.tools),
+        input.toolsHash,
+        input.providerId,
+        input.modelId,
+        input.protocolRevision,
+        input.encoderRevision,
+        JSON.stringify(input.windowItemIds),
+        input.windowRevision,
+        input.seededThroughSeq,
+        input.createdAt.toISOString(),
+      );
+      this.#db.exec('COMMIT');
+    } catch (error) {
+      this.#db.exec('ROLLBACK');
+      throw error;
+    }
+    const epoch = await this.getEpoch(input.id);
+    if (!epoch) throw new Error('epoch insert produced no row');
+    return epoch;
+  }
+
+  async activeEpoch(conversationId: string): Promise<ModelEpoch | null> {
+    const row = this.#get<ModelEpochRow>(
+      `SELECT * FROM model_epochs WHERE conversation_id = ? AND active = 1`,
+      conversationId,
+    );
+    return row ? toModelEpoch(row) : null;
+  }
+
+  async listEpochs(conversationId: string): Promise<ModelEpoch[]> {
+    return this.#all<ModelEpochRow>(
+      `SELECT * FROM model_epochs WHERE conversation_id = ? ORDER BY created_at ASC`,
+      conversationId,
+    ).map(toModelEpoch);
+  }
+
+  async getEpoch(epochId: string): Promise<ModelEpoch | null> {
+    const row = this.#get<ModelEpochRow>('SELECT * FROM model_epochs WHERE id = ?', epochId);
+    return row ? toModelEpoch(row) : null;
+  }
+
+  async appendItems(items: readonly NewModelItem[]): Promise<ModelItem[]> {
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      const appended = items.map((entry) => this.#insertItem(entry));
+      this.#db.exec('COMMIT');
+      return appended;
+    } catch (error) {
+      this.#db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  async listItems(conversationId: string, ids?: readonly string[]): Promise<ModelItem[]> {
+    if (ids && ids.length === 0) return [];
+    const rows = ids
+      ? this.#all<ModelItemRow>(
+          `SELECT * FROM model_items
+            WHERE conversation_id = ? AND id IN (${placeholders(ids.length)})
+            ORDER BY seq ASC`,
+          conversationId,
+          ...ids,
+        )
+      : this.#all<ModelItemRow>(
+          `SELECT * FROM model_items WHERE conversation_id = ? ORDER BY seq ASC`,
+          conversationId,
+        );
+    return rows.map(toModelItem);
+  }
+
+  async listEpochItems(epochId: string): Promise<ModelItem[]> {
+    return this.#all<ModelItemRow>(
+      `SELECT * FROM model_items WHERE epoch_id = ? ORDER BY seq ASC`,
+      epochId,
+    ).map(toModelItem);
+  }
+
+  async knownMessageIds(conversationId: string): Promise<Set<string>> {
+    const rows = this.#all<{ message_id: string }>(
+      `SELECT DISTINCT message_id FROM model_items
+        WHERE conversation_id = ? AND message_id IS NOT NULL`,
+      conversationId,
+    );
+    return new Set(rows.map((row) => row.message_id));
+  }
+
+  async contextState(conversationId: string, epochId: string): Promise<ModelContextState[]> {
+    return this.#all<ModelContextStateRow>(
+      `SELECT * FROM model_context_state
+        WHERE conversation_id = ? AND epoch_id = ?
+        ORDER BY key ASC`,
+      conversationId,
+      epochId,
+    ).map(toModelContextState);
+  }
+
+  async saveContextState(states: readonly NewModelContextState[]): Promise<void> {
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const state of states) this.#upsertContextState(state);
+      this.#db.exec('COMMIT');
+    } catch (error) {
+      this.#db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  async updateWindow(
+    epochId: string,
+    expectedRevision: number,
+    itemIds: readonly string[],
+  ): Promise<ModelEpoch> {
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      const epoch = this.#get<ModelEpochRow>(
+        'SELECT * FROM model_epochs WHERE id = ?',
+        epochId,
+      );
+      if (!epoch) throw new Error(`model epoch ${epochId} not found`);
+      if (Number(epoch.window_revision) !== expectedRevision) {
+        throw new TranscriptRevisionConflictError(
+          epoch.id,
+          expectedRevision,
+          Number(epoch.window_revision),
+        );
+      }
+      this.#assertItemsBelongToConversation(epoch.conversation_id, itemIds);
+      this.#run(
+        `UPDATE model_epochs
+            SET window_item_ids = ?, window_revision = window_revision + 1
+          WHERE id = ?`,
+        JSON.stringify(itemIds),
+        epochId,
+      );
+      this.#db.exec('COMMIT');
+    } catch (error) {
+      this.#db.exec('ROLLBACK');
+      throw error;
+    }
+    const updated = await this.getEpoch(epochId);
+    if (!updated) throw new Error('epoch update produced no row');
+    return updated;
+  }
+
+  async prepareStep(input: PrepareStepInput): Promise<PrepareStepResult> {
+    const existing = this.#get<ModelStepRow>(
+      `SELECT * FROM model_steps WHERE request_id = ? AND step = ? AND attempt_no = ?`,
+      input.step.requestId,
+      input.step.step,
+      input.step.attemptNo,
+    );
+    if (existing) {
+      const items = await this.listItems(input.step.conversationId, input.step.inputItemIds);
+      return {
+        items,
+        step: toModelStep(existing),
+        epoch: await this.getEpoch(existing.epoch_id),
+      };
+    }
+
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      const appended = input.items.map((entry) => this.#insertItem(entry));
+      if (input.window) {
+        const epoch = this.#get<ModelEpochRow>(
+          'SELECT * FROM model_epochs WHERE id = ?',
+          input.window.epochId,
+        );
+        if (!epoch) throw new Error(`model epoch ${input.window.epochId} not found`);
+        if (Number(epoch.window_revision) !== input.window.expectedRevision) {
+          throw new TranscriptRevisionConflictError(
+            epoch.id,
+            input.window.expectedRevision,
+            Number(epoch.window_revision),
+          );
+        }
+        this.#assertItemsBelongToConversation(epoch.conversation_id, input.window.itemIds);
+        this.#run(
+          `UPDATE model_epochs
+              SET window_item_ids = ?, window_revision = window_revision + 1
+            WHERE id = ?`,
+          JSON.stringify(input.window.itemIds),
+          input.window.epochId,
+        );
+      }
+      for (const state of input.state ?? []) this.#upsertContextState(state);
+      this.#run(
+        `INSERT INTO model_steps
+           (attempt_id, request_id, turn_id, conversation_id, step, attempt_no,
+            epoch_id, epoch_revision, input_item_ids, output_item_ids,
+            request_config_digest, projection, status, response_id, usage,
+            error, finish_reason, created_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, NULL)`,
+        input.step.attemptId,
+        input.step.requestId,
+        input.step.turnId,
+        input.step.conversationId,
+        input.step.step,
+        input.step.attemptNo,
+        input.step.epochId,
+        input.step.epochRevision,
+        JSON.stringify(input.step.inputItemIds),
+        JSON.stringify(input.step.outputItemIds ?? []),
+        input.step.requestConfigDigest,
+        input.step.projection ? JSON.stringify(input.step.projection) : null,
+        input.step.status,
+        input.step.createdAt.toISOString(),
+      );
+      this.#db.exec('COMMIT');
+      const step = await this.getStep(input.step.attemptId);
+      if (!step) throw new Error('step insert produced no row');
+      return {
+        items: appended,
+        step,
+        epoch: await this.getEpoch(input.step.epochId),
+      };
+    } catch (error) {
+      this.#db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  async updateStep(attemptId: string, patch: StepPatch): Promise<ModelStepRecord | null> {
+    const sets: string[] = [];
+    const values: SqlValue[] = [];
+    if (patch.status !== undefined) {
+      sets.push('status = ?');
+      values.push(patch.status);
+    }
+    if (patch.outputItemIds !== undefined) {
+      sets.push('output_item_ids = ?');
+      values.push(JSON.stringify(patch.outputItemIds));
+    }
+    if (patch.usage !== undefined) {
+      sets.push('usage = ?');
+      values.push(patch.usage ? JSON.stringify(patch.usage) : null);
+    }
+    if (patch.responseId !== undefined) {
+      sets.push('response_id = ?');
+      values.push(patch.responseId);
+    }
+    if (patch.error !== undefined) {
+      sets.push('error = ?');
+      values.push(patch.error);
+    }
+    if (patch.finishReason !== undefined) {
+      sets.push('finish_reason = ?');
+      values.push(patch.finishReason);
+    }
+    if (patch.projection !== undefined) {
+      sets.push('projection = ?');
+      values.push(patch.projection ? JSON.stringify(patch.projection) : null);
+    }
+    if (patch.completedAt !== undefined) {
+      sets.push('completed_at = ?');
+      values.push(patch.completedAt?.toISOString() ?? null);
+    }
+    if (sets.length > 0) {
+      values.push(attemptId);
+      this.#run(`UPDATE model_steps SET ${sets.join(', ')} WHERE attempt_id = ?`, ...values);
+    }
+    return this.getStep(attemptId);
+  }
+
+  async getStep(attemptId: string): Promise<ModelStepRecord | null> {
+    const row = this.#get<ModelStepRow>(
+      'SELECT * FROM model_steps WHERE attempt_id = ?',
+      attemptId,
+    );
+    return row ? toModelStep(row) : null;
+  }
+
+  async listSteps(requestId: string): Promise<ModelStepRecord[]> {
+    return this.#all<ModelStepRow>(
+      `SELECT * FROM model_steps WHERE request_id = ? ORDER BY step ASC, attempt_no ASC`,
+      requestId,
+    ).map(toModelStep);
+  }
+
+  async listRecentSteps(conversationId: string, limit: number): Promise<ModelStepRecord[]> {
+    return this.#all<ModelStepRow>(
+      `SELECT * FROM model_steps WHERE conversation_id = ?
+        ORDER BY created_at DESC LIMIT ?`,
+      conversationId,
+      limit,
+    ).map(toModelStep);
+  }
+
+  async linkAssistantMessage(
+    conversationId: string,
+    requestId: string,
+    messageId: string,
+  ): Promise<void> {
+    this.#run(
+      `UPDATE model_items SET message_id = ?
+        WHERE id = (
+          SELECT id FROM model_items
+           WHERE conversation_id = ? AND request_id = ? AND kind = 'assistant'
+           ORDER BY seq DESC LIMIT 1
+        )`,
+      messageId,
+      conversationId,
+      requestId,
+    );
+  }
+
+  async deleteTranscript(conversationId: string): Promise<void> {
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      this.#run('DELETE FROM model_context_state WHERE conversation_id = ?', conversationId);
+      this.#run('DELETE FROM model_steps WHERE conversation_id = ?', conversationId);
+      this.#run('DELETE FROM model_items WHERE conversation_id = ?', conversationId);
+      this.#run('DELETE FROM model_epochs WHERE conversation_id = ?', conversationId);
+      this.#db.exec('COMMIT');
+    } catch (error) {
+      this.#db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  #insertItem(entry: NewModelItem): ModelItem {
+    const existing = this.#get<ModelItemRow>(
+      `SELECT * FROM model_items WHERE conversation_id = ? AND idempotency_key = ?`,
+      entry.conversationId,
+      entry.idempotencyKey,
+    );
+    if (existing) return toModelItem(existing);
+    const epoch = this.#get<{ conversation_id: string }>(
+      'SELECT conversation_id FROM model_epochs WHERE id = ?',
+      entry.epochId,
+    );
+    if (!epoch) throw new Error(`model item references unknown epoch ${entry.epochId}`);
+    if (epoch.conversation_id !== entry.conversationId) {
+      throw new Error(`model item ${entry.idempotencyKey} belongs to another conversation`);
+    }
+    const max = this.#get<{ seq: number | null }>(
+      'SELECT MAX(seq) AS seq FROM model_items WHERE conversation_id = ?',
+      entry.conversationId,
+    );
+    const seq = Number(max?.seq ?? 0) + 1;
+    const payload = entry.payload;
+    const id = entry.id ?? randomUUID();
+    const contentHash = entry.contentHash ?? itemContentHash(payload);
+    this.#run(
+      `INSERT INTO model_items
+         (id, conversation_id, epoch_id, seq, idempotency_key, request_id, turn_id,
+          step, kind, source, scope, content_version, payload, content_hash,
+          message_id, call_id, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      entry.conversationId,
+      entry.epochId,
+      seq,
+      entry.idempotencyKey,
+      entry.requestId ?? null,
+      entry.turnId ?? null,
+      entry.step ?? null,
+      entry.kind,
+      entry.source,
+      entry.scope,
+      entry.contentVersion ?? MODEL_TRANSCRIPT_VERSION,
+      JSON.stringify(payload),
+      contentHash,
+      entry.messageId ?? null,
+      entry.callId ?? null,
+      entry.status ?? 'complete',
+      nowIso(),
+    );
+    const row = this.#get<ModelItemRow>('SELECT * FROM model_items WHERE id = ?', id);
+    if (!row) throw new Error('model item insert produced no row');
+    return toModelItem(row);
+  }
+
+  #upsertContextState(input: NewModelContextState): void {
+    this.#run(
+      `INSERT INTO model_context_state
+         (conversation_id, epoch_id, key, scope, content_hash, render_version,
+          revision, latest_item_id, cleared, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (epoch_id, key) DO UPDATE SET
+         scope = excluded.scope,
+         content_hash = excluded.content_hash,
+         render_version = excluded.render_version,
+         revision = excluded.revision,
+         latest_item_id = excluded.latest_item_id,
+         cleared = excluded.cleared,
+         updated_at = excluded.updated_at`,
+      input.conversationId,
+      input.epochId,
+      input.key,
+      input.scope,
+      input.contentHash,
+      input.renderVersion ?? TRANSCRIPT_RENDER_VERSION,
+      input.revision,
+      input.latestItemId,
+      input.cleared ? 1 : 0,
+      nowIso(),
+    );
+  }
+
+  #assertItemsBelongToConversation(conversationId: string, ids: readonly string[]): void {
+    for (const id of ids) {
+      const row = this.#get<{ conversation_id: string }>(
+        'SELECT conversation_id FROM model_items WHERE id = ?',
+        id,
+      );
+      if (!row) throw new Error(`model item ${id} not found`);
+      if (row.conversation_id !== conversationId) {
+        throw new Error(`model item ${id} belongs to another conversation`);
+      }
+    }
+  }
+
   // ------------------------------------------------------------ plumbing -----
 
   async ping(): Promise<boolean> {
@@ -1393,6 +1951,9 @@ export function openSqliteStore(path: string): SqliteStore {
     }
     if (version < 9) {
       migrateToVersion9(db);
+    }
+    if (version < 10) {
+      migrateToVersion10(db);
     }
   }
   if (version < SQLITE_SCHEMA_VERSION) {
@@ -1506,6 +2067,10 @@ function toTurn(row: TurnRow): TurnRecord {
     accepted: row.accepted === null ? null : Number(row.accepted) === 1,
     acceptance: parseJson<TurnRecord['acceptance']>(row.acceptance, []),
     usage: row.usage === null ? null : parseJson<TurnRecord['usage']>(row.usage, null),
+    turnUsage:
+      row.turn_usage === null
+        ? null
+        : parseJson<NonNullable<TurnRecord['turnUsage']> | null>(row.turn_usage, null),
     startedAt: new Date(row.started_at),
     endedAt: row.ended_at ? new Date(row.ended_at) : null,
   };
@@ -1577,6 +2142,93 @@ function parseJson<T>(value: string, fallback: T): T {
 
 function placeholders(count: number): string {
   return Array.from({ length: count }, () => '?').join(', ');
+}
+
+
+function toModelEpoch(row: ModelEpochRow): ModelEpoch {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    conversationId: row.conversation_id,
+    parentEpochId: row.parent_epoch_id,
+    reason: row.reason as ModelEpoch['reason'],
+    instructions: row.instructions,
+    promptVersion: row.prompt_version,
+    tools: parseJson(row.tools, []),
+    toolsHash: row.tools_hash,
+    providerId: row.provider_id,
+    modelId: row.model_id,
+    protocolRevision: row.protocol_revision,
+    encoderRevision: row.encoder_revision,
+    windowItemIds: parseJson<string[]>(row.window_item_ids, []),
+    windowRevision: Number(row.window_revision),
+    seededThroughSeq: Number(row.seeded_through_seq),
+    createdAt: new Date(row.created_at),
+    endedAt: row.ended_at ? new Date(row.ended_at) : null,
+  };
+}
+
+function toModelItem(row: ModelItemRow): ModelItem {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    epochId: row.epoch_id,
+    seq: Number(row.seq),
+    requestId: row.request_id,
+    turnId: row.turn_id,
+    step: row.step === null ? null : Number(row.step),
+    kind: row.kind as ModelItem['kind'],
+    source: row.source as ModelItem['source'],
+    scope: row.scope as ModelItem['scope'],
+    contentVersion: row.content_version,
+    payload: parseJson(row.payload, { type: 'message', role: 'system', content: '' } as ModelItem['payload']),
+    contentHash: row.content_hash,
+    messageId: row.message_id,
+    callId: row.call_id,
+    status: row.status as ModelItem['status'],
+    createdAt: new Date(row.created_at),
+  };
+}
+
+function toModelStep(row: ModelStepRow): ModelStepRecord {
+  return {
+    attemptId: row.attempt_id,
+    requestId: row.request_id,
+    turnId: row.turn_id,
+    conversationId: row.conversation_id,
+    step: Number(row.step),
+    attemptNo: Number(row.attempt_no),
+    epochId: row.epoch_id,
+    epochRevision: Number(row.epoch_revision),
+    inputItemIds: parseJson<string[]>(row.input_item_ids, []),
+    outputItemIds: parseJson<string[]>(row.output_item_ids, []),
+    requestConfigDigest: row.request_config_digest,
+    projection: row.projection
+      ? (parseJson(row.projection, null) as RequestProjection | null)
+      : null,
+    status: row.status as ModelStepRecord['status'],
+    responseId: row.response_id,
+    usage: row.usage ? (parseJson(row.usage, null) as StepUsage | null) : null,
+    error: row.error,
+    finishReason: row.finish_reason,
+    createdAt: new Date(row.created_at),
+    completedAt: row.completed_at ? new Date(row.completed_at) : null,
+  };
+}
+
+function toModelContextState(row: ModelContextStateRow): ModelContextState {
+  return {
+    conversationId: row.conversation_id,
+    epochId: row.epoch_id,
+    key: row.key,
+    scope: row.scope as ModelContextState['scope'],
+    contentHash: row.content_hash,
+    renderVersion: row.render_version,
+    revision: Number(row.revision),
+    latestItemId: row.latest_item_id,
+    cleared: Number(row.cleared) === 1,
+    updatedAt: new Date(row.updated_at),
+  };
 }
 
 function nowIso(): string {
@@ -1756,6 +2408,19 @@ function migrateToVersion9(db: DatabaseSync): void {
     db.exec('ALTER TABLE turn_requests ADD COLUMN usage TEXT');
   }
   db.exec(SQLITE_MIGRATION_9);
+}
+
+/**
+ * Version 9 → 10: the persistent model transcript.
+ *
+ * Additive and idempotent. The one column is checked first because
+ * `ALTER TABLE … ADD COLUMN` is not idempotent in SQLite.
+ */
+function migrateToVersion10(db: DatabaseSync): void {
+  if (hasTable(db, 'turn_requests') && !hasColumn(db, 'turn_requests', 'turn_usage')) {
+    db.exec('ALTER TABLE turn_requests ADD COLUMN turn_usage TEXT');
+  }
+  db.exec(SQLITE_MIGRATION_10);
 }
 
 function migrateToVersion8(db: DatabaseSync): void {
