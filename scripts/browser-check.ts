@@ -22,6 +22,7 @@ import { DEFAULT_MEDIA_LIMITS } from '../src/media/limits.ts';
 import { DecodeGate } from '../src/media/decode.ts';
 import { defaultImagePolicies } from '../src/provider/image-policy-registry.ts';
 import { sessionConfig } from '../src/session/config.ts';
+import { createMcpRuntime } from '../src/mcp/runtime.ts';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
@@ -92,9 +93,16 @@ async function main(): Promise<void> {
     gate: new DecodeGate(2),
   });
   const config = sessionConfig({ SESSION_PROMPT_RESERVE_TOKENS: '0' });
+  const mcpRuntime = createMcpRuntime({
+    store,
+    media,
+    blobs: new MemoryMediaBlobStore(),
+  });
   const server: Server = createApp({
     store,
     media,
+    mcp: mcpRuntime.service,
+    mcpRuntime,
     imagePolicies: defaultImagePolicies(),
     mediaLimits: DEFAULT_MEDIA_LIMITS,
     sessionConfig: config,
@@ -268,12 +276,55 @@ async function main(): Promise<void> {
       };
     })()`);
 
+    // The external-service panel at 390px: it is a dense management surface and
+    // the most likely place for a horizontal overflow on a phone.
+    await evaluate(`(() => {
+      document.getElementById('mcp-toggle-top').click();
+      return true;
+    })()`);
+    await sleep(700);
+    const mcpOpen = await evaluate(
+      `document.getElementById('mcp-drawer').dataset.open === 'true'`,
+    );
+    if (!mcpOpen) throw new Error('the MCP drawer did not open');
+    const mcpMobileLayout = await evaluate(`(() => {
+      const panel = document.querySelector('#mcp-drawer .drawer-panel').getBoundingClientRect();
+      return {
+        viewport: window.innerWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        panelWidth: Math.round(panel.width),
+        noHorizontalOverflow: document.documentElement.scrollWidth <= window.innerWidth + 1,
+        panelInside: panel.left >= -1 && panel.right <= window.innerWidth + 1,
+      };
+    })()`);
+    if (!mcpMobileLayout.noHorizontalOverflow) throw new Error('MCP drawer overflows at 390px');
+    const mcpMobileShot = (await cdp.send('Page.captureScreenshot', { format: 'png' }, session)) as {
+      data: string;
+    };
+    await evaluate(`(() => {
+      document.getElementById('mcp-close').click();
+      return true;
+    })()`);
+
     await cdp.send(
       'Emulation.setDeviceMetricsOverride',
       { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false },
       session,
     );
     await sleep(400);
+    await evaluate(`(() => {
+      document.getElementById('mcp-toggle-top').click();
+      return true;
+    })()`);
+    await sleep(600);
+    const mcpDesktopShot = (await cdp.send('Page.captureScreenshot', { format: 'png' }, session)) as {
+      data: string;
+    };
+    await evaluate(`(() => {
+      document.getElementById('mcp-close').click();
+      return true;
+    })()`);
+    await sleep(200);
     const desktopShot = (await cdp.send('Page.captureScreenshot', { format: 'png' }, session)) as {
       data: string;
     };
@@ -282,10 +333,21 @@ async function main(): Promise<void> {
     await writeFile('docs/captures/multimodal-desktop.png', Buffer.from(desktopShot.data, 'base64'));
     await writeFile('docs/captures/multimodal-390.png', Buffer.from(mobileShot.data, 'base64'));
     await writeFile('docs/captures/multimodal-preview.png', Buffer.from(previewShot.data, 'base64'));
+    await writeFile('docs/captures/mcp-390.png', Buffer.from(mcpMobileShot.data, 'base64'));
+    await writeFile('docs/captures/mcp-desktop.png', Buffer.from(mcpDesktopShot.data, 'base64'));
     await writeFile(
       'docs/captures/browser-check.json',
       `${JSON.stringify(
-        { url, readyDrafts: ready, warningGone, userImages, previewOpen, mobileLayout },
+        {
+          url,
+          readyDrafts: ready,
+          warningGone,
+          userImages,
+          previewOpen,
+          mobileLayout,
+          mcpOpen,
+          mcpMobileLayout,
+        },
         null,
         2,
       )}\n`,
@@ -293,12 +355,14 @@ async function main(): Promise<void> {
     process.stdout.write(
       `browser check: drafts=${ready} user-images=${userImages} preview=${previewOpen}\n` +
         `  390px: ${JSON.stringify(mobileLayout)}\n` +
-        `  screenshots: docs/captures/multimodal-{desktop,390,preview}.png\n`,
+        `  mcp 390px: ${JSON.stringify(mcpMobileLayout)}\n` +
+        `  screenshots: docs/captures/multimodal-{desktop,390,preview}.png, docs/captures/mcp-{390,desktop}.png\n`,
     );
     cdp.close();
     clearTimeout(guard);
   } finally {
     chrome.kill('SIGTERM');
+    await mcpRuntime.shutdown().catch(() => undefined);
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
       server.closeAllConnections?.();

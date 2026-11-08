@@ -48,6 +48,19 @@ npm run dev                # http://127.0.0.1:8787
 - 离线对照：`npm run experiment:transcript`；真实调用需显式 `--live`，并有请求与
   Token 上限。结果写入 `docs/research/prefix-cache/experiments/`，不覆盖旧结果。
 
+## 外部服务（MCP）
+
+- 顶部 **外部服务** 可以添加 stdio 或 Streamable HTTP 的 MCP 服务；默认没有任何
+  服务，也不会自动连接。
+- 工具发现、参数校验、权限、事件、上下文预算和模型轨迹与内置工具共用一条管线；
+  模型看到的名字带 `mcp__服务__工具` 前缀。
+- 写操作和未知副作用会在调用前暂停，等待你在聊天里或抽屉里批准；批准只对那一次
+  动作有效，刷新页面不丢失。
+- 图片结果会导入私有媒体库并按“每次模型请求”重新计算预算；音频/视频明确标注
+  “未发送给模型”，不会假装已读取。
+- 配置与认证详见 [docs/mcp](docs/mcp/README.md)，设计与验收见
+  [ADR 033](docs/adr/033-mcp-host.md) 与 [验收报告](docs/mcp/acceptance.md)。
+
 ## 文档
 
 - [项目文档目录](docs/README.md)

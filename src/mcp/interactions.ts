@@ -46,7 +46,7 @@ export interface CreateApprovalInput {
   readonly conversationId: string;
   readonly turnId?: string | null;
   readonly serverId: string;
-  readonly actionId: string;
+  readonly actionId: string | null;
   /** "服务名 · 工具名", shown before the decision. */
   readonly summary: string;
   readonly payload: Record<string, unknown>;
@@ -147,8 +147,32 @@ export class InteractionBroker {
     interactionId: string,
     options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
   ): Promise<ToolPermissionResolution> {
-    if (!this.#index.has(interactionId)) {
+    const owner = this.#index.get(interactionId);
+    if (!owner) {
       return { kind: 'unknown', reason: 'interaction not found in this process' };
+    }
+    // The answer may already be in the store: a person can click before this
+    // call registers its waiter. Returning the recorded decision closes that
+    // race instead of hanging until the deadline.
+    const current = await this.#store.getMcpInteraction(owner.userId, interactionId);
+    if (!current) return { kind: 'unknown', reason: 'interaction not found' };
+    if (current.status === 'accepted') {
+      return {
+        kind: 'allow',
+        grantId: current.id,
+        ...(current.actionId ? { actionId: current.actionId } : {}),
+      };
+    }
+    if (current.status !== 'pending') {
+      return {
+        kind: 'unknown',
+        reason:
+          current.status === 'expired'
+            ? 'expired'
+            : current.status === 'rejected'
+              ? 'rejected'
+              : 'cancelled',
+      };
     }
     return new Promise<ToolPermissionResolution>((resolve) => {
       let settled = false;

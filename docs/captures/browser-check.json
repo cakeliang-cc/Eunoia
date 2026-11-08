@@ -1,5 +1,5 @@
 {
-  "url": "http://127.0.0.1:61743/",
+  "url": "http://127.0.0.1:53100/",
   "readyDrafts": 1,
   "warningGone": 0,
   "userImages": 1,
@@ -11,5 +11,13 @@
     "mediaRight": 0,
     "noHorizontalOverflow": true,
     "composerInside": true
+  },
+  "mcpOpen": true,
+  "mcpMobileLayout": {
+    "viewport": 390,
+    "scrollWidth": 390,
+    "panelWidth": 390,
+    "noHorizontalOverflow": true,
+    "panelInside": true
   }
 }

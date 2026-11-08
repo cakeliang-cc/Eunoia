@@ -21,6 +21,7 @@ import { McpClientManager } from './manager.ts';
 import { McpService } from './service.ts';
 import { McpArtifactService } from './artifacts.ts';
 import { McpError, DEFAULT_MCP_LIMITS, type McpInteractionRecord, type McpServerStatus } from './types.ts';
+import type { ConfigParseOptions } from './config.ts';
 import type { ElicitationRequest } from './client.ts';
 
 export interface McpRuntimeOptions {
@@ -35,6 +36,8 @@ export interface McpRuntimeOptions {
   readonly onInteraction?: (record: McpInteractionRecord) => void;
   /** How long an elicitation may wait for a person. */
   readonly elicitationTtlMs?: number;
+  /** Deployment switches; injectable so tests do not depend on the ambient env. */
+  readonly parseOptions?: (userId: string) => ConfigParseOptions;
 }
 
 export interface McpRuntime {
@@ -88,6 +91,7 @@ export function createMcpRuntime(options: McpRuntimeOptions): McpRuntime {
     media: options.media,
     artifacts,
     now,
+    ...(options.parseOptions ? { parseOptions: options.parseOptions } : {}),
   });
   holder.service = service;
 

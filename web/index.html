@@ -1818,6 +1818,79 @@
     }
     .thread { padding-right: 10px; }
   }
+  /* ----------------------------------------------------------- mcp cards -- */
+  .mcp-pending { display: grid; gap: 8px; margin-bottom: 10px; }
+  .mcp-pending[hidden] { display: none; }
+  .mcp-card {
+    border: 1px solid var(--line); border-radius: 14px;
+    background: var(--surface); box-shadow: var(--shadow-xs);
+    padding: 14px 15px; margin-bottom: 12px;
+  }
+  .mcp-card-head { display: flex; align-items: flex-start; gap: 10px; }
+  .mcp-card-title { flex: 1; min-width: 0; }
+  .mcp-card-title strong { display: block; font-size: 13.5px; font-weight: 550; }
+  .mcp-card-title span { display: block; margin-top: 3px; font-size: 11.5px; color: var(--muted); line-height: 1.55; overflow-wrap: anywhere; }
+  .mcp-dot { flex: 0 0 auto; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--line-strong); }
+  .mcp-dot[data-state="ready"] { background: #5c8a63; }
+  .mcp-dot[data-state="connecting"], .mcp-dot[data-state="reconnecting"] { background: #c49a4a; }
+  .mcp-dot[data-state="failed"], .mcp-dot[data-state="auth_required"] { background: var(--danger); }
+  .mcp-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+  .mcp-actions button {
+    font: inherit; font-size: 11.5px; padding: 5px 10px; cursor: pointer;
+    color: var(--ink-2); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 8px;
+  }
+  .mcp-actions button:hover { border-color: var(--line-strong); color: var(--ink); }
+  .mcp-actions button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .mcp-actions button.danger { color: var(--danger); }
+  .mcp-actions button[disabled] { opacity: .5; cursor: default; }
+  .mcp-tools { margin-top: 10px; display: grid; gap: 5px; }
+  .mcp-tool { display: flex; gap: 8px; align-items: baseline; font-size: 11.5px; color: var(--muted); }
+  .mcp-tool code { font-family: var(--font-mono); font-size: 11px; color: var(--ink-2); overflow-wrap: anywhere; }
+  .mcp-tool .tag { flex: 0 0 auto; font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--surface-3); color: var(--ink-2); }
+  .mcp-tool .tag[data-kind="external_write"], .mcp-tool .tag[data-kind="external_unknown"] { background: var(--warn-bg); color: var(--warn-ink); }
+  .mcp-form { display: grid; gap: 10px; }
+  .mcp-field { display: grid; gap: 4px; }
+  .mcp-field label { font-size: 11px; font-weight: 600; letter-spacing: .04em; color: var(--muted); }
+  .mcp-field input, .mcp-field select, .mcp-field textarea {
+    font: inherit; font-size: 12.5px; padding: 8px 10px; color: var(--ink);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 9px;
+    width: 100%; box-sizing: border-box;
+  }
+  .mcp-field textarea { min-height: 64px; resize: vertical; font-family: var(--font-mono); font-size: 11.5px; }
+  .mcp-form > textarea {
+    font-family: var(--font-mono); font-size: 11.5px; line-height: 1.6;
+    min-height: 96px; resize: vertical; padding: 10px 11px; color: var(--ink);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    width: 100%; box-sizing: border-box;
+  }
+  .mcp-field .hint { font-size: 10.5px; color: var(--faint); line-height: 1.5; }
+  .mcp-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .mcp-row > * { flex: 1 1 140px; }
+  .mcp-check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+  .mcp-check input { width: auto; }
+  .mcp-empty { font-size: 12px; color: var(--muted); line-height: 1.7; padding: 10px 0; }
+  .mcp-error { font-size: 11.5px; color: var(--danger); line-height: 1.5; }
+  .mcp-section-title { font-size: 10px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin: 20px 0 8px; }
+  .mcp-banner {
+    border: 1px solid var(--warn-border); background: var(--warn-bg); color: var(--warn-ink);
+    border-radius: 12px; padding: 11px 13px; font-size: 12px; line-height: 1.6; margin-bottom: 10px;
+  }
+  .mcp-banner button {
+    font: inherit; font-size: 11.5px; margin-top: 7px; margin-right: 6px; padding: 5px 10px; cursor: pointer;
+    border-radius: 8px; border: 1px solid var(--warn-border); background: var(--surface); color: var(--ink);
+  }
+  .mcp-approval-inline { margin: 8px 0 2px; }
+  .tool-source {
+    display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px;
+    font-size: 9.5px; letter-spacing: .04em; text-transform: uppercase;
+    background: var(--accent-soft); color: var(--accent-ink);
+  }
+  .mcp-url { font-family: var(--font-mono); font-size: 10.5px; overflow-wrap: anywhere; }
+  @media (max-width: 560px) {
+    .mcp-panel { width: 100vw; }
+    .mcp-row > * { flex-basis: 100%; }
+  }
 </style>
 </head>
 <body>
@@ -2008,6 +2081,13 @@
           </svg>
           <span class="wb-toggle-label">工作区</span>
         </button>
+        <button id="mcp-toggle-top" class="soft-button" type="button" title="外部服务 (MCP)">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M8 3v5M16 3v5M6 8h12v4a6 6 0 0 1-12 0Z"/>
+            <path d="M12 18v3"/>
+          </svg>
+          外部服务
+        </button>
         <button id="memory-toggle-top" class="soft-button" type="button">
           <svg class="icon" viewBox="0 0 24 24">
             <path d="M12 3.2 13.7 8l4.8 1.7-4.8 1.7L12 16.2l-1.7-4.8L5.5 9.7 10.3 8 12 3.2Z"/>
@@ -2049,6 +2129,7 @@
 
     <footer class="composer-dock">
       <div class="composer-wrap">
+        <div class="mcp-pending" id="mcp-pending" hidden aria-live="polite"></div>
         <form class="composer" id="composer">
           <label class="sr" for="input">说点什么</label>
           <textarea id="input" rows="1" placeholder="和 Eunoia 说点什么…" autocomplete="off" spellcheck="false"></textarea>
@@ -2254,6 +2335,22 @@
 
 <!-- The permission menu is fixed-positioned and lives outside the composer so
      the form's overflow can never clip it. It is filled by paintPermissionMenu. -->
+<div class="drawer" id="mcp-drawer" data-open="false">
+  <div class="drawer-panel" role="dialog" aria-modal="true" aria-label="外部服务">
+    <header class="panel-head">
+      <div class="panel-title">
+        <span class="panel-eyebrow">外部服务 · MCP</span>
+        <h2>连接工具</h2>
+      </div>
+      <button id="mcp-add" class="soft-button" type="button">添加</button>
+      <button id="mcp-close" class="icon-button" type="button" aria-label="关闭外部服务">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </header>
+    <div class="drawer-body" id="mcp-body"></div>
+  </div>
+</div>
+
 <div class="perm-menu" id="perm-menu" role="dialog" aria-label="权限模式" hidden></div>
 
 <script type="module" src="/app.js"></script>

@@ -12,13 +12,15 @@
 | [features](./features/) | 项目能力、亮点与对外介绍，区分已实现和规划能力 |
 | [adr](./adr/) | 已记录的架构决定 |
 | [sandbox](./sandbox/) | 沙箱架构、安全、运维与接口文档 |
+| [mcp](./mcp/) | MCP 外部服务配置、认证、故障与验收 |
 | myfree | 个人学习资料，不作为正式计划和验收的存放位置 |
 
 根目录已有的历史计划和报告保留原址，新增材料按上表归档。
 
 ## 当前执行入口
 
-- [MCP 完整接入清单与验收](./plans/eunoia-MCP接入实施清单.md)
+- [MCP 完整接入清单与验收](./plans/eunoia-MCP接入实施清单.md)（已实施，状态见
+  [验收报告](./mcp/acceptance.md)）
 - [模型轨迹与前缀缓存实施清单](./plans/eunoia-模型轨迹与前缀缓存实施清单.md)
 - [多模态实施计划与验收要求](./plans/eunoia-多模态实施计划与验收.md)
 - [多模态一期实际验收报告](./multimodal-acceptance.md)
@@ -33,6 +35,8 @@
 
 ## 项目研究
 
+- [MCP 使用、配置与故障恢复](./mcp/README.md)
+- [MCP 验收报告](./mcp/acceptance.md)
 - [MCP 与内置工具用途及 DSH/Codex 对照](./research/mcp/eunoia-MCP与内置工具对照.md)
 - [前缀缓存方案对照评估](./research/prefix-cache/eunoia-前缀缓存方案对照评估.md)
 - [前缀缓存与主流 Harness 实现对照](./research/prefix-cache/eunoia-前缀缓存与主流Harness实现对照.md)

@@ -450,7 +450,15 @@ export class McpService {
     } catch {
       throw new McpError('MCP_CONFIG_INVALID', '原始参数无法解析；不能执行。', 409);
     }
-    const result = await tool.execute(args, {
+    const checked = tool.contract?.validate(args);
+    if (checked && !checked.ok) {
+      throw new McpError(
+        'MCP_CONFIG_INVALID',
+        `原始参数与工具契约不一致：${checked.error}`,
+        409,
+      );
+    }
+    const result = await tool.execute(checked && checked.ok ? checked.value : args, {
       workspace: null,
       policy: {
         allowWorkspaceWrites: false,
@@ -477,11 +485,13 @@ export class McpService {
     userId: string,
     conversationId: string,
   ): Promise<McpActionRecord[]> {
-    return this.#store.listMcpActions(userId, { conversationId, limit: 100 });
+    const actions = await this.#store.listMcpActions(userId, { conversationId, limit: 100 });
+    return actions.map(redactAction);
   }
 
   async getAction(userId: string, actionId: string): Promise<McpActionRecord | null> {
-    return this.#store.getMcpAction(userId, actionId);
+    const action = await this.#store.getMcpAction(userId, actionId);
+    return action ? redactAction(action) : null;
   }
 
   // ------------------------------------------------------ resources/prompts ---
@@ -566,11 +576,20 @@ export class McpService {
     conversationId: string,
   ): Promise<readonly { readonly serverId: string; readonly uri: string; readonly text: string | null }[]> {
     const snapshots = await this.#store.listMcpResourceSnapshots(userId, conversationId);
-    return snapshots.map((snapshot) => ({
-      serverId: snapshot.serverId,
-      uri: snapshot.uri,
-      text: snapshot.text,
-    }));
+    // The newest snapshot per (server, uri) is the selection. Older ones stay for
+    // audit, but re-injecting every historical copy would grow the context with
+    // superseded content the person never asked to keep sending.
+    const latest = new Map<string, { serverId: string; uri: string; text: string | null }>();
+    for (const snapshot of snapshots) {
+      const key = `${snapshot.serverId}\u0000${snapshot.uri}`;
+      if (latest.has(key)) continue;
+      latest.set(key, {
+        serverId: snapshot.serverId,
+        uri: snapshot.uri,
+        text: snapshot.text,
+      });
+    }
+    return [...latest.values()];
   }
 
   async listPrompts(
@@ -686,6 +705,15 @@ export class McpService {
   get now(): Date {
     return this.#now();
   }
+}
+
+/** A management response must not echo a tool's raw arguments. */
+function redactAction(action: McpActionRecord): McpActionRecord {
+  return {
+    ...action,
+    argumentsJson: '[redacted: persisted action arguments are not returned over the API]',
+    resultJson: null,
+  };
 }
 
 /** The endpoint text shown in a management response. */

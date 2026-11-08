@@ -24,6 +24,7 @@ import type { ElicitRequestParams } from '@modelcontextprotocol/client';
 import type { McpCapabilities, McpServerConfig } from './types.ts';
 import { McpError } from './types.ts';
 import { createStdioTransport, type BuiltStdioTransport } from './transport/stdio.ts';
+import { MCP_REDACTOR } from './credentials.ts';
 import { createHttpTransport } from './transport/http.ts';
 
 /** The SDK request method used for the Tasks extension. */
@@ -275,13 +276,17 @@ export class McpConnection {
     this.#instructions = typeof instructions === 'string' ? instructions : null;
     const has = (name: string): boolean =>
       capabilities !== undefined && capabilities[name] !== undefined;
+    const resourceCapabilities =
+      capabilities?.resources && typeof capabilities.resources === 'object'
+        ? (capabilities.resources as Record<string, unknown>)
+        : null;
     this.#capabilities = {
       tools: has('tools'),
       resources: has('resources'),
       prompts: has('prompts'),
       logging: has('logging'),
       completions: has('completions'),
-      subscriptions: has('resources') && has('subscriptions'),
+      subscriptions: resourceCapabilities?.subscribe === true,
       tasks: has('tasks'),
       elicitation: has('elicitation'),
     };
@@ -404,10 +409,16 @@ export class McpConnection {
           params as { name: string; arguments?: Record<string, unknown> },
           {
             signal: inner,
-            // The definition from the exact catalog revision is passed so output
-            // schema validation and header mirroring agree with what the model
-            // was offered.
-            ...(input.toolDefinition ? { toolDefinition: input.toolDefinition as never } : {}),
+            // An explicit definition without `outputSchema`: the SDK otherwise
+            // validates `structuredContent` against the definition cached from
+            // tools/list and throws, turning a result the server did return into
+            // an "unknown" transport error. The host validates the same schema
+            // itself, where a mismatch is a recorded failed conclusion.
+            toolDefinition: (input.toolDefinition ?? {
+              name: input.name,
+              description: '',
+              inputSchema: { type: 'object', properties: {} },
+            }) as never,
           },
         ),
       this.config.timeouts.callMs,
@@ -621,6 +632,6 @@ export function describeConnectionError(error: unknown): {
   }
   return {
     code: 'MCP_CONNECT_FAILED',
-    message: error instanceof Error ? error.message : String(error),
+    message: MCP_REDACTOR.redact(error instanceof Error ? error.message : String(error)),
   };
 }

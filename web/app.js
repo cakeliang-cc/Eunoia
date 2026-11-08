@@ -887,7 +887,8 @@ function addToolTrace(bubble) {
       row.dataset.callId = event.callId;
       const summary = el('span', 'tool-summary', event.summary || '');
       const state = el('span', 'tool-state', '运行中');
-      row.append(el('span', 'tool-name', event.name), summary, state);
+      if (event.source === 'mcp') row.append(el('span', 'tool-source', 'MCP'));
+      row.append(el('span', 'tool-name', event.originLabel || event.name), summary, state);
       body.append(row);
       rows.set(event.callId, { row, summary, state });
       total += 1;
@@ -2047,6 +2048,7 @@ async function send(text, options = {}) {
     }
   }
   state.sending = true;
+  startMcpPolling();
   const turn = {
     // A retry reuses the idempotency key; the server answers from the record
     // instead of running the same request twice.
@@ -2134,6 +2136,7 @@ async function send(text, options = {}) {
     if (event?.conversationId) {
       const untitled = !conversationTitles.get(event.conversationId);
       rememberConversation(event.conversationId);
+          void pollMcpPending();
       if (untitled) void refreshHistory();
     }
     messageId = event?.messageId ?? null;
@@ -2257,6 +2260,9 @@ async function send(text, options = {}) {
         settled();
         trace ??= addToolTrace(bubble);
         trace.call(event);
+      } else if (event.type === 'approval_required') {
+        settled();
+        addMcpApprovalCard(bubble, event);
       } else if (event.type === 'tool_result') {
         trace?.resolve(event);
         if (event.approval) addApprovalCard(bubble, event);
@@ -2319,6 +2325,7 @@ async function send(text, options = {}) {
     delete body.dataset.streaming;
     if (turn.watchdog) clearTimeout(turn.watchdog);
     state.sending = false;
+    stopMcpPolling();
     state.turn = null;
     sendButton.disabled = false;
     setSendMode('send');
@@ -4054,3 +4061,819 @@ async function bootstrap() {
 resize();
 input.focus();
 void bootstrap();
+
+// ------------------------------------------------------------ MCP host ----
+//
+// External services are a separate management surface, not a settings tab buried
+// in the memory drawer: adding a server, approving a write and reading a resource
+// are all things a person needs to understand while they watch a turn. The
+// server owns every rule; this side only draws state it was given.
+
+const mcpPendingBox = $('mcp-pending');
+const mcpDrawer = $('mcp-drawer');
+const mcpBody = $('mcp-body');
+
+const mcpState = {
+  loaded: false,
+  loading: false,
+  servers: [],
+  pending: [],
+  bindings: [],
+  editing: null,
+  error: null,
+  importText: '',
+  importPreview: null,
+  importError: null,
+  armedDelete: null,
+};
+let mcpPollTimer = null;
+
+function mcpHeaders() {
+  return permissionHeaders();
+}
+
+async function mcpCall(path, options = {}) {
+  const method = options.method || 'GET';
+  const response = await fetch(path, {
+    method,
+    ...(options.body !== undefined
+      ? { headers: mcpHeaders(), body: JSON.stringify(options.body) }
+      : {}),
+  }).catch(() => null);
+  if (!response) throw new Error('网络错误');
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const details = payload.details ? `（${JSON.stringify(payload.details)}）` : '';
+    throw new Error(`${payload.error || `HTTP ${response.status}`}${details}`);
+  }
+  return payload;
+}
+
+async function refreshMcp() {
+  mcpState.loading = true;
+  mcpState.error = null;
+  try {
+    const servers = await mcpCall('/api/mcp/servers');
+    mcpState.servers = Array.isArray(servers.servers) ? servers.servers : [];
+    if (state.conversationId) {
+      const [pending, bindings] = await Promise.all([
+        mcpCall(`/api/mcp/interactions?conversationId=${state.conversationId}`).catch(() => ({ interactions: [] })),
+        mcpCall(`/api/mcp/conversations/${state.conversationId}/servers`).catch(() => ({ serverIds: [] })),
+      ]);
+      mcpState.pending = pending.interactions || [];
+      mcpState.bindings = bindings.serverIds || [];
+    } else {
+      mcpState.pending = [];
+      mcpState.bindings = [];
+    }
+    mcpState.loaded = true;
+  } catch (error) {
+    mcpState.error = error instanceof Error ? error.message : String(error);
+  } finally {
+    mcpState.loading = false;
+    renderMcp();
+    renderMcpPending();
+  }
+}
+
+function openMcpDrawer() {
+  if (!mcpDrawer) return;
+  mcpDrawer.dataset.open = 'true';
+  mcpState.editing = null;
+  renderMcp();
+  void refreshMcp();
+}
+
+function closeMcpDrawer() {
+  if (mcpDrawer) mcpDrawer.dataset.open = 'false';
+  mcpState.editing = null;
+}
+
+function mcpButton(label, onClick, extra = '') {
+  const button = el('button', extra, label);
+  button.type = 'button';
+  button.onclick = onClick;
+  return button;
+}
+
+function classificationLabel(classification) {
+  if (classification === 'external_read') return '只读';
+  if (classification === 'external_write') return '写入';
+  return '未知副作用';
+}
+
+function statusLabel(status) {
+  const map = {
+    disabled: '未启用',
+    connecting: '连接中',
+    ready: '可用',
+    auth_required: '需要登录',
+    reconnecting: '重连中',
+    failed: '失败',
+    closing: '关闭中',
+  };
+  return map[status?.state] || '未知';
+}
+
+function renderMcp() {
+  if (!mcpBody) return;
+  mcpBody.textContent = '';
+  if (!localToken) {
+    mcpBody.append(el('p', 'mcp-empty', '这个页面没有控制令牌，不能管理外部服务。请通过本地服务地址打开。'));
+    return;
+  }
+  if (mcpState.error) {
+    mcpBody.append(el('div', 'mcp-banner', `加载失败：${mcpState.error}`));
+  }
+  if (mcpState.editing) {
+    mcpBody.append(renderMcpEditor(mcpState.editing));
+    return;
+  }
+  if (mcpState.loading && !mcpState.loaded) {
+    mcpBody.append(el('p', 'mcp-empty', '正在读取…'));
+    return;
+  }
+
+  if (mcpState.pending.length > 0) {
+    mcpBody.append(el('div', 'mcp-section-title', '等待你的决定'));
+    for (const interaction of mcpState.pending) {
+      mcpBody.append(renderInteractionCard(interaction));
+    }
+  }
+
+  mcpBody.append(el('div', 'mcp-section-title', '已连接的服务'));
+  if (mcpState.servers.length === 0) {
+    mcpBody.append(
+      el(
+        'p',
+        'mcp-empty',
+        '还没有外部服务。添加一个 MCP 服务后，它会以自己的账户和权限范围运行；模型只能看到你启用的工具。',
+      ),
+    );
+  }
+  for (const server of mcpState.servers) {
+    mcpBody.append(renderServerCard(server));
+  }
+
+  mcpBody.append(el('div', 'mcp-section-title', '从 mcpServers 导入'));
+  const importBox = el('div', 'mcp-form');
+  const textarea = el('textarea');
+  textarea.value = mcpState.importText;
+  textarea.placeholder =
+    '{"mcpServers":{"docs":{"url":"https://example.com/mcp","headers":{"Authorization":"${MCP_DOCS_TOKEN}"}}}}';
+  textarea.oninput = () => {
+    mcpState.importText = textarea.value;
+  };
+  importBox.append(textarea);
+  const importActions = el('div', 'mcp-actions');
+  importActions.append(
+    mcpButton('预览', async () => {
+      mcpState.importError = null;
+      mcpState.importPreview = null;
+      try {
+        const parsed = JSON.parse(mcpState.importText);
+        mcpState.importPreview = await mcpCall('/api/mcp/servers/import/preview', {
+          method: 'POST',
+          body: parsed,
+        });
+      } catch (error) {
+        mcpState.importError = error instanceof Error ? error.message : String(error);
+      }
+      renderMcp();
+    }),
+  );
+  importBox.append(importActions);
+  if (mcpState.importError) {
+    importBox.append(el('div', 'mcp-error', mcpState.importError));
+  }
+  if (mcpState.importPreview) {
+    const preview = mcpState.importPreview;
+    const list = el('div', 'mcp-tools');
+    for (const entry of preview.servers || []) {
+      list.append(
+        el(
+          'div',
+          'mcp-tool',
+          `${entry.name} · ${entry.transport}${entry.endpoint ? ` · ${entry.endpoint}` : ''}`,
+        ),
+      );
+      for (const warning of entry.warnings || []) {
+        list.append(el('div', 'mcp-error', warning));
+      }
+    }
+    for (const skipped of preview.skipped || []) {
+      list.append(el('div', 'mcp-error', `跳过 ${skipped.name}：${skipped.reason}`));
+    }
+    importBox.append(list);
+    if ((preview.servers || []).length > 0) {
+      importBox.append(
+        mcpButton('全部添加（默认不启用）', async () => {
+          try {
+            for (const entry of preview.servers) {
+              await mcpCall('/api/mcp/servers', { method: 'POST', body: entry.input });
+            }
+            mcpState.importPreview = null;
+            mcpState.importText = '';
+            await refreshMcp();
+          } catch (error) {
+            mcpState.importError = error instanceof Error ? error.message : String(error);
+            renderMcp();
+          }
+        }, 'primary'),
+      );
+    }
+  }
+  mcpBody.append(importBox);
+
+  if (state.conversationId) {
+    mcpBody.append(el('div', 'mcp-section-title', '这个对话可以使用的服务'));
+    const bindingBox = el('div', 'mcp-form');
+    if (mcpState.servers.length === 0) {
+      bindingBox.append(el('p', 'mcp-empty', '没有可绑定的服务。'));
+    } else {
+      for (const server of mcpState.servers) {
+        const label = el('label', 'mcp-check');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = mcpState.bindings.includes(server.id);
+        checkbox.onchange = () => {
+          mcpState.bindings = checkbox.checked
+            ? [...mcpState.bindings, server.id]
+            : mcpState.bindings.filter((id) => id !== server.id);
+        };
+        label.append(checkbox, el('span', null, server.name));
+        bindingBox.append(label);
+      }
+      bindingBox.append(
+        el(
+          'p',
+          'hint',
+          '没有勾选任何服务时，这一轮会使用所有已启用的服务；勾选后只使用勾选的。',
+        ),
+      );
+      bindingBox.append(
+        mcpButton('保存绑定', async () => {
+          try {
+            await mcpCall(`/api/mcp/conversations/${state.conversationId}/servers`, {
+              method: 'PUT',
+              body: { serverIds: mcpState.bindings },
+            });
+            await refreshMcp();
+          } catch (error) {
+            mcpState.error = error instanceof Error ? error.message : String(error);
+            renderMcp();
+          }
+        }, 'primary'),
+      );
+    }
+    mcpBody.append(bindingBox);
+  }
+  if (mcpState.pending.length === 0) {
+    mcpBody.append(
+      el('p', 'mcp-empty', '外部工具的写操作与未知副作用总会先询问你；批准只对那一次调用有效。'),
+    );
+  }
+}
+
+function renderServerCard(server) {
+  const card = el('div', 'mcp-card');
+  const head = el('div', 'mcp-card-head');
+  const dot = el('span', 'mcp-dot');
+  dot.dataset.state = server.status?.state || 'disabled';
+  const title = el('div', 'mcp-card-title');
+  title.append(el('strong', null, server.name));
+  const place = server.transport === 'http' ? server.endpoint : `${server.endpoint}（${server.runLocation === 'host' ? '宿主进程' : '沙箱'}）`;
+  title.append(el('span', null, `${server.transport.toUpperCase()} · ${place || '未配置'}`));
+  title.append(
+    el(
+      'span',
+      null,
+      `${statusLabel(server.status)} · ${server.toolCount} 个工具${server.required ? ' · 必需' : ''}${server.auth !== 'none' ? ` · ${server.auth}` : ''}`,
+    ),
+  );
+  if (server.status?.lastError) {
+    title.append(el('span', 'mcp-error', server.status.lastError.message));
+  }
+  head.append(dot, title);
+  card.append(head);
+
+  const actions = el('div', 'mcp-actions');
+  const busy = server.status?.state === 'connecting' || server.status?.state === 'reconnecting';
+  actions.append(
+    mcpButton(busy ? '连接中…' : '连接', async () => {
+      await mcpRun(() => mcpCall(`/api/mcp/servers/${server.id}/connect`, { method: 'POST', body: {} }));
+    }, 'primary'),
+    mcpButton('断开', async () => {
+      await mcpRun(() => mcpCall(`/api/mcp/servers/${server.id}/disconnect`, { method: 'POST', body: {} }));
+    }),
+    mcpButton('刷新目录', async () => {
+      await mcpRun(() => mcpCall(`/api/mcp/servers/${server.id}/refresh`, { method: 'POST', body: {} }));
+    }),
+    mcpButton('编辑', () => {
+      mcpState.editing = server;
+      renderMcp();
+    }),
+  );
+  if (server.auth === 'oauth') {
+    actions.append(
+      mcpButton('登录', async () => {
+        try {
+          const started = await mcpCall(`/api/mcp/servers/${server.id}/auth/start`, {
+            method: 'POST',
+            body: {},
+          });
+          if (started.authorization_url) window.open(started.authorization_url, '_blank', 'noopener');
+        } catch (error) {
+          mcpState.error = error instanceof Error ? error.message : String(error);
+          renderMcp();
+        }
+      }),
+      mcpButton('退出登录', async () => {
+        await mcpRun(() => mcpCall(`/api/mcp/servers/${server.id}/auth/logout`, { method: 'POST', body: {} }));
+      }),
+    );
+  }
+  const armed = mcpState.armedDelete === server.id;
+  actions.append(
+    mcpButton(armed ? '确认删除' : '删除', async () => {
+      if (!armed) {
+        mcpState.armedDelete = server.id;
+        renderMcp();
+        return;
+      }
+      mcpState.armedDelete = null;
+      await mcpRun(() => mcpCall(`/api/mcp/servers/${server.id}`, { method: 'DELETE' }));
+    }, armed ? 'danger' : ''),
+  );
+  card.append(actions);
+
+  if (server.tools.length > 0) {
+    const tools = el('div', 'mcp-tools');
+    for (const tool of server.tools.slice(0, 12)) {
+      const row = el('div', 'mcp-tool');
+      const tag = el('span', 'tag', classificationLabel(tool.classification));
+      tag.dataset.kind = tool.classification;
+      row.append(tag, el('code', null, tool.originalName));
+      tools.append(row);
+    }
+    if (server.tools.length > 12) {
+      tools.append(el('div', 'mcp-tool', `还有 ${server.tools.length - 12} 个…`));
+    }
+    card.append(tools);
+  }
+  return card;
+}
+
+async function mcpRun(work) {
+  mcpState.error = null;
+  try {
+    await work();
+  } catch (error) {
+    mcpState.error = error instanceof Error ? error.message : String(error);
+  }
+  await refreshMcp();
+}
+
+function renderMcpEditor(server) {
+  const box = el('div', 'mcp-form');
+  const isNew = !server.id;
+  const editable = server.editable || {};
+  const refLines = (record) =>
+    Object.entries(record || {})
+      .map(([key, value]) => `${key}=${value}`)
+      .join('\n');
+  const draft = {
+    name: server.name || '',
+    transport: server.transport || 'http',
+    url: editable.http?.url || '',
+    command: editable.stdio?.command || '',
+    args: (editable.stdio?.args || []).join('\n'),
+    runLocation: editable.stdio?.runLocation || server.runLocation || 'sandbox',
+    auth: editable.http?.auth || server.auth || 'none',
+    bearerRef: editable.http?.bearerRef || '',
+    headers: refLines(editable.http?.headerRefs),
+    env: refLines(editable.stdio?.envRefs),
+    required: server.required === true,
+    enabled: server.enabled === true,
+    allow: (server.policy?.allow || []).join(', '),
+    deny: (server.policy?.deny || []).join(', '),
+    autoApproveReads: server.policy?.autoApproveReads === true,
+    trustReadOnlyHint: server.policy?.trustReadOnlyHint === true,
+  };
+
+  const addField = (label, control, hint) => {
+    const field = el('div', 'mcp-field');
+    const id = `mcp-field-${Math.random().toString(36).slice(2)}`;
+    control.id = id;
+    const labelNode = document.createElement('label');
+    labelNode.htmlFor = id;
+    labelNode.textContent = label;
+    field.append(labelNode, control);
+    if (hint) field.append(el('span', 'hint', hint));
+    box.append(field);
+  };
+
+  const name = el('input');
+  name.value = draft.name;
+  name.placeholder = '例如：GitHub';
+  name.oninput = () => (draft.name = name.value);
+  addField('名称', name);
+
+  const transport = el('select');
+  for (const value of ['http', 'stdio']) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = value === 'http' ? 'Streamable HTTP' : 'stdio（本地进程）';
+    transport.append(option);
+  }
+  transport.value = draft.transport;
+  transport.onchange = () => {
+    draft.transport = transport.value;
+    renderMcp();
+  };
+  addField('传输', transport);
+
+  if (draft.transport === 'http') {
+    const url = el('input');
+    url.value = draft.url;
+    url.placeholder = 'https://example.com/mcp';
+    url.oninput = () => (draft.url = url.value);
+    addField('服务地址', url, 'https 默认；本地/私网地址需要部署显式允许。');
+
+    const auth = el('select');
+    for (const value of ['none', 'bearer', 'header', 'oauth']) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = { none: '匿名', bearer: 'Bearer', header: '自定义头', oauth: 'OAuth 登录' }[value];
+      auth.append(option);
+    }
+    auth.value = draft.auth;
+    auth.onchange = () => {
+      draft.auth = auth.value;
+      renderMcp();
+    };
+    addField('认证', auth);
+
+    if (draft.auth === 'bearer' || draft.auth === 'oauth') {
+      const input = el('input');
+      input.placeholder = 'env:MCP_TOKEN';
+      input.value = draft.bearerRef;
+      input.oninput = () => (draft.bearerRef = input.value);
+      addField('凭据引用', input, '只写引用；值从部署环境的 MCP_ 变量读取，不会存进数据库。');
+    }
+    if (draft.auth === 'header') {
+      const input = el('textarea');
+      input.placeholder = 'X-Api-Key=env:MCP_KEY';
+      input.value = draft.headers;
+      input.oninput = () => (draft.headers = input.value);
+      addField('请求头引用', input, '每行一个 KEY=env:NAME。值不读回。');
+    }
+  } else {
+    const command = el('input');
+    command.value = draft.command;
+    command.placeholder = 'node';
+    command.oninput = () => (draft.command = command.value);
+    addField('可执行文件', command, '只写一个可执行文件，不经过 shell。');
+    const args = el('textarea');
+    args.placeholder = 'server.mjs\n--stdio';
+    args.value = draft.args;
+    args.oninput = () => (draft.args = args.value);
+    addField('参数（每行一个）', args);
+    const location = el('select');
+    for (const value of ['sandbox', 'host']) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value === 'sandbox' ? '沙箱容器（默认）' : '宿主进程（需要部署允许）';
+      location.append(option);
+    }
+    location.value = draft.runLocation;
+    location.onchange = () => (draft.runLocation = location.value);
+    addField('运行位置', location);
+    const env = el('textarea');
+    env.placeholder = 'TOKEN=env:MCP_TOKEN';
+    env.value = draft.env;
+    env.oninput = () => (draft.env = env.value);
+    addField('环境变量引用', env, '每行一个 KEY=env:NAME；父进程其它变量不会传入。');
+  }
+
+  const allow = el('input');
+  allow.value = draft.allow;
+  allow.placeholder = 'tool_a, tool_b';
+  allow.oninput = () => (draft.allow = allow.value);
+  addField('允许列表', allow, '留空表示全部；deny 优先。');
+  const deny = el('input');
+  deny.value = draft.deny;
+  deny.placeholder = 'dangerous_tool';
+  deny.oninput = () => (draft.deny = deny.value);
+  addField('禁止列表', deny);
+
+  const reads = el('label', 'mcp-check');
+  const readsBox = document.createElement('input');
+  readsBox.type = 'checkbox';
+  readsBox.checked = draft.autoApproveReads;
+  readsBox.onchange = () => (draft.autoApproveReads = readsBox.checked);
+  reads.append(readsBox, el('span', null, '只读调用不询问（写操作仍会询问）'));
+  box.append(reads);
+
+  const trust = el('label', 'mcp-check');
+  const trustBox = document.createElement('input');
+  trustBox.type = 'checkbox';
+  trustBox.checked = draft.trustReadOnlyHint;
+  trustBox.onchange = () => (draft.trustReadOnlyHint = trustBox.checked);
+  trust.append(trustBox, el('span', null, '相信服务的 readOnlyHint（只影响分类，不自动放行）'));
+  box.append(trust);
+
+  for (const [key, label] of [['enabled', '启用'], ['required', '必需（连不上就让回合失败）']]) {
+    const row = el('label', 'mcp-check');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = draft[key];
+    input.onchange = () => (draft[key] = input.checked);
+    row.append(input, el('span', null, label));
+    box.append(row);
+  }
+
+  const actions = el('div', 'mcp-actions');
+  actions.append(
+    mcpButton('取消', () => {
+      mcpState.editing = null;
+      renderMcp();
+    }),
+  );
+  actions.append(
+    mcpButton(isNew ? '添加' : '保存', async () => {
+      const parseRefs = (text, keyName) => {
+        const out = {};
+        for (const line of text.split('\n')) {
+          const trimmed = line.trim();
+          if (trimmed.length === 0) continue;
+          const index = trimmed.indexOf('=');
+          if (index <= 0) throw new Error(`${keyName} 需要 KEY=env:NAME 格式`);
+          out[trimmed.slice(0, index).trim()] = trimmed.slice(index + 1).trim();
+        }
+        return out;
+      };
+      try {
+        const body = {
+          name: draft.name,
+          enabled: draft.enabled,
+          required: draft.required,
+          transport: draft.transport,
+          toolPolicy: {
+            ...(draft.allow.trim() ? { allow: draft.allow.split(',').map((s) => s.trim()).filter(Boolean) } : {}),
+            ...(draft.deny.trim() ? { deny: draft.deny.split(',').map((s) => s.trim()).filter(Boolean) } : {}),
+            autoApproveReads: draft.autoApproveReads,
+            trustReadOnlyHint: draft.trustReadOnlyHint,
+          },
+          ...(draft.transport === 'http'
+            ? {
+                http: {
+                  url: draft.url,
+                  auth: draft.auth,
+                  ...((draft.auth === 'bearer' || draft.auth === 'oauth') && draft.bearerRef
+                    ? { bearerRef: draft.bearerRef }
+                    : {}),
+                  ...(draft.auth === 'header'
+                    ? { headerRefs: parseRefs(draft.headers, '请求头') }
+                    : {}),
+                },
+              }
+            : {
+                stdio: {
+                  command: draft.command,
+                  args: draft.args.split('\n').map((line) => line.trim()).filter(Boolean),
+                  runLocation: draft.runLocation,
+                  ...(draft.env.trim() ? { envRefs: parseRefs(draft.env, '环境变量') } : {}),
+                },
+              }),
+        };
+        if (isNew) {
+          await mcpCall('/api/mcp/servers', { method: 'POST', body });
+        } else {
+          await mcpCall(`/api/mcp/servers/${server.id}`, {
+            method: 'PUT',
+            body: { ...body, configRevision: server.configRevision },
+          });
+        }
+        mcpState.editing = null;
+        await refreshMcp();
+      } catch (error) {
+        mcpState.error = error instanceof Error ? error.message : String(error);
+        renderMcp();
+      }
+    }, 'primary'),
+  );
+  box.append(actions);
+  return box;
+}
+
+function renderInteractionCard(interaction) {
+  const card = el('div', 'mcp-card');
+  const payload = interaction.payload || {};
+  card.append(el('strong', null, interaction.summary));
+  const facts = [];
+  if (payload.serverName) facts.push(`服务：${payload.serverName}`);
+  if (payload.account) facts.push(`账户：${payload.account}`);
+  if (payload.classification) facts.push(`类型：${classificationLabel(payload.classification)}`);
+  if (Array.isArray(payload.argumentKeys) && payload.argumentKeys.length > 0) {
+    facts.push(`参数：${payload.argumentKeys.join(', ')}`);
+  }
+  if (facts.length > 0) card.append(el('span', null, facts.join(' · ')));
+  card.append(el('span', 'mcp-url', `过期：${new Date(interaction.expiresAt).toLocaleTimeString()}`));
+
+  const form = {};
+  if (interaction.kind === 'elicitation') {
+    const message = payload.message || '';
+    card.append(el('span', null, message));
+    if (payload.mode === 'url' && payload.url) {
+      let parsed = null;
+      try {
+        parsed = new URL(payload.url);
+      } catch {
+        parsed = null;
+      }
+      if (!parsed || !/^https?:$/.test(parsed.protocol)) {
+        card.append(el('div', 'mcp-error', '这个链接不是 http(s) 地址，不能打开。'));
+      } else {
+        const link = document.createElement('a');
+        link.href = parsed.toString();
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.className = 'mcp-url';
+        link.textContent = `打开 ${parsed.host}（不会自动跳转）`;
+        card.append(link);
+      }
+    }
+    const schema = payload.requestedSchema;
+    if (schema && schema.properties) {
+      for (const [key, property] of Object.entries(schema.properties)) {
+        const field = el('div', 'mcp-field');
+        const label = document.createElement('label');
+        label.textContent = property.title || key;
+        field.append(label);
+        let control;
+        if (Array.isArray(property.enum)) {
+          control = el('select');
+          for (const value of property.enum) {
+            const option = document.createElement('option');
+            option.value = String(value);
+            option.textContent = String(value);
+            control.append(option);
+          }
+        } else if (property.type === 'boolean') {
+          control = document.createElement('input');
+          control.type = 'checkbox';
+        } else if (property.type === 'number' || property.type === 'integer') {
+          control = el('input');
+          control.type = 'number';
+        } else {
+          control = el('input');
+          control.type = 'text';
+        }
+        control.dataset.mcpField = key;
+        field.append(control);
+        if ((schema.required || []).includes(key)) {
+          field.append(el('span', 'hint', '必填'));
+        }
+        card.append(field);
+      }
+    }
+  }
+
+  const actions = el('div', 'mcp-actions');
+  actions.append(
+    mcpButton('批准', async () => {
+      try {
+        const response =
+          interaction.kind === 'elicitation'
+            ? { content: collectElicitationValues(card) }
+            : { content: {} };
+        await mcpCall(`/api/mcp/interactions/${interaction.id}/accept`, {
+          method: 'POST',
+          body: { response },
+        });
+        await refreshMcp();
+      } catch (error) {
+        mcpState.error = error instanceof Error ? error.message : String(error);
+        renderMcp();
+      }
+    }, 'primary'),
+    mcpButton('拒绝', async () => {
+      await mcpRun(() =>
+        mcpCall(`/api/mcp/interactions/${interaction.id}/reject`, { method: 'POST', body: {} }),
+      );
+    }),
+    mcpButton('取消', async () => {
+      await mcpRun(() =>
+        mcpCall(`/api/mcp/interactions/${interaction.id}/cancel`, { method: 'POST', body: {} }),
+      );
+    }),
+  );
+  card.append(actions);
+  void form;
+  return card;
+}
+
+function collectElicitationValues(card) {
+  const values = {};
+  for (const control of card.querySelectorAll('[data-mcp-field]')) {
+    const key = control.dataset.mcpField;
+    if (control.type === 'checkbox') values[key] = Boolean(control.checked);
+    else if (control.type === 'number') {
+      const parsed = Number(control.value);
+      values[key] = Number.isFinite(parsed) ? parsed : 0;
+    } else values[key] = control.value;
+  }
+  return values;
+}
+
+function renderMcpPending() {
+  if (!mcpPendingBox) return;
+  mcpPendingBox.textContent = '';
+  if (mcpState.pending.length === 0) {
+    mcpPendingBox.hidden = true;
+    return;
+  }
+  mcpPendingBox.hidden = false;
+  for (const interaction of mcpState.pending) {
+    mcpPendingBox.append(renderInteractionCard(interaction));
+  }
+}
+
+async function pollMcpPending() {
+  if (!state.conversationId) return;
+  try {
+    const pending = await mcpCall(`/api/mcp/interactions?conversationId=${state.conversationId}`);
+    mcpState.pending = pending.interactions || [];
+  } catch {
+    return;
+  }
+  renderMcpPending();
+}
+
+function startMcpPolling() {
+  if (mcpPollTimer) return;
+  mcpPollTimer = globalThis.setInterval(() => void pollMcpPending(), 2_500);
+}
+function stopMcpPolling() {
+  if (mcpPollTimer) globalThis.clearInterval(mcpPollTimer);
+  mcpPollTimer = null;
+}
+
+function addMcpApprovalCard(bubble, event) {
+  const card = el('div', 'mcp-card mcp-approval-inline');
+  const title = el('strong', null, `需要你批准：${event.originLabel || event.name}`);
+  card.append(title, el('span', null, event.summary || '这次外部调用会先暂停，等你决定。'));
+  const actions = el('div', 'mcp-actions');
+  const status = el('span', null, '');
+  const finish = (text) => {
+    actions.textContent = '';
+    actions.append(status);
+    status.textContent = text;
+  };
+  actions.append(
+    mcpButton('批准', async () => {
+      try {
+        await mcpCall(`/api/mcp/interactions/${event.interactionId}/accept`, {
+          method: 'POST',
+          body: { response: { content: {} } },
+        });
+        finish('已批准，继续执行…');
+      } catch (error) {
+        finish(`失败：${error instanceof Error ? error.message : String(error)}`);
+      }
+    }, 'primary'),
+    mcpButton('拒绝', async () => {
+      try {
+        await mcpCall(`/api/mcp/interactions/${event.interactionId}/reject`, {
+          method: 'POST',
+          body: {},
+        });
+        finish('已拒绝');
+      } catch (error) {
+        finish(`失败：${error instanceof Error ? error.message : String(error)}`);
+      }
+    }),
+  );
+  card.append(actions);
+  bubble.append(card);
+}
+
+// A test page and an old cached shell may not have these nodes. Binding them
+// defensively keeps the rest of the client working instead of failing to load.
+const mcpToggleButton = $('mcp-toggle-top');
+if (mcpToggleButton) mcpToggleButton.onclick = () => openMcpDrawer();
+const mcpCloseButton = $('mcp-close');
+if (mcpCloseButton) mcpCloseButton.onclick = () => closeMcpDrawer();
+const mcpAddButton = $('mcp-add');
+if (mcpAddButton) {
+  mcpAddButton.onclick = () => {
+    mcpState.editing = { id: null, name: '', transport: 'http', enabled: false };
+    renderMcp();
+  };
+}
+if (mcpDrawer) {
+  mcpDrawer.addEventListener('click', (event) => {
+    if (event.target === mcpDrawer) closeMcpDrawer();
+  });
+}

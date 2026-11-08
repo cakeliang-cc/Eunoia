@@ -671,11 +671,13 @@ export class McpClientManager {
           connection.callTool({
             name: entry.originalName,
             arguments: input.arguments,
+            // No outputSchema: the host validates structuredContent itself so a
+            // schema mismatch is a recorded failure, not an unknown transport
+            // error after a call that did execute.
             toolDefinition: {
               name: entry.originalName,
               description: entry.description,
               inputSchema: entry.inputSchema,
-              ...(entry.outputSchema ? { outputSchema: entry.outputSchema } : {}),
             },
             ...(input.signal ? { signal: input.signal } : {}),
           }),
@@ -1182,6 +1184,36 @@ function toView(
     timeouts: config.timeouts ?? DEFAULT_MCP_TIMEOUTS,
     limits: config.limits,
     tools,
+    editable: {
+      ...(config.http
+        ? {
+            http: {
+              url: config.http.url,
+              auth: config.http.auth,
+              ...(config.http.bearerRef ? { bearerRef: config.http.bearerRef } : {}),
+              ...(config.http.headerRefs ? { headerRefs: config.http.headerRefs } : {}),
+              ...(config.http.allowPrivateNetwork !== undefined
+                ? { allowPrivateNetwork: config.http.allowPrivateNetwork }
+                : {}),
+              ...(config.http.allowInsecure !== undefined
+                ? { allowInsecure: config.http.allowInsecure }
+                : {}),
+            },
+          }
+        : {}),
+      ...(config.stdio
+        ? {
+            stdio: {
+              command: config.stdio.command,
+              args: config.stdio.args,
+              ...(config.stdio.cwd ? { cwd: config.stdio.cwd } : {}),
+              runLocation: config.stdio.runLocation,
+              ...(config.stdio.image ? { image: config.stdio.image } : {}),
+              ...(config.stdio.envRefs ? { envRefs: config.stdio.envRefs } : {}),
+            },
+          }
+        : {}),
+    },
   };
 }
 

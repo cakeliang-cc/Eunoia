@@ -74,6 +74,7 @@ import type { ModelProfile } from '../models/types.ts';
 import type { PreparedMediaPlan } from '../agent/request-plan.ts';
 import { preflightMedia, loadMediaPlan, planToolImages } from './media-turn.ts';
 import type { McpService } from '../mcp/service.ts';
+import { mcpInstructions } from '../mcp/tool-adapter.ts';
 import { renderArchivedSummary } from '../session/summary.ts';
 import type { Message } from '../session/types.ts';
 import type { FinishReason } from '../finish-reason.ts';
@@ -632,7 +633,12 @@ async function* runTurnInner(
             ),
           ].join('\n\n')
         : '';
-    const toolGuidelines = [toolRegistry.guidelines(), mcpTools?.guidelines ?? '', resourceBlock]
+    const toolGuidelines = [
+      toolRegistry.guidelines(),
+      mcpTools ? mcpInstructions(mcpTools.catalogs) : '',
+      mcpTools?.guidelines ?? '',
+      resourceBlock,
+    ]
       .filter((section) => section.trim().length > 0)
       .join('\n\n');
 

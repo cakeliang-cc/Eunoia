@@ -684,6 +684,13 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
         let decision = await authorize(plan);
         let actionId = decision.kind === 'deny' ? undefined : decision.actionId;
         if (decision.kind === 'wait') {
+          // Register the waiter before the event is yielded. A person (or a
+          // test) can answer the moment the card is drawn, and an answer
+          // delivered before the waiter exists must not be lost.
+          const pending = options.permission!.awaitDecision(decision.interactionId, {
+            ...(options.signal ? { signal: options.signal } : {}),
+            timeoutMs: approvalTimeoutMs,
+          });
           yield {
             type: 'approval_required',
             interactionId: decision.interactionId,
@@ -695,10 +702,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
           };
           let resolution: Awaited<ReturnType<ToolPermissionPort['awaitDecision']>>;
           try {
-            resolution = await options.permission!.awaitDecision(decision.interactionId, {
-              ...(options.signal ? { signal: options.signal } : {}),
-              timeoutMs: approvalTimeoutMs,
-            });
+            resolution = await pending;
           } catch (error) {
             resolution = {
               kind: 'unknown',

@@ -156,6 +156,26 @@ export interface McpServerConfig {
 }
 
 /** What a management response may contain: references, never secret values. */
+/** The configuration a person may edit, with references (never values). */
+export interface McpEditableConfig {
+  readonly http?: {
+    readonly url: string;
+    readonly auth: McpAuthMode;
+    readonly bearerRef?: string;
+    readonly headerRefs?: Readonly<Record<string, string>>;
+    readonly allowPrivateNetwork?: boolean;
+    readonly allowInsecure?: boolean;
+  };
+  readonly stdio?: {
+    readonly command: string;
+    readonly args: readonly string[];
+    readonly cwd?: string;
+    readonly runLocation: McpRunLocation;
+    readonly image?: string;
+    readonly envRefs?: Readonly<Record<string, string>>;
+  };
+}
+
 export interface McpServerView {
   readonly id: string;
   readonly name: string;
@@ -174,6 +194,8 @@ export interface McpServerView {
   readonly timeouts: McpTimeouts;
   readonly limits: McpLimits;
   readonly tools: readonly McpToolView[];
+  /** Round-trips every non-secret field an editor needs. */
+  readonly editable: McpEditableConfig;
 }
 
 export interface McpErrorDescription {
