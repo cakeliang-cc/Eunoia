@@ -1345,6 +1345,29 @@ export class SqliteStore implements Store, TurnStore, MediaAssetStore, ModelTran
     ).map(toTurnEvent);
   }
 
+  async listConversationTurnEvents(
+    conversationId: string,
+    options: { readonly before?: Date; readonly limit?: number } = {},
+  ): Promise<TurnEventRecord[]> {
+    if (!hasTable(this.#db, 'turn_events')) return [];
+    const limit = Math.max(1, Math.min(options.limit ?? 4_000, 20_000));
+    const before = options.before ? options.before.toISOString() : null;
+    // Newest-first for the LIMIT, then reversed for the caller. The subquery
+    // form would work too, but two queries here would mean two chances to read
+    // an inconsistent tail under a concurrent turn.
+    const rows = this.#all<TurnEventRow>(
+      `SELECT ${TURN_EVENT_COLUMNS} FROM turn_events
+        WHERE conversation_id = ? AND (? IS NULL OR created_at <= ?)
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?`,
+      conversationId,
+      before,
+      before,
+      limit,
+    );
+    return rows.reverse().map(toTurnEvent);
+  }
+
   async settleTurnEvent(
     turnId: string,
     seq: number,

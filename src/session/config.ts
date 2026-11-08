@@ -12,10 +12,21 @@
  */
 
 import type { ModelProfile } from '../models/types.ts';
+import type { CheckpointModePreference } from './checkpoint.ts';
 import type { TokenEstimatorMode } from './tokens.ts';
 
 export interface SessionConfig {
   readonly compactionEnabled: boolean;
+  /**
+   * Turn the task checkpoint on.
+   *
+   * A kill switch, not a feature flag: the coding template and the evidence
+   * appendix change what a resumed model knows, and a deployment that needs the
+   * old companion-only summariser must be able to get it back with one variable.
+   */
+  readonly checkpointEnabled: boolean;
+  /** `auto` decides from the work trace; the other values force a template. */
+  readonly checkpointMode: CheckpointModePreference;
   /**
    * Explicit override. `null` means "use the selected model's default budget";
    * either way the value is capped by the model's context window.
@@ -40,6 +51,8 @@ export interface SessionConfig {
 
 export const DEFAULT_SESSION_CONFIG: SessionConfig = {
   compactionEnabled: true,
+  checkpointEnabled: true,
+  checkpointMode: 'auto',
   // The model profile supplies 200k for DeepSeek. An explicit env value is a
   // cap/override, not the only source.
   inputBudgetTokens: null,
@@ -135,9 +148,15 @@ export function sessionConfig(env: NodeJS.ProcessEnv = process.env): SessionConf
   if (tokenEstimator !== 'mixed' && tokenEstimator !== 'chars4') {
     throw new Error('SESSION_TOKEN_ESTIMATOR must be "mixed" or "chars4"');
   }
+  const checkpointMode = (env.SESSION_CHECKPOINT_MODE?.trim() || 'auto') as CheckpointModePreference;
+  if (checkpointMode !== 'auto' && checkpointMode !== 'coding' && checkpointMode !== 'companion') {
+    throw new Error('SESSION_CHECKPOINT_MODE must be "auto", "coding" or "companion"');
+  }
 
   return {
     compactionEnabled: boolean(env, 'SESSION_COMPACTION_ENABLED', true),
+    checkpointEnabled: boolean(env, 'SESSION_CHECKPOINT_ENABLED', true),
+    checkpointMode,
     inputBudgetTokens,
     promptReserveTokens,
     compactTriggerRatio: number(env, 'SESSION_COMPACT_TRIGGER_RATIO', 0.85, 0.1, 1),

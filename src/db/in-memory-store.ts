@@ -731,6 +731,22 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore, ModelTr
       .sort((a, b) => a.seq - b.seq);
   }
 
+  async listConversationTurnEvents(
+    conversationId: string,
+    options: { readonly before?: Date; readonly limit?: number } = {},
+  ): Promise<TurnEventRecord[]> {
+    const before = options.before?.getTime();
+    const limit = Math.max(1, Math.min(options.limit ?? 4_000, 20_000));
+    return this.#turnEvents
+      .filter(
+        (entry) =>
+          entry.conversationId === conversationId &&
+          (before === undefined || entry.createdAt.getTime() <= before),
+      )
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.seq - b.seq)
+      .slice(-limit);
+  }
+
   async settleTurnEvent(
     turnId: string,
     seq: number,

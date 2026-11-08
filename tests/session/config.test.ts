@@ -49,4 +49,25 @@ describe('sessionConfig', () => {
       /SESSION_TOKEN_ESTIMATOR/,
     );
   });
+
+  it('defaults task checkpoints on and auto-detects the template', () => {
+    const config = sessionConfig({});
+    expect(config.checkpointEnabled).toBe(true);
+    expect(config.checkpointMode).toBe('auto');
+  });
+
+  it('accepts only the documented checkpoint modes and toggle values', () => {
+    const config = sessionConfig({
+      SESSION_CHECKPOINT_ENABLED: 'off',
+      SESSION_CHECKPOINT_MODE: 'coding',
+    });
+    expect(config.checkpointEnabled).toBe(false);
+    expect(config.checkpointMode).toBe('coding');
+    expect(() => sessionConfig({ SESSION_CHECKPOINT_MODE: 'auto2' })).toThrow(
+      /SESSION_CHECKPOINT_MODE/,
+    );
+    expect(() => sessionConfig({ SESSION_CHECKPOINT_ENABLED: 'maybe' })).toThrow(
+      /SESSION_CHECKPOINT_ENABLED/,
+    );
+  });
 });
