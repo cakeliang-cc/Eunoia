@@ -16,7 +16,7 @@
 | --- | --- |
 | 集成基线 | `1a5c801`（`.worktrees/integration`，`feat/team-mcp-integration`） |
 | 整改分支 | `fix/integration-acceptance`（新 worktree `.worktrees/integration-acceptance`） |
-| 代码提交 | `06c41b674d16b9c6a6f9ebe940e81d74a654a553`（第二轮；首轮 `7b6dc65`） |
+| 代码提交 | `8bf42b4e75a812b0c99738eb689cb4fd28cac7fa`（第二轮；首轮 `7b6dc65`） |
 | 主线合并 | `origin/main@3bc8386` 已合入本分支（merge commit `c6cde4a`）；首轮已合并到 `main@c99931c`；本轮以最终提交再次合并 |
 | 文档/验收提交 | 本分支最后一次提交（manifest、报告、证据） |
 | Node | v24.7.0 |
@@ -148,7 +148,7 @@
 1. 备份：`backups/eunoia-2026-11-08T14-46-17-155Z/`（SQLite 1932.0 KB / 483 pages / `sha256 410578b111e5…`；1 个媒体资产校验通过）。
 2. 构建：`npm run build` 通过；`dist/build-info.json` 记录 commit/构建时间；本次运行版本 `8be1e46…`（实现提交 `7b6dc657…` + 最新 main 合并；`build-info.dirty=false`）。
 3. 迁移：`SQLITE_PATH=/Users/Zhuanz/Projects/designFree/data/eunoia.sqlite npm run migrate` → schema 15；未降低版本、未删除表。
-4. 重启：8788，PID `31587`（见 `r14-deploy.json`）；日志 `data/server.log`；预览网关 8790（loopback）。
+4. 重启：8788，PID `36163`（见 `r14-deploy.json`）；日志 `data/server.log`；预览网关 8790（loopback）。
 5. `/health`：`status:ok`、`store:sqlite`、`build.commit=8be1e46…`、sandbox runtime ok、`network:none`。
 6. 真实预览：API 启动容器内 dev server → 租约 ready → `http://76912231….preview.localhost:8790/` 返回 `final-preview-ok-2`；伪造 Origin 返回 403；停止后 404。
 7. 真实工具：重启后的部署服务内 DeepSeek 调用 `web_fetch`，真实回复 `标题：Example Domain` / `来源 URL：https://example.com/`，`tools_ok:true`，usage 7737/14（cached 7552）。
