@@ -178,6 +178,10 @@ export interface CompletedEvent {
    */
   readonly accepted?: boolean;
   readonly acceptance?: readonly AcceptanceCheck[];
+  /** Model/tool steps taken. Diagnostic, and useful for budget questions. */
+  readonly steps?: number;
+  /** Estimated size of the last model request, system prompt included. */
+  readonly contextTokens?: number;
   /**
    * True when this frame is a replay of an already-finished request rather than
    * a live generation. A retried request sees the same text without the model

@@ -59,6 +59,8 @@ import type { Message } from '../session/types.ts';
 import type { FinishReason } from '../finish-reason.ts';
 import type { TurnFinishPatch } from '../session/turn-types.ts';
 import { evaluateTurnOutcome } from '../agent/turn-outcome.ts';
+import type { ContextBudget } from '../agent/context-budget.ts';
+import { modelProfile } from '../models/registry.ts';
 import type { Store } from '../store.ts';
 import { StoreTurnRecorder } from './turn-recorder.ts';
 import { TurnCoordinator } from './turns.ts';
@@ -230,6 +232,9 @@ export async function* runTurn(
           reply: event.text,
           messageId: event.messageId ?? null,
           ...(event.accepted !== undefined ? { accepted: event.accepted } : {}),
+          ...(event.acceptance !== undefined ? { acceptance: event.acceptance } : {}),
+          ...(event.steps !== undefined ? { steps: event.steps } : {}),
+          ...(event.contextTokens !== undefined ? { contextTokens: event.contextTokens } : {}),
         };
       } else if (event.type === 'interrupted') {
         outcome = {
@@ -406,6 +411,20 @@ async function* runTurnInner(
         })
       : null;
 
+  /**
+   * The model's window for this conversation.
+   *
+   * Built here rather than in the loop because the loop is model-agnostic and a
+   * conversation may pin a different model than the process default.
+   */
+  const profile = modelProfile(conversation.modelId ?? COMPANION_MODEL);
+  const contextBudget: ContextBudget = {
+    windowTokens: profile.contextWindowTokens,
+    outputReserveTokens: profile.maxOutputTokens,
+    safetyBufferTokens: profile.safetyBufferTokens,
+    estimator: profile.tokenEstimator,
+  };
+
   const agentOptions: AgentOptions = {
     tools: toolRegistry,
     policy,
@@ -415,6 +434,7 @@ async function* runTurnInner(
     // command ports, so `change_directory` needs no access to the sandbox.
     cwd: sandboxSession?.cwd ?? null,
     model: conversation.modelId ?? COMPANION_MODEL,
+    contextBudget,
     ...(deps.modelProvider ? { modelProvider: deps.modelProvider } : {}),
     ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
     ...(recorder ? { recorder } : {}),

@@ -39,6 +39,7 @@ import { renderToolResult, toolError } from '../tools/types.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import type { AgentEvent, ThinkingDoneEvent } from './events.ts';
 import type { ExecutionRecorder } from './execution-log.ts';
+import { fitContext, type ContextBudget } from './context-budget.ts';
 import type {
   LoopInputItem,
   LoopOutputItem,
@@ -76,6 +77,14 @@ export interface AgentLoopOptions {
    * requires it: recording is bookkeeping, and its failure must not end a turn.
    */
   readonly recorder?: ExecutionRecorder;
+  /**
+   * The model's window, applied before every request.
+   *
+   * Optional: a loop with no budget (tests, a caller that does not know the
+   * model) behaves exactly as before. Production always supplies it, because the
+   * session layer's budget covers the history, not the turn.
+   */
+  readonly contextBudget?: ContextBudget;
 }
 
 interface CallPlan {
@@ -96,6 +105,9 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
   const maxSteps = Math.max(1, options.maxSteps ?? DEFAULT_MAX_STEPS);
   const input: LoopInputItem[] = [...options.input];
   const recorder = options.recorder ?? null;
+  // Serialised once: the same bytes are sent and counted, so the estimate cannot
+  // drift from the request it is budgeting.
+  const toolSchemas = options.tools.schemas();
 
   /**
    * Write one execution record, without letting the write end the turn.
@@ -146,6 +158,46 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
     for (let step = 1; step <= maxSteps; step += 1) {
       throwIfAborted(options.signal);
 
+      // Budget the request that is about to be sent, not the history that was
+      // budgeted before the turn started.
+      let requestInput: readonly LoopInputItem[] = input;
+      let requestTokens: number | null = null;
+      if (options.contextBudget) {
+        const fit = fitContext({
+          instructions: options.instructions,
+          tools: toolSchemas,
+          items: input,
+          budget: options.contextBudget,
+        });
+        requestInput = fit.items;
+        requestTokens = fit.tokens;
+        if (fit.compressedResults > 0 || fit.droppedItems > 0) {
+          log.warn('agent.context_trimmed', {
+            step,
+            tokens: fit.tokens,
+            available_tokens: fit.availableTokens,
+            compressed_results: fit.compressedResults,
+            dropped_items: fit.droppedItems,
+          });
+        }
+        if (fit.exhausted) {
+          // Sending it anyway would fail at the provider after the person has
+          // waited; ending here keeps the partial work and says why.
+          const note =
+            `[上下文预算不足，无法再发一次模型请求（${fit.reason ?? '估算超出窗口'}）。` +
+            '请把任务拆小，或减少一次读取的内容。]';
+          const text = reply.trim().length > 0 ? `${reply}\n\n${note}` : note;
+          yield {
+            type: 'completed',
+            text,
+            finishReason: 'budget_exhausted',
+            steps: step - 1,
+            ...(requestTokens !== null ? { contextTokens: requestTokens } : {}),
+          };
+          return;
+        }
+      }
+
       const output: LoopOutputItem[] = [];
       let sawTextDelta = false;
       let done = false;
@@ -154,8 +206,8 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
 
       for await (const event of options.modelTurn({
         instructions: options.instructions,
-        input,
-        tools: options.tools.schemas(),
+        input: requestInput,
+        tools: toolSchemas,
         ...(options.signal ? { signal: options.signal } : {}),
       })) {
         if (event.type === 'text_delta') {
@@ -239,6 +291,8 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
           type: 'completed',
           text: reply,
           finishReason: streamIncomplete ? 'incomplete_stream' : 'completed',
+          steps: step,
+          ...(requestTokens !== null ? { contextTokens: requestTokens } : {}),
         };
         return;
       }
@@ -259,6 +313,7 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
       type: 'completed',
       text,
       finishReason: streamIncomplete ? 'incomplete_stream' : 'loop_exhausted',
+      steps: maxSteps,
     };
   } catch (error) {
     const closed = closeThinking();

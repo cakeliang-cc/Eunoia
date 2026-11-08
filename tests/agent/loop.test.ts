@@ -586,3 +586,96 @@ describe('finish reasons', () => {
     expect(events.at(-1)).toMatchObject({ type: 'error', finishReason: 'failed' });
   });
 });
+
+/**
+ * The per-request budget (ADR 030).
+ *
+ * The session layer budgets the history before a turn; the loop must budget the
+ * request it is about to send, because its own tool results keep appending.
+ */
+describe('the per-request context budget', () => {
+  const reader = defineTool({
+    name: 'read_thing',
+    description: 'read a thing of a given size',
+    parameters: z.object({ size: z.number() }),
+    sideEffect: 'none',
+    readOnly: true,
+    execute: async ({ size }) => toolOk('x'.repeat(size)),
+  });
+
+  it('compresses an older result so the next request fits', async () => {
+    const model = scripted([
+      {
+        text: '读两个。',
+        calls: [
+          { id: 'c1', name: 'read_thing', args: { size: 4_000 } },
+          { id: 'c2', name: 'read_thing', args: { size: 40 } },
+        ],
+      },
+      { text: '好了。' },
+    ]);
+
+    const events = await collect(
+      runAgentLoop({
+        modelTurn: model.turn,
+        instructions: 'stable',
+        input: [{ type: 'message', role: 'user', content: 'go' }],
+        tools: registry(reader),
+        toolContext: context(),
+        contextBudget: {
+          windowTokens: 700,
+          outputReserveTokens: 100,
+          safetyBufferTokens: 50,
+          estimator: 'chars4',
+        },
+      }),
+    );
+
+    expect(events.at(-1)).toMatchObject({ type: 'completed', finishReason: 'completed' });
+    const completed = events.at(-1);
+    expect(completed?.type === 'completed' && completed.contextTokens).toBeLessThanOrEqual(550);
+
+    const second = model.requests[1] ?? [];
+    const large = second.find(
+      (item) => item.type === 'function_call_result' && item.callId === 'c1',
+    );
+    const small = second.find(
+      (item) => item.type === 'function_call_result' && item.callId === 'c2',
+    );
+    expect(large?.type === 'function_call_result' && large.output).toContain('压缩');
+    expect(small?.type === 'function_call_result' && small.output).toBe('x'.repeat(40));
+    // The call and its result are both still in the request.
+    expect(second.some((item) => item.type === 'function_call' && item.callId === 'c1')).toBe(true);
+  });
+
+  it('ends with budget_exhausted instead of sending a request that cannot fit', async () => {
+    const model = scripted([
+      { text: '先读。', calls: [{ id: 'c1', name: 'read_thing', args: { size: 4_000 } }] },
+      { text: '这一步不该发生' },
+    ]);
+
+    const events = await collect(
+      runAgentLoop({
+        modelTurn: model.turn,
+        instructions: 'stable',
+        input: [{ type: 'message', role: 'user', content: 'go' }],
+        tools: registry(reader),
+        toolContext: context(),
+        contextBudget: {
+          windowTokens: 500,
+          outputReserveTokens: 100,
+          safetyBufferTokens: 50,
+          estimator: 'chars4',
+        },
+      }),
+    );
+
+    const completed = events.at(-1);
+    expect(completed).toMatchObject({ type: 'completed', finishReason: 'budget_exhausted' });
+    // The partial work stays, and the notice says how to proceed.
+    expect(completed?.type === 'completed' && completed.text).toContain('先读。');
+    expect(completed?.type === 'completed' && completed.text).toContain('预算');
+    // The model was never asked a second time.
+    expect(model.calls()).toBe(1);
+  });
+});
