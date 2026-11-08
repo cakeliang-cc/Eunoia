@@ -44,6 +44,7 @@ async function setup() {
   const conversation = await sessions.create(USER, 'mailbox', 'deepseek-flash');
   const turn: ModelTurn = async function* () {
     await new Promise<void>(() => undefined);
+    yield { type: 'done', output: [] };
   };
   const service = new TeamService({
     teamStore,

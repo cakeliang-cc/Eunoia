@@ -311,6 +311,20 @@ export function createTeamApi(deps: { service: TeamService; adapters: TeamApiAda
         });
         return true;
       }
+      if (suffix === 'integrations' && method === 'POST') {
+        const body = asObject(await adapters.readJson(req));
+        const created = await service.createIntegrationCandidate({
+          ownerId,
+          runId,
+          taskId: requiredString(body, 'taskId'),
+          memberId: requiredString(body, 'memberId'),
+          ...(typeof body.otherMemberId === 'string'
+            ? { otherMemberId: body.otherMemberId }
+            : {}),
+        });
+        adapters.sendJson(res, 201, created);
+        return true;
+      }
       if (suffix === 'members/diff' && method === 'GET') {
         const memberId = searchParams.get('memberId');
         if (!memberId) throw new TeamError('TEAM_MEMBER_NOT_FOUND', '缺少 memberId。', 400);
@@ -438,6 +452,19 @@ export function createTeamApi(deps: { service: TeamService; adapters: TeamApiAda
         return true;
       }
       return false;
+    }
+
+    const publishMatch = /^\/api\/teams\/integrations\/([^/]+)\/publish$/.exec(pathname);
+    if (publishMatch && method === 'POST') {
+      const integrationId = decodeURIComponent(publishMatch[1] ?? '');
+      const body = asObject(await adapters.readJson(req));
+      const result = await service.publishIntegration({
+        ownerId,
+        integrationId,
+        memberId: requiredString(body, 'memberId'),
+      });
+      adapters.sendJson(res, 200, result);
+      return true;
     }
 
     const integrationMatch = /^\/api\/teams\/integrations\/([^/]+)\/resolve$/.exec(pathname);

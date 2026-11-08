@@ -60,6 +60,7 @@ import { renderCollaborationMessage, renderMemberContext } from '../agents/promp
 import { newId } from '../agents/members.ts';
 import { transcriptMode } from '../session/model-transcript.ts';
 import type { TeamApprovalPort, TeamApprovalView } from './approvals.ts';
+import { integrateManifests, publishCandidate } from './integration.ts';
 
 // ----------------------------------------------------------- workspace port ---
 
@@ -92,6 +93,15 @@ export interface TeamWorkspacePort {
     readonly baselineId: string;
   }): Promise<ArtifactManifest>;
   currentHashes(workspaceTaskId: string): Promise<Record<string, string>>;
+  /** The user's source root, for candidate integration. */
+  sourceRootPath?(): string | null;
+  /** Absolute member copy path, for publishing file contents. */
+  workspacePathFor?(workspaceTaskId: string): Promise<string | null>;
+  /** Baseline written when the member workspace was provisioned. */
+  baselineForWorkspace?(workspaceTaskId: string): Promise<{
+    readonly baselineId: string;
+    readonly hashes: Readonly<Record<string, string>>;
+  } | null>;
 }
 
 // -------------------------------------------------------------------- deps ---
@@ -1911,6 +1921,191 @@ export class TeamService implements ActivationHost, TeamToolHost {
       budget: await this.teamStore.budgetSnapshot(runId),
       integrations,
     };
+  }
+
+  /**
+   * Build an integration candidate from a member's private workspace.
+   *
+   * The candidate is compared against the source root's current hashes, not
+   * against an assumption that the member started from an empty tree. Conflicts
+   * are stored with both sides' content hashes and keep the candidate in
+   * `conflict`; publishing is refused until a human resolves it.
+   */
+  async createIntegrationCandidate(input: {
+    readonly ownerId: string;
+    readonly runId: string;
+    readonly taskId: string;
+    readonly memberId: string;
+    readonly otherMemberId?: string | null;
+  }): Promise<{ integration: Integration; manifest: ArtifactManifest }> {
+    const run = await this.getRun(input.ownerId, input.runId);
+    const task = await this.teamStore.getTask(input.taskId);
+    if (!task || task.runId !== run.id) {
+      throw new TeamError('TEAM_TASK_NOT_FOUND', '没有这个任务。', 404);
+    }
+    const member = await this.getMember(input.ownerId, input.memberId);
+    if (!member.workspaceId) {
+      throw new TeamError('TEAM_WORKSPACE', '这个成员没有隔离工作区。', 409);
+    }
+    const baseline = await this.#deps.workspace.baselineForWorkspace?.(
+      member.workspaceId,
+    );
+    if (!baseline) {
+      throw new TeamError('TEAM_WORKSPACE', '这个成员没有基线快照。', 409);
+    }
+    const manifest = await this.#deps.workspace.diff({
+      workspaceTaskId: member.workspaceId,
+      baselineId: baseline.baselineId,
+    });
+    const root = (await this.teamStore.listMembers(run.teamId)).find(
+      (entry) => entry.role === 'root',
+    );
+    const sourceHashes = root?.workspaceId
+      ? await this.#deps.workspace.currentHashes(root.workspaceId)
+      : {};
+    const baseHashes: Record<string, string> = {};
+    for (const file of manifest.files) {
+      if (file.baseHash) baseHashes[file.path] = file.baseHash;
+    }
+    let other: ArtifactManifest | null = null;
+    if (input.otherMemberId) {
+      const otherMember = await this.getMember(input.ownerId, input.otherMemberId);
+      const otherBaseline = otherMember.workspaceId
+        ? await this.#deps.workspace.baselineForWorkspace?.(otherMember.workspaceId)
+        : null;
+      if (otherMember.workspaceId && otherBaseline) {
+        other = await this.#deps.workspace.diff({
+          workspaceTaskId: otherMember.workspaceId,
+          baselineId: otherBaseline.baselineId,
+        });
+      }
+    }
+    const merged = integrateManifests({
+      targetRoot: this.#deps.workspace.sourceRootPath?.() ?? '',
+      baseHashes,
+      candidate: manifest,
+      other,
+      sourceHashes,
+    });
+    const resultHashes: Record<string, string> = {};
+    for (const file of merged.files) {
+      resultHashes[file.path] = file.contentHash ?? '';
+    }
+    await this.recordArtifact({
+      ownerId: input.ownerId,
+      runId: run.id,
+      memberId: member.id,
+      taskId: task.id,
+      attemptId: task.currentAttemptId,
+      kind: 'patch',
+      manifest,
+    });
+    const integration = await this.recordIntegration({
+      ownerId: input.ownerId,
+      runId: run.id,
+      taskId: task.id,
+      baseVersion: baseline.baselineId,
+      candidateHash: merged.candidateHash,
+      conflicts: merged.conflicts.map((conflict) => conflict.path),
+      baseHashes,
+      resultHashes,
+      journal: [
+        {
+          at: this.#now().toISOString(),
+          action: 'created',
+          files: merged.files.map((file) => file.path),
+          detail: merged.conflicts.length > 0 ? 'conflicts detected' : 'clean candidate',
+        },
+      ],
+    });
+    return { integration, manifest };
+  }
+
+  /**
+   * Publish a verified candidate to the source root with hash checks.
+   *
+   * Refuses a candidate with unresolved conflicts. The underlying publisher
+   * writes per file atomically, journals what was applied, and uses the
+   * integration id as the idempotency key.
+   */
+  async publishIntegration(input: {
+    readonly ownerId: string;
+    readonly integrationId: string;
+    readonly memberId: string;
+  }): Promise<{ integration: Integration; result: Awaited<ReturnType<typeof publishCandidate>> }> {
+    const integration = await this.teamStore.getIntegration(input.integrationId);
+    if (!integration) {
+      throw new TeamError('TEAM_INTEGRATION_CONFLICT', '没有这个集成候选。', 404);
+    }
+    const run = await this.getRun(input.ownerId, integration.runId);
+    if (integration.conflicts.length > 0) {
+      throw new TeamError('TEAM_INTEGRATION_CONFLICT', '候选仍有未解决的冲突，不能发布。', 409, {
+        conflicts: integration.conflicts,
+      });
+    }
+    const member = await this.getMember(input.ownerId, input.memberId);
+    if (!member.workspaceId) {
+      throw new TeamError('TEAM_WORKSPACE', '这个成员没有隔离工作区。', 409);
+    }
+    const artifacts = (
+      await this.teamStore.listArtifacts({
+        runId: run.id,
+        ...(integration.taskId ? { taskId: integration.taskId } : {}),
+        limit: 50,
+      })
+    ).filter((entry) => entry.memberId === member.id);
+    const artifact = artifacts.find((entry) => entry.kind === 'patch') ?? artifacts[0];
+    if (!artifact) {
+      throw new TeamError('TEAM_INTEGRATION_CONFLICT', '找不到候选产物，不能发布。', 409);
+    }
+    const contentRoot = await this.#deps.workspace.workspacePathFor?.(member.workspaceId);
+    const targetRoot = this.#deps.workspace.sourceRootPath?.();
+    if (!targetRoot || !contentRoot) {
+      throw new TeamError('TEAM_WORKSPACE', '发布需要源目录和成员工作区路径。', 409);
+    }
+    const root = (await this.teamStore.listMembers(run.teamId)).find(
+      (entry) => entry.role === 'root',
+    );
+    const sourceHashes = root?.workspaceId
+      ? await this.#deps.workspace.currentHashes(root.workspaceId)
+      : {};
+    const result = await publishCandidate({
+      targetRoot,
+      files: artifact.manifest.files,
+      sourceHashes,
+      expectedHashes: integration.baseHashes,
+      idempotencyKey: integration.id,
+      contentRoot,
+    });
+    const nowIso = this.#now().toISOString();
+    const updated = await this.teamStore.updateIntegration({
+      integrationId: integration.id,
+      patch: {
+        status: result.conflicts.length > 0 ? 'conflict' : 'published',
+        conflicts: result.conflicts.map((conflict) => conflict.path),
+        resultHashes: integration.resultHashes,
+        verification: {
+          applied: result.applied,
+          skipped: result.skipped,
+          completedAt: nowIso,
+        },
+        publishedAt: result.conflicts.length === 0 ? nowIso : null,
+        journal: [
+          ...integration.journal,
+          ...result.journal,
+          { at: nowIso, action: result.conflicts.length > 0 ? 'failed' : 'published' },
+        ],
+      },
+      now: nowIso,
+      event: {
+        kind: result.conflicts.length > 0 ? 'integration.conflict' : 'integration.published',
+        payload: { integrationId: integration.id, applied: result.applied },
+      },
+    });
+    if (!updated) {
+      throw new TeamError('TEAM_INTEGRATION_CONFLICT', '集成候选已被修改。', 409);
+    }
+    return { integration: updated, result };
   }
 
   /** Persist an integration record and emit the matching event. */

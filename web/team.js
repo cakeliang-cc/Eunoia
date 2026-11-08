@@ -677,6 +677,52 @@ async function renderArtifacts() {
     card.append(body);
     view.append(card);
   }
+  for (const integration of state.integrations) {
+    if ((integration.conflicts || []).length > 0) continue;
+    if (!['candidate', 'verified', 'resolved'].includes(integration.status)) continue;
+    const artifact = artifacts.find((entry) => entry.taskId === integration.taskId);
+    if (!artifact) continue;
+    const actions = el('div', 'team-actions');
+    const publish = el('button', null, '发布到源目录');
+    publish.type = 'button';
+    publish.addEventListener('click', () => {
+      if (!confirm('发布前会核对源目录哈希；相关文件被用户改动时会停止。继续？')) return;
+      void post(`/api/teams/integrations/${integration.id}/publish`, {
+        memberId: artifact.memberId,
+      });
+    });
+    actions.append(publish);
+    view.append(actions);
+    break;
+  }
+
+  const tasks = snapshot.tasks || [];
+  const members = (snapshot.members || []).filter((member) => member.workspaceId);
+  if (tasks.length > 0 && members.length > 0 && state.team?.config?.mode === 'team') {
+    const form = el('form', 'team-form team-card');
+    form.append(el('div', 'field-label', '从成员工作区创建集成候选'));
+    const task = document.createElement('select');
+    task.setAttribute('aria-label', '候选任务');
+    for (const entry of tasks) task.append(option(entry.id, `${entry.title}（${entry.status}）`));
+    const member = document.createElement('select');
+    member.setAttribute('aria-label', '候选成员');
+    for (const entry of members) member.append(option(entry.id, entry.name));
+    const submit = el('button', null, '创建候选');
+    submit.type = 'submit';
+    form.append(task, member, submit);
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      void post(`/api/teams/runs/${snapshot.run.id}/integrations`, {
+        taskId: task.value,
+        memberId: member.value,
+      }).then(() => {
+        state.integrations = null;
+        void renderArtifacts();
+      });
+    });
+    view.append(form);
+  }
+
   if (state.integrations.length > 0) {
     view.append(el('p', 'team-hint', '发布前必须核对源目录哈希；冲突候选不会自动写入用户目录。'));
   }

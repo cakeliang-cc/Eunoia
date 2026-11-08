@@ -31,7 +31,7 @@
 
 - `SQLITE_SCHEMA_VERSION = 12`；`TEAM_SCHEMA` 的 11 张表（teams、runs、members、activations、tasks、attempts、messages、artifacts、events、budget entries、integrations）已加入基础 schema 与 `SQLITE_MIGRATION_12`。
 - 迁移幂等：全部 `CREATE TABLE/INDEX IF NOT EXISTS`；旧库从 10/11 打开时依次执行 `MIGRATION_11`（若该开发线已合入）与 `MIGRATION_12`。
-- 已验证：`npm run typecheck` 通过；`npm run lint` 0 error（3 个既有 warning）；`npm test` **1543 passed, 28 skipped**（115 个文件通过，5 个文件按环境跳过）；T31 的 Docker 用例另以 `TEAM_INTEGRATION=1` 单独运行通过（1 passed）。
+- 已验证：`npm run typecheck` 通过；`npm run lint` 0 error（3 个既有 warning）；`npm test` **1546 passed, 28 skipped**（116 个文件通过，5 个文件按环境跳过）；T31 的 Docker 用例另以 `TEAM_INTEGRATION=1` 单独运行通过（1 passed）。
 - 迁移命令：`npm run migrate`；备份：`npm run backup`（未在本报告运行，见 §8）。
 
 ## 4. 自动化证据位置
@@ -50,7 +50,8 @@
 | 邮箱重投 | `tests/teams/mailbox.test.ts` | 1 |
 | 迁移/备份 | `tests/teams/migration.test.ts` | 1 |
 | 容器隔离（gated） | `tests/teams/workspaces.docker.test.ts` | 1 |
-| 既有回归 | `tests/` 其余套件 | 1375+ |
+| E03/E04 集成发布 | `tests/teams/integration-flow.test.ts` | 3 |
+| 既有回归 | `tests/` 其余套件 | 1378+ |
 
 ## 5. T01–T60 逐项结果
 
@@ -58,7 +59,7 @@
 
 | ID | 结果 | 证据与说明 |
 | --- | --- | --- |
-| T01 | ✅ | 既有 1543 项测试全绿；普通聊天/工具/停止/历史未改传输语义；Team 仅在显式 run 时启用。 |
+| T01 | ✅ | 既有 1546 项测试全绿；普通聊天/工具/停止/历史未改传输语义；Team 仅在显式 run 时启用。 |
 | T02 | ✅ | `service.test.ts` fresh 成员有独立内部 conversation；`acceptance.test.ts` T05/T11 记录独立模型请求。 |
 | T03 | ⚠️ | fork 只复制已提交、非 interrupted 轮次（`acceptance.test.ts`、`service.test.ts`）；低权限 fork 拒绝已实现，但"敏感工具输出裁剪"未单独构造用例。 |
 | T04 | ⚠️ | 初始化失败写 `failed` 成员并释放，不产生可激活幽灵成员；工作区失败后的清理未单独断言。 |
@@ -127,8 +128,8 @@
 | --- | --- | --- |
 | E01 | ✅ | `tests/api/teams-e2e.test.ts`：真实 HTTP + SQLite，fresh/fork 两个成员的内部会话不同；空闲后跟进 201，关闭后成员 closed、迟到跟进 409。未做浏览器点击与进程清单。 |
 | E02 | ✅ | `tests/api/teams-e2e.test.ts`：真实 API + SQLite；两个成员独立执行、乙通过 `agent_send_message` 给甲发消息、B 依赖 A、A/B/C 全部验收、root 汇总后 run `succeeded`。未做浏览器时间线。 |
-| E03 | ⛔ 未执行 | 工作区/集成模块测试通过，但没有"实际沙箱副本 → 候选 → 测试 → 应用到临时源项目"的完整编排。 |
-| E04 | ⛔ 未执行 | 冲突与源变化模块测试通过，UI 冲突解决/重新验证/发布 journal 未串通。 |
+| E03 | ✅ | `integration-flow.test.ts`：两个成员各自私有副本修改不同文件 → 候选集成 → 哈希校验 → 发布到临时源项目；用户无关文件保持原样。API 提供 `POST /runs/:id/integrations` 与 `/integrations/:id/publish`。 |
+| E04 | ⚠️ | `integration-flow.test.ts`：同文件双方修改显式 conflict、拒绝发布；候选后用户改源目录 → 发布停止且不覆盖。UI 冲突编辑/重新验证仍是手工缺口。 |
 | E05 | ⛔ 未执行 | 三处进程杀死与重启对账未执行。 |
 | E06 | ✅ | 真实 DeepSeek：主成员 + 甲/乙，20/24 请求；A/B 两个必需任务 accepted；B 依赖 A；乙→甲的同伴消息 `processed`；root 汇总；run `succeeded`，completion.complete=true。证据：[e06-orchestrated-run.json](./evidence/e06-orchestrated-run.json)。 |
 
@@ -156,7 +157,7 @@
 ## 7. 失败、未执行与已知限制
 
 1. **E06 未通过**：24 次请求预算内没有完成 required 任务；模型在根成员上消耗了较多请求，且一次尝试中协作消息未被消费。
-2. **E03–E05 未执行**：E01/E02 已走真实 API+SQLite；E03 候选发布、E04 冲突 UI、E05 杀进程对账仍未串成端到端脚本。
+2. **E04/E05 仍不完整**：E03 候选/发布已走真实副本；E04 服务层冲突/过期基线已测，但 UI 冲突编辑与重新验证未自动化；E05 杀进程对账未执行。
 3. **MCP（T42、T41 部分）**：MCP 宿主仍在另一条未提交开发线；本次没有把 MCP 工具授权、审批、Tasks/elicitation 接入成员。
 4. **图片（T43/T44）**：成员执行路径没有 `PreparedMediaPlan`，仅能力预检；图片授权和图片预算未实现。
 5. **MCP（T42）**：MCP 宿主仍在另一条未提交开发线；成员未获得 MCP 工具句柄，stdio/elicitation/Tasks 取消未验收。
@@ -218,4 +219,4 @@ curl -s http://127.0.0.1:8790/api/teams/runs/<runId>/report
 
 ## 11. 结论## 11. 结论
 
-本次交付了可运行的 Subagent 运行时、持久 Team 任务板、CAS/租约/outbox、全队预算与模型许可、steering、隔离工作区与冲突集成模块、API、前端抽屉，以及 E01/E02/E06 的真实端到端；但 **T01–T60 与 E01–E06 没有全部通过（E03–E05 未执行）**，因此不能声称"具备完整 Team 能力"。按计划第 2 节和第 12 节，容器/MCP/真实模型相关项必须标记阻塞或失败，不应以替身测试冒充通过。后续补齐顺序建议：MCP 工具授权与审批 → 图片授权/预算 → 候选发布 API/UI → E03–E05 端到端。
+本次交付了可运行的 Subagent 运行时、持久 Team 任务板、CAS/租约/outbox、全队预算与模型许可、steering、隔离工作区与冲突集成模块、API、前端抽屉，以及 E01/E02/E06 的真实端到端；但 **T01–T60 与 E01–E06 没有全部通过（E03–E05 未执行）**，因此不能声称"具备完整 Team 能力"。按计划第 2 节和第 12 节，容器/MCP/真实模型相关项必须标记阻塞或失败，不应以替身测试冒充通过。后续补齐顺序建议：MCP 工具授权与审批 → 图片授权/预算 → E04 UI 冲突编辑/重新验证 → E05 故障注入。

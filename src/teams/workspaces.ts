@@ -336,6 +336,22 @@ export class TeamWorkspaceService {
     return null;
   }
 
+  /** The user's source root, when this deployment is bound to one. */
+  sourceRootPath(): string | null {
+    return this.sourceRoot;
+  }
+
+  /** Where a member's private copy lives, from the persisted workspace row. */
+  async workspacePathFor(workspaceTaskId: string): Promise<string | null> {
+    const workspace = await this.store.getWorkspaceForTask(workspaceTaskId);
+    return workspace?.storageLocation ?? null;
+  }
+
+  /** The baseline written at provision time, for a member workspace. */
+  async baselineForWorkspace(workspaceTaskId: string): Promise<Baseline | null> {
+    return await this.readBaselineFile(this.baselinePath(workspaceTaskId));
+  }
+
   private async ensureBaseline(
     workspaceTaskId: string,
     workspacePath: string,
