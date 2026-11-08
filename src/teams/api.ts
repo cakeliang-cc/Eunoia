@@ -418,6 +418,16 @@ export function createTeamApi(deps: { service: TeamService; adapters: TeamApiAda
         adapters.sendJson(res, 200, { revoked: true });
         return true;
       }
+      if (suffix === 'cleanup' && method === 'POST') {
+        const body = asObject(await adapters.readJson(req));
+        const result = await service.cleanupMemberWorkspace({
+          ownerId,
+          runId: requiredString(body, 'runId'),
+          memberId,
+        });
+        adapters.sendJson(res, 200, result);
+        return true;
+      }
       if (suffix === 'interrupt' && method === 'POST') {
         adapters.sendJson(res, 200, { member: await service.interruptMember(ownerId, memberId) });
         return true;

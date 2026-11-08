@@ -102,6 +102,11 @@ export interface TeamWorkspacePort {
     readonly baselineId: string;
     readonly hashes: Readonly<Record<string, string>>;
   } | null>;
+  /** Delete a member workspace only when the caller proved it is unreferenced. */
+  cleanup?(input: {
+    readonly workspaceTaskId: string;
+    readonly referenced: boolean;
+  }): Promise<boolean>;
 }
 
 // -------------------------------------------------------------------- deps ---
@@ -1364,6 +1369,46 @@ export class TeamService implements ActivationHost, TeamToolHost {
   async listArtifacts(ownerId: string, runId: string): Promise<Artifact[]> {
     await this.getRun(ownerId, runId);
     return this.teamStore.listArtifacts({ runId, limit: 200 });
+  }
+
+  // ---------------------------------------------------------------- cleanup ---
+
+  /**
+   * Remove a member workspace only when nothing still references it.
+   *
+   * Artifacts, non-terminal tasks and open integration candidates protect the
+   * directory. Closing a member is explicitly not a reason to delete its output.
+   */
+  async cleanupMemberWorkspace(input: {
+    readonly ownerId: string;
+    readonly runId: string;
+    readonly memberId: string;
+  }): Promise<{ removed: boolean; reason: string }> {
+    const run = await this.getRun(input.ownerId, input.runId);
+    const member = await this.getMember(input.ownerId, input.memberId);
+    if (!member.workspaceId || !this.#deps.workspace.cleanup) {
+      return { removed: false, reason: 'no workspace' };
+    }
+    const artifacts = (await this.teamStore.listArtifacts({ runId: run.id, limit: 1_000 })).filter(
+      (artifact) => artifact.memberId === member.id,
+    );
+    if (artifacts.length > 0) return { removed: false, reason: 'artifacts still referenced' };
+    const tasks = await this.teamStore.listTasks(run.id, { limit: 1_000 });
+    const active = tasks.items.filter(
+      (task) =>
+        task.ownerId === member.id && !['accepted', 'cancelled', 'failed'].includes(task.status),
+    );
+    if (active.length > 0) return { removed: false, reason: 'active task references member' };
+    const integrations = await this.teamStore.listIntegrations(run.id);
+    const open = integrations.filter(
+      (integration) => !['published', 'failed'].includes(integration.status),
+    );
+    if (open.length > 0) return { removed: false, reason: 'open integration candidate' };
+    const removed = await this.#deps.workspace.cleanup({
+      workspaceTaskId: member.workspaceId,
+      referenced: false,
+    });
+    return { removed, reason: removed ? 'removed' : 'workspace cleanup refused' };
   }
 
   // --------------------------------------------------------------- resources ---

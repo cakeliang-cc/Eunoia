@@ -31,7 +31,7 @@
 
 - `SQLITE_SCHEMA_VERSION = 12`；`TEAM_SCHEMA` 的 11 张表（teams、runs、members、activations、tasks、attempts、messages、artifacts、events、budget entries、integrations）已加入基础 schema 与 `SQLITE_MIGRATION_12`。
 - 迁移幂等：全部 `CREATE TABLE/INDEX IF NOT EXISTS`；旧库从 10/11 打开时依次执行 `MIGRATION_11`（若该开发线已合入）与 `MIGRATION_12`。
-- 已验证：`npm run typecheck` 通过；`npm run lint` 0 error（3 个既有 warning）；`npm test` **1555 passed, 28 skipped**（118 个文件通过，5 个文件按环境跳过）；T31 的 Docker 用例另以 `TEAM_INTEGRATION=1` 单独运行通过（1 passed）。
+- 已验证：`npm run typecheck` 通过；`npm run lint` 0 error（3 个既有 warning）；`npm test` **1556 passed, 28 skipped**（118 个文件通过，5 个文件按环境跳过）；T31 的 Docker 用例另以 `TEAM_INTEGRATION=1` 单独运行通过（1 passed）。
 - 迁移命令：`npm run migrate`；备份：`npm run backup`（未在本报告运行，见 §8）。
 
 ## 4. 自动化证据位置
@@ -52,8 +52,8 @@
 | 图片授权/预算 | `tests/teams/images.test.ts` | 3 |
 | 预算结算/对账 | `tests/teams/budget-accounting.test.ts` | 1 |
 | 容器隔离（gated） | `tests/teams/workspaces.docker.test.ts` | 1 |
-| E03/E04 集成发布 | `tests/teams/integration-flow.test.ts` | 3 |
-| 既有回归 | `tests/` 其余套件 | 1387+ |
+| E03/E04 集成发布/清理 | `tests/teams/integration-flow.test.ts` | 4 |
+| 既有回归 | `tests/` 其余套件 | 1388+ |
 
 ## 5. T01–T60 逐项结果
 
@@ -61,7 +61,7 @@
 
 | ID | 结果 | 证据与说明 |
 | --- | --- | --- |
-| T01 | ✅ | 既有 1555 项测试全绿；普通聊天/工具/停止/历史未改传输语义；Team 仅在显式 run 时启用。 |
+| T01 | ✅ | 既有 1556 项测试全绿；普通聊天/工具/停止/历史未改传输语义；Team 仅在显式 run 时启用。 |
 | T02 | ✅ | `service.test.ts` fresh 成员有独立内部 conversation；`acceptance.test.ts` T05/T11 记录独立模型请求。 |
 | T03 | ✅ | fork 只复制已提交、非 interrupted 轮次；子成员权限低于父级时拒绝 fork（`acceptance.test.ts` T03），避免继承父轨迹。助手文本中的敏感内容未做分类裁剪，策略是保守拒绝低权限 fork。 |
 | T04 | ✅ | `acceptance.test.ts` T04：工作区 provision 失败后成员记为 failed、无 activation、不可运行；容量在失败时释放。 |
@@ -119,10 +119,10 @@
 | T56 | ⚠️ | 暂停/停止/关闭成员与任务验收可操作；审批与冲突解决未完成（见 T41/T35 API 缺口）。 |
 | T57 | ⚠️ | CSS 在 390px 单列、无横向溢出设计；未做真实浏览器键盘/标签检查。 |
 | T58 | ✅ | 成员轮次写 `agent_runs`（独立 conversation）；不向前端暴露 reasoning；无长期记忆自动写入。 |
-| T59 | ⚠️ | `migration.test.ts`：把 v11（无 Team 表）库升级到 12、保留会话消息、备份/恢复成功；清理仍只覆盖「referenced 工作区不删除」，未覆盖 artifact 引用计数。 |
+| T59 | ✅ | `migration.test.ts`：v11（无 Team 表）升级到 12、保留会话消息、备份/恢复成功；`integration-flow.test.ts`：有 artifact 的成员工作区被引用保护不删除，无引用的工作区可清理。 |
 | T60 | ✅ | `acceptance.test.ts` T60 + E06：required 未验收时 run 为 `waiting_user`，不成功。 |
 
-统计：✅ 45，⚠️ 11，⛔ 3，❌ 0（T 维度）。**未全部通过。**
+统计：✅ 46，⚠️ 10，⛔ 3，❌ 0（T 维度）。**未全部通过。**
 
 ## 6. E01–E06 端到端结果
 
@@ -221,4 +221,4 @@ curl -s http://127.0.0.1:8790/api/teams/runs/<runId>/report
 
 ## 11. 结论## 11. 结论
 
-本次交付了可运行的 Subagent 运行时、持久 Team 任务板、CAS/租约/outbox、全队预算与模型许可、steering、隔离工作区与冲突集成模块、API、前端抽屉，以及 E01/E02/E06 的真实端到端；但 **T01–T60 与 E01–E06 没有全部通过（E03–E05 未执行）**，因此不能声称"具备完整 Team 能力"。按计划第 2 节和第 12 节，容器/MCP/真实模型相关项必须标记阻塞或失败，不应以替身测试冒充通过。后续补齐顺序建议：MCP 工具授权与审批 → 图片授权/预算 → E04 UI 冲突编辑/重新验证 → E05 故障注入。
+本次交付了可运行的 Subagent 运行时、持久 Team 任务板、CAS/租约/outbox、全队预算与模型许可、steering、图片授权/预算、隔离工作区与冲突集成发布、API、前端抽屉，以及 E01/E02/E03/E06 的真实端到端；但 **T01–T60 与 E01–E06 没有全部通过（E04 UI 未完成、E05 未执行）**，因此不能声称"具备完整 Team 能力"。按计划第 2 节和第 12 节，容器/MCP/真实模型相关项必须标记阻塞或失败，不应以替身测试冒充通过。后续补齐顺序建议：MCP 工具授权与审批 → 图片授权/预算 → E04 UI 冲突编辑/重新验证 → E05 故障注入。

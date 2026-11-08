@@ -149,6 +149,44 @@ describe('E03 — two non-conflicting member changes integrate and publish', () 
   });
 });
 
+describe('T59 — cleanup refuses referenced workspaces', () => {
+  it('keeps a workspace with artifacts and removes an unreferenced one', async () => {
+    const h = await setup();
+    try {
+      // Second member has no task/artifact yet: safe to remove.
+      const removed = await h.service.cleanupMemberWorkspace({
+        ownerId: USER,
+        runId: h.run.run.id,
+        memberId: h.second.member.id,
+      });
+      expect(removed.removed).toBe(true);
+      await expect(readFile(join(h.secondPath, 'keep.txt'))).rejects.toThrow();
+
+      await writeFile(join(h.firstPath, 'keep.txt'), 'from a\n');
+      const task = await h.service.createTask(
+        { run: h.run.run, member: null, userId: USER },
+        { title: '有产物', specification: '', acceptance: '证据', required: true },
+      );
+      await h.service.createIntegrationCandidate({
+        ownerId: USER,
+        runId: h.run.run.id,
+        taskId: task.id,
+        memberId: h.first.member.id,
+      });
+      const kept = await h.service.cleanupMemberWorkspace({
+        ownerId: USER,
+        runId: h.run.run.id,
+        memberId: h.first.member.id,
+      });
+      expect(kept.removed).toBe(false);
+      expect(await readFile(join(h.firstPath, 'keep.txt'), 'utf8')).toBe('from a\n');
+    } finally {
+      h.release();
+      await rm(h.base, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('E04 — same-file conflict and stale source', () => {
   it('reports both-member conflict and refuses publish', async () => {
     const h = await setup();
