@@ -56,6 +56,24 @@ export interface TurnStore {
   listTurnEvents(turnId: string): Promise<TurnEventRecord[]>;
 
   /**
+   * Tool events for a whole conversation, oldest first.
+   *
+   * Compaction is the caller: a checkpoint's work evidence is built from the
+   * trace of the messages it is about to shadow, and those messages span many
+   * turns. `before` is an event-time bound, not a message seq — the boundary
+   * message's timestamp is the closest honest answer to "everything that had
+   * happened by the time the summarized part ended".
+   *
+   * `limit` keeps a pathological conversation from turning a compaction into a
+   * full-table read; the newest events win, because they describe the work a
+   * resumed model is most likely to continue.
+   */
+  listConversationTurnEvents(
+    conversationId: string,
+    options?: { readonly before?: Date; readonly limit?: number },
+  ): Promise<TurnEventRecord[]>;
+
+  /**
    * Move a tool call out of `running`.
    *
    * Recovery is the only caller: it reconciles an unobserved call against the

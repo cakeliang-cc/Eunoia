@@ -3,17 +3,26 @@
  *
  * The session layer owns *what* must survive; the agent layer owns *how* to call
  * a provider. This file is the boundary: a pure request/response shape plus the
- * prompt. No SDK import reaches the session layer.
+ * prompts. No SDK import reaches the session layer.
  *
- * The prompt is deliberately about a companion, not a coding agent. A
- * task-oriented consolidator archives state such as "active objective" and
- * "next action", which would turn a conversation about someone's week into a
- * ticket. What matters here is continuity of a person: facts, preferences,
- * promises, themes, and the emotional shape of what happened.
+ * There are two templates because two kinds of conversation lose different
+ * things. The companion template preserves a person: facts, preferences,
+ * promises, and the emotional shape of what happened. The coding template
+ * preserves work: the requirement, the files, what the tests said, what is still
+ * unconfirmed, and the next step. Using the companion template for a coding task
+ * produces a warm paragraph that cannot resume anything; using the coding
+ * template for a conversation about someone's week turns it into a ticket.
+ *
+ * The checkpoint's facts are not all model-written. `checkpoint.ts` appends a
+ * system-recorded work-evidence block after the model's narrative, and the
+ * prompt shows the model that evidence so the narrative agrees with it.
  */
 
 import { createHash } from 'node:crypto';
 import type { Message } from './types.ts';
+import type { CheckpointMode, WorkLedger } from './checkpoint.ts';
+import { renderWorkEvidence, splitCheckpoint } from './checkpoint.ts';
+import type { TaskBoardSnapshot } from './task-board.ts';
 import { truncateToTokens, type TokenEstimatorMode } from './tokens.ts';
 
 export interface SummaryRequest {
@@ -21,6 +30,12 @@ export interface SummaryRequest {
   readonly messages: readonly Message[];
   /** Hard cap for the summary model; also bounds the stored checkpoint. */
   readonly maxOutputTokens: number;
+  /** Which template to write. Missing means companion, the legacy behaviour. */
+  readonly mode?: CheckpointMode;
+  /** System-recorded work state for a coding checkpoint. */
+  readonly ledger?: WorkLedger | null;
+  /** The Team task board, when the conversation belongs to one. */
+  readonly board?: TaskBoardSnapshot | null;
 }
 
 export type SummaryGenerator = (request: SummaryRequest) => Promise<string>;
@@ -60,10 +75,69 @@ export const SUMMARY_SYSTEM_PROMPT = `你是长期陪伴对话的压缩器。把
 - 只输出检查点正文，不要调用工具。
 - 如果已有摘要，保留仍然成立的事实，删掉过时的，合并新信息；不要原样复述旧摘要。`;
 
-export const SUMMARY_PROMPT_VERSION = createHash('sha256')
-  .update(SUMMARY_SYSTEM_PROMPT)
-  .digest('hex')
-  .slice(0, 12);
+/**
+ * The coding template.
+ *
+ * Every section answers a question a resumed agent has to ask before it can act:
+ * what is the job, what changed, what is proven, what is unknown, what next, and
+ * which board task does it belong to. "What was proven" is deliberately separate
+ * from "what was done" — a changed file is not a passing test.
+ */
+export const CODING_SUMMARY_PROMPT = `你是编码任务的检查点压缩器。把「已有检查点」「系统记录的工作证据」和「新增对话」合并成一份检查点，让另一个模型在不丢失工作状态的情况下继续这个代码任务。
+
+只输出下面这个 Markdown 结构，保留每一节、按顺序；用简短 bullet，不写段落；某节没有内容就写“（无）”，不要删节。
+
+## 任务与约束
+- [用户要什么、验收标准、明确的约束、禁止事项、必须保留的行为；带原话]
+
+## 已完成
+- [已经实现或修改的行为，按结果写；没做完的写清停在哪一步]
+
+## 文件与改动理由
+- [真实改动过的路径 — 改了什么、为什么这样改；只写证据里出现过的文件，不猜路径]
+
+## 验证
+- [命令或检查 — 通过/失败/未确认；失败保留失败原因；没有运行就写“未验证”]
+
+## 待确认
+- [没有返回结果的工具调用、未知的外部副作用、尚未验证的假设]
+
+## 下一步
+- [下一个具体动作，以及依据（文件、命令或证据序号）]
+
+## 任务板
+- [任务 id — 状态 — 验收条件或未完成原因；没有任务板就写（无）]
+
+## 关键决定与原话
+- [用户明确要求、纠正、边界；逐字引用；没有则（无）]
+
+规则：
+- 用中文写，简洁、具体；保留路径、命令、退出码、任务 id 和原话。
+- 「工作证据」是系统记录的事实：与对话冲突时以证据为准并写明差异；不要编造文件、测试结果或退出码。
+- 不要把计划写成已完成；没做的事放进「下一步」或「待确认」。
+- 不要提到“摘要”“压缩”“检查点”“证据”这些词，也不要解释你在压缩。
+- 只输出检查点正文，不要调用工具。
+- 已有检查点里仍然成立的内容保留，过时的删掉；不要原样复述旧检查点。`;
+
+export function summarySystemPrompt(mode: CheckpointMode = 'companion'): string {
+  return mode === 'coding' ? CODING_SUMMARY_PROMPT : SUMMARY_SYSTEM_PROMPT;
+}
+
+/**
+ * A prompt version per template.
+ *
+ * One shared constant would make an evaluation recording unable to say which
+ * template produced it, which is exactly the comparison the version exists for.
+ */
+export function summaryPromptVersion(mode: CheckpointMode = 'companion'): string {
+  return createHash('sha256')
+    .update(`${mode}\n${summarySystemPrompt(mode)}`)
+    .digest('hex')
+    .slice(0, 12);
+}
+
+/** The legacy export: the companion template's version. */
+export const SUMMARY_PROMPT_VERSION = summaryPromptVersion('companion');
 
 const ROLE_LABEL: Readonly<Record<Message['role'], string>> = {
   user: '用户',
@@ -89,18 +163,23 @@ function summaryText(message: Message): string {
 }
 
 export function renderSummaryPrompt(request: SummaryRequest): string {
-  const previous = request.previousSummary?.trim();
+  const mode = request.mode ?? 'companion';
+  const previous = splitCheckpoint(request.previousSummary?.trim() ?? '').narrative.trim();
   const transcript = request.messages
     .map((message) => `${ROLE_LABEL[message.role]}：${summaryText(message)}`)
     .join('\n\n');
 
-  return [
-    '[已有摘要]',
-    previous && previous.length > 0 ? previous : '（无）',
-    '',
-    '[新增对话]',
-    transcript,
-  ].join('\n');
+  const sections = ['[已有检查点]', previous.length > 0 ? previous : '（无）', ''];
+
+  // Only the coding template has a work-evidence contract. Sending an empty
+  // section to a companion summary would invite the model to invent one.
+  if (mode === 'coding') {
+    const evidence = renderWorkEvidence(request.ledger ?? null, request.board ?? null);
+    sections.push('[系统记录的工作证据]', evidence.length > 0 ? evidence : '（无工具记录）', '');
+  }
+
+  sections.push('[新增对话]', transcript);
+  return sections.join('\n');
 }
 
 /**
@@ -116,7 +195,7 @@ export function renderArchivedSummary(summary: string): string {
   return [
     '# 更早的对话',
     '',
-    '这是系统自动生成的检查点，用来在上下文中保留更早的对话。把下面内容当作已经发生的背景，不要复述它，也不要提到“摘要”“压缩”或“检查点”；直接从后面的消息继续。',
+    '这是系统自动生成的检查点，用来在上下文中保留更早的对话和工作状态。把下面内容当作已经发生的背景，不要复述它，也不要提到“摘要”“压缩”或“检查点”；直接从后面的消息继续。',
     '',
     '<compacted-summary>',
     summary.trim(),

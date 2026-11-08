@@ -14,7 +14,7 @@ import { MODEL_IDS } from '../config.ts';
 import { defaultProviderId, providerFor, type ProviderAdapter } from '../provider/index.ts';
 import {
   renderSummaryPrompt,
-  SUMMARY_SYSTEM_PROMPT,
+  summarySystemPrompt,
   type SummaryGenerator,
 } from '../session/summary.ts';
 
@@ -28,7 +28,9 @@ export function createSummaryGenerator(
     const completion = await client.chat.completions.create({
       model,
       messages: [
-        { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
+        // The template is chosen by the caller, not here: only the session
+        // layer has the evidence window that decides whether this was coding.
+        { role: 'system', content: summarySystemPrompt(request.mode ?? 'companion') },
         { role: 'user', content: renderSummaryPrompt(request) },
       ],
       max_tokens: request.maxOutputTokens,

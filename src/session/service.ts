@@ -3,13 +3,17 @@
  *
  * This is the layer the HTTP and turn-orchestration code should use. It owns the
  * lifecycle vocabulary, the model-facing replay window, and the compaction
- * decision. It deliberately stops at two ports:
+ * decision. It deliberately stops at a small set of ports:
  *
  * - `SessionStore` for rows
  * - `SummaryGenerator` for the one model call compaction needs
+ * - `CheckpointEvidenceSource` for the recorded tool trace (optional)
+ * - `TaskBoardSource` for the Team task board (optional)
  *
- * Neither is a provider SDK. The session layer never learns how a summary is
- * produced, and the agent layer never learns where a boundary is stored.
+ * None is a provider SDK. The session layer never learns how a summary is
+ * produced, and the agent layer never learns where a boundary is stored. The two
+ * checkpoint ports are optional on purpose: a deployment without a Team runtime
+ * or a turn trace still compacts, just with less evidence.
  */
 
 import { log } from '../observability/logging.ts';
@@ -25,9 +29,20 @@ import type { SessionStore, ConversationListOptions, ConversationPatch } from '.
 import {
   cleanSummary,
   renderArchivedSummary,
-  SUMMARY_PROMPT_VERSION,
+  summaryPromptVersion,
   type SummaryGenerator,
 } from './summary.ts';
+import type { CheckpointEvidenceSource } from './checkpoint.ts';
+import {
+  composeCheckpoint,
+  parseCheckpoint,
+  resolveCheckpointMode,
+  splitCheckpoint,
+  type CheckpointMode,
+  type ParsedCheckpoint,
+  type WorkLedger,
+} from './checkpoint.ts';
+import type { TaskBoardSnapshot, TaskBoardSource } from './task-board.ts';
 import { estimateMessageTokens, estimateMessagesTokens, estimateTokens, truncateToTokens } from './tokens.ts';
 import type {
   Conversation,
@@ -46,6 +61,10 @@ export interface SessionServiceOptions {
   readonly summaryModel?: ModelProfile;
   /** Resolver for a pinned conversation model; defaults to the catalog. */
   readonly resolveModel?: (modelId: string) => ModelProfile;
+  /** Recorded tool trace, for the checkpoint's deterministic evidence half. */
+  readonly evidence?: CheckpointEvidenceSource;
+  /** The Team task board, when this process runs a Team runtime. */
+  readonly taskBoard?: TaskBoardSource;
   readonly now?: () => Date;
 }
 
@@ -63,6 +82,23 @@ export interface CompactionResult {
   readonly reason?: string;
 }
 
+/**
+ * The stored checkpoint, parsed for a reader.
+ *
+ * `narrative` is what the model wrote; `sections` and `evidence` are its
+ * structure, recovered without a second representation. The metadata is the
+ * boundary the checkpoint describes, so a client can tell two checkpoints apart
+ * without diffing text.
+ */
+export interface CheckpointView extends ParsedCheckpoint {
+  readonly conversationId: string;
+  readonly throughSeq: number;
+  readonly summaryTokens: number;
+  readonly model: string;
+  readonly promptVersion: string;
+  readonly updatedAt: Date;
+}
+
 const NOTHING_TO_KEEP = '（没有需要保留的内容）';
 
 export class SessionService {
@@ -72,6 +108,8 @@ export class SessionService {
   readonly #defaultModel: ModelProfile;
   readonly #summaryModel: ModelProfile;
   readonly #resolveModel: (modelId: string) => ModelProfile;
+  readonly #evidence: CheckpointEvidenceSource | undefined;
+  readonly #taskBoard: TaskBoardSource | undefined;
   readonly #now: () => Date;
 
   constructor(store: SessionStore, options: SessionServiceOptions = {}) {
@@ -81,6 +119,8 @@ export class SessionService {
     this.#defaultModel = options.model ?? defaultModelProfile();
     this.#summaryModel = options.summaryModel ?? summaryModelProfile();
     this.#resolveModel = options.resolveModel ?? modelProfile;
+    this.#evidence = options.evidence;
+    this.#taskBoard = options.taskBoard;
     this.#now = options.now ?? (() => new Date());
   }
 
@@ -280,6 +320,30 @@ export class SessionService {
   }
 
   /**
+   * The stored checkpoint, or null when this conversation has never compacted.
+   *
+   * Read-only and ownership-checked: the same id for another user is a missing
+   * conversation, not a forbidden one. A client uses this to show what survived
+   * and where the evidence points; a Team runtime uses it to seed a fresh
+   * member for an open task.
+   */
+  async checkpoint(userId: string, conversationId: string): Promise<CheckpointView | null> {
+    const conversation = await this.#store.getConversation(userId, conversationId);
+    if (!conversation) throw new Error(`conversation ${conversationId} not found`);
+    const summary = await this.#store.getSummary(conversationId);
+    if (!summary) return null;
+    return {
+      conversationId,
+      throughSeq: summary.throughSeq,
+      summaryTokens: summary.summaryTokens,
+      model: summary.model,
+      promptVersion: summary.promptVersion,
+      updatedAt: summary.updatedAt,
+      ...parseCheckpoint(summary.summary),
+    };
+  }
+
+  /**
    * Replace a prefix of the unsummarized history with a rolling summary.
    *
    * The protected tail (recent messages plus the current user message) is never
@@ -332,13 +396,25 @@ export class SessionService {
     );
     const chunks = chunkMessages(older, maxChunkTokens, mode);
 
+    // Read the work state before any model call. The evidence is a fact source
+    // for the prompt and the appendix; a trace read failure degrades to a
+    // narrative-only checkpoint instead of skipping compaction.
+    const context = await this.#checkpointContext(userId, conversationId, older);
+
     try {
-      let rolling = previous?.summary ?? null;
+      // The rolling summary is the narrative half only. The evidence appendix
+      // is rebuilt from the trace below, so carrying the old one into the model
+      // prompt would let a copy of last compaction's facts compete with this
+      // one's.
+      let rolling = previous ? splitCheckpoint(previous.summary).narrative : null;
       for (const chunk of chunks) {
         const raw = await this.#summarize({
           previousSummary: rolling,
           messages: chunk,
           maxOutputTokens: this.#config.summaryTargetTokens,
+          mode: context.mode,
+          ...(context.ledger ? { ledger: context.ledger } : {}),
+          ...(context.board ? { board: context.board } : {}),
         });
         const cleaned = cleanSummary(raw, this.#config.summaryTargetTokens, mode);
         if (!cleaned) throw new Error('summary model returned an empty summary');
@@ -348,11 +424,19 @@ export class SessionService {
       }
 
       if (!rolling) return noop('empty_summary');
-      const summary = truncateToTokens(
-        rolling,
-        this.#config.summaryTargetTokens,
-        mode,
-      );
+      // `composeCheckpoint` owns the budget split between narrative and
+      // evidence; pre-truncating here would spend the evidence's reserve on the
+      // narrative and then cut the facts anyway.
+      const summary =
+        context.mode === 'coding'
+          ? composeCheckpoint(
+              rolling,
+              context.ledger,
+              context.board,
+              this.#config.summaryTargetTokens,
+              mode,
+            )
+          : truncateToTokens(rolling, this.#config.summaryTargetTokens, mode);
 
       // A checkpoint that is not smaller than what it replaces has not freed
       // context. Refuse it instead of advancing the boundary and making the
@@ -374,7 +458,7 @@ export class SessionService {
         throughSeq: older[older.length - 1]!.seq,
         summaryTokens: estimateTokens(summary, mode),
         model: this.#summaryModel.id,
-        promptVersion: SUMMARY_PROMPT_VERSION,
+        promptVersion: summaryPromptVersion(context.mode),
         updatedAt: this.#now(),
       };
       await this.#store.saveSummary(record);
@@ -386,6 +470,10 @@ export class SessionService {
         through_seq: record.throughSeq,
         summary_tokens: record.summaryTokens,
         model: record.model,
+        checkpoint_mode: context.mode,
+        evidence_files: context.ledger?.files.length ?? 0,
+        pending_confirmations: context.ledger?.pending.length ?? 0,
+        board_tasks: context.board?.tasks.length ?? 0,
       });
 
       return {
@@ -428,6 +516,56 @@ export class SessionService {
       if (result.compacted) compacted += 1;
     }
     return compacted;
+  }
+
+  /**
+   * The work state for one compaction.
+   *
+   * Both reads are optional and both failures are contained. A checkpoint with
+   * no evidence is worse than one with; a compaction that throws because an
+   * audit query failed is worse than both, because it leaves the conversation
+   * uncompacted and the next request rejected.
+   */
+  async #checkpointContext(
+    userId: string,
+    conversationId: string,
+    older: readonly Message[],
+  ): Promise<{
+    readonly mode: CheckpointMode;
+    readonly ledger: WorkLedger | null;
+    readonly board: TaskBoardSnapshot | null;
+  }> {
+    if (!this.#config.checkpointEnabled) {
+      return { mode: 'companion', ledger: null, board: null };
+    }
+
+    const before = older[older.length - 1]?.createdAt;
+    const [ledger, board] = await Promise.all([
+      this.#evidence && before
+        ? this.#evidence.collect(conversationId, { before }).catch((error: unknown) => {
+            log.warn('session.checkpoint_evidence_failed', {
+              conversation_id: conversationId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+          })
+        : Promise.resolve(null),
+      this.#taskBoard
+        ? this.#taskBoard.snapshot(userId, conversationId).catch((error: unknown) => {
+            log.warn('session.checkpoint_board_failed', {
+              conversation_id: conversationId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+          })
+        : Promise.resolve(null),
+    ]);
+
+    return {
+      mode: resolveCheckpointMode(this.#config.checkpointMode, older, ledger, board),
+      ledger,
+      board,
+    };
   }
 
   #shouldCompact(
