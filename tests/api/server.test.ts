@@ -614,6 +614,65 @@ describe('conversation lifecycle', () => {
   });
 });
 
+describe('the checkpoint endpoint', () => {
+  it('returns null before the first compaction and the parsed checkpoint after it', async () => {
+    const cookie = await newIdentity();
+    const created = await api('/api/conversations', { method: 'POST', cookie });
+    const id = created.body.conversation.id as string;
+
+    const empty = await api(`/api/conversations/${id}/checkpoint`, { cookie });
+    expect(empty.status).toBe(200);
+    expect(empty.body.checkpoint).toBeNull();
+
+    await store.saveSummary({
+      conversationId: id,
+      summary: [
+        '## 任务与约束',
+        '- 拆分 compact',
+        '',
+        '## 工作证据（自动记录）',
+        '### 文件变更',
+        '- `src/session/service.ts` · 修改 2 次 · 最后一次成功（turn turn-1/seq 3）',
+        '### 命令与验证',
+        '- 失败 · `npm test` · 退出码 1（turn turn-1/seq 5）',
+        '### 任务板',
+        '- `task-1` [running] 拆分 compact · 验收：npm test 通过',
+      ].join('\n'),
+      throughSeq: 7,
+      summaryTokens: 120,
+      model: 'deepseek-flash',
+      promptVersion: 'v1',
+      updatedAt: new Date(),
+    });
+
+    const response = await api(`/api/conversations/${id}/checkpoint`, { cookie });
+    expect(response.status).toBe(200);
+    expect(response.body.checkpoint).toMatchObject({
+      mode: 'coding',
+      throughSeq: 7,
+      model: 'deepseek-flash',
+    });
+    expect(response.body.checkpoint.evidence.files[0]).toMatchObject({
+      path: 'src/session/service.ts',
+      lastStatus: 'passed',
+    });
+    expect(response.body.checkpoint.evidence.verifications[0]).toMatchObject({
+      status: 'failed',
+      command: 'npm test',
+      exitCode: 1,
+    });
+    expect(response.body.checkpoint.evidence.board[0]).toMatchObject({
+      id: 'task-1',
+      status: 'running',
+    });
+
+    // Another identity sees a 404, not an empty checkpoint: ownership is part of
+    // the question, not a filter applied afterwards.
+    const other = await newIdentity();
+    expect((await api(`/api/conversations/${id}/checkpoint`, { cookie: other })).status).toBe(404);
+  });
+});
+
 describe('the memory endpoints', () => {
   it('lists memories and whether retrieval is on', async () => {
     const cookie = await newIdentity();

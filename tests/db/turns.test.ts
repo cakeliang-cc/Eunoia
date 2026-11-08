@@ -65,6 +65,55 @@ function record(overrides: Partial<TurnRecord> = {}): TurnRecord {
 }
 
 describe('turn admission in SQLite', () => {
+  it('lists a conversation trace oldest-first, bounded by time and row count', async () => {
+    const { userId, conversationId } = await seeded();
+    const other = await store.createConversation(userId);
+    const turn = record({ userId, conversationId });
+    const otherTurn = record({ userId, conversationId: other.id });
+    await store.createTurn(turn);
+    await store.createTurn(otherTurn);
+
+    await store.appendTurnEvent({
+      turnId: turn.id,
+      conversationId,
+      kind: 'tool_call',
+      callId: 'c1',
+      toolName: 'read',
+      status: 'running',
+      payload: { arguments: '{"file_path":"a.ts"}' },
+    });
+    await store.appendTurnEvent({
+      turnId: turn.id,
+      conversationId,
+      kind: 'tool_result',
+      callId: 'c1',
+      toolName: 'read',
+      status: 'succeeded',
+      payload: { ok: true },
+    });
+    await store.appendTurnEvent({
+      turnId: otherTurn.id,
+      conversationId: other.id,
+      kind: 'tool_call',
+      callId: 'c2',
+      toolName: 'bash',
+      status: 'running',
+      payload: {},
+    });
+
+    const all = await store.listConversationTurnEvents(conversationId);
+    expect(all.map((entry) => entry.kind)).toEqual(['tool_call', 'tool_result']);
+    expect(all[0]?.payload.arguments).toBe('{"file_path":"a.ts"}');
+
+    const newest = await store.listConversationTurnEvents(conversationId, { limit: 1 });
+    expect(newest.map((entry) => entry.kind)).toEqual(['tool_result']);
+
+    const beforeEverything = await store.listConversationTurnEvents(conversationId, {
+      before: new Date('2000-01-01T00:00:00.000Z'),
+    });
+    expect(beforeEverything).toEqual([]);
+  });
+
   it('refuses a second running turn in the same conversation at the index', async () => {
     const { userId, conversationId } = await seeded();
     expect(await store.createTurn(record({ userId, conversationId }))).toBe('created');

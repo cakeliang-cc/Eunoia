@@ -31,6 +31,7 @@
 - [图片 Token 与请求预算](./design/eunoia-图片Token与请求预算.md)
 - [前缀缓存与模型轨迹亮点介绍](./features/eunoia-前缀缓存与模型轨迹亮点介绍.md)
 - [模型轨迹与前缀缓存验收报告](./features/eunoia-模型轨迹与前缀缓存验收报告.md)
+- [长任务检查点验收报告](./features/eunoia-长任务检查点验收报告.md)
 - [简历项目经历](./features/eunoia-简历项目经历.md)
 
 ## 项目研究

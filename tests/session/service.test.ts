@@ -13,8 +13,10 @@ import { InMemoryStore } from '../../src/db/in-memory-store.ts';
 import { MODEL_IDS } from '../../src/config.ts';
 import { modelProfile } from '../../src/models/registry.ts';
 import { DEFAULT_SESSION_CONFIG, type SessionConfig } from '../../src/session/config.ts';
+import { EVIDENCE_HEADING, type WorkLedger } from '../../src/session/checkpoint.ts';
 import { SessionService } from '../../src/session/service.ts';
-import type { SummaryRequest } from '../../src/session/summary.ts';
+import { summaryPromptVersion, type SummaryRequest } from '../../src/session/summary.ts';
+import type { TaskBoardSnapshot } from '../../src/session/task-board.ts';
 
 const USER = 'user-1';
 
@@ -209,5 +211,259 @@ describe('SessionService compaction', () => {
     expect(compacted).toBe(1);
     expect((await store.getSummary(conversationId))?.summary).toBe('空闲摘要');
     expect(await store.listMessages(USER, conversationId)).toHaveLength(6);
+  });
+});
+
+/**
+ * The task checkpoint's wiring.
+ *
+ * The unit tests in `checkpoint.test.ts` prove the ledger and the prompt. These
+ * prove the service actually reads the trace, asks for the right template, and
+ * stores facts rather than model recollection.
+ */
+describe('SessionService task checkpoints', () => {
+  const ledger: WorkLedger = {
+    toolCalls: 2,
+    files: [
+      {
+        path: 'src/session/service.ts',
+        operation: 'edit',
+        calls: 2,
+        lastStatus: 'passed',
+        evidence: 'turn turn-1/seq 3',
+      },
+    ],
+    commands: [
+      {
+        command: 'npm test',
+        kind: 'test',
+        status: 'failed',
+        exitCode: 1,
+        outputTail: '1 failed',
+        evidence: 'turn turn-1/seq 5',
+      },
+    ],
+    pending: [
+      {
+        toolName: 'bash',
+        summary: '运行 npm run build',
+        reason: 'no_result',
+        evidence: 'turn turn-1/seq 7',
+      },
+    ],
+    searched: false,
+    trace: ['turn turn-1（2026-11-08T09:00:00Z）· 2 次工具调用'],
+  };
+
+  const board: TaskBoardSnapshot = {
+    runId: 'run-1',
+    tasks: [
+      {
+        id: 'task-1',
+        title: '拆分 compact',
+        status: 'running',
+        required: true,
+        acceptance: 'npm test 通过',
+      },
+    ],
+  };
+
+  const narrative = [
+    '## 任务与约束',
+    '- 拆分 compact，保持旧摘要行为',
+    '## 文件与改动理由',
+    '- src/session/service.ts — 抽出上下文收集',
+    '## 下一步',
+    '- 跑 npm test',
+  ].join('\n');
+
+  it('asks for the coding template and stores the evidence and board', async () => {
+    const { store, conversationId, messages } = await seed(6);
+    const requests: SummaryRequest[] = [];
+    const sessions = new SessionService(store, {
+      config: config({ summaryTargetTokens: 2_000 }),
+      summarize: async (request) => {
+        requests.push(request);
+        return narrative;
+      },
+      evidence: { collect: async () => ledger },
+      taskBoard: { snapshot: async () => board },
+    });
+
+    const result = await sessions.compact(USER, conversationId, {
+      protectSeq: messages.at(-1)!.seq,
+    });
+
+    expect(result.compacted).toBe(true);
+    expect(requests[0]?.mode).toBe('coding');
+    expect(requests[0]?.ledger).toEqual(ledger);
+    expect(requests[0]?.board).toEqual(board);
+
+    const stored = await store.getSummary(conversationId);
+    expect(stored?.summary).toContain('## 任务与约束');
+    expect(stored?.summary).toContain(EVIDENCE_HEADING);
+    expect(stored?.summary).toContain('src/session/service.ts');
+    expect(stored?.summary).toContain('npm test');
+    expect(stored?.summary).toContain('没有返回结果');
+    expect(stored?.summary).toContain('task-1');
+    expect(stored?.promptVersion).toBe(summaryPromptVersion('coding'));
+  });
+
+  it('rebuilds the appendix instead of carrying the previous one forward', async () => {
+    const { store, conversationId, messages } = await seed(6);
+    await store.saveSummary({
+      conversationId,
+      summary: [
+        '## 任务与约束',
+        '- 旧任务',
+        '',
+        EVIDENCE_HEADING,
+        '### 文件变更',
+        '- `src/old.ts` · 修改 1 次 · 最后一次成功（turn old/seq 1）',
+      ].join('\n'),
+      throughSeq: messages[0]!.seq,
+      summaryTokens: 20,
+      model: 'test',
+      promptVersion: 'old',
+      updatedAt: new Date(),
+    });
+
+    const requests: SummaryRequest[] = [];
+    const sessions = new SessionService(store, {
+      config: config({ summaryTargetTokens: 2_000 }),
+      summarize: async (request) => {
+        requests.push(request);
+        return narrative;
+      },
+      evidence: { collect: async () => ledger },
+    });
+
+    await sessions.compact(USER, conversationId, { protectSeq: messages.at(-1)!.seq });
+
+    expect(requests[0]?.previousSummary).toBe('## 任务与约束\n- 旧任务');
+    const stored = await store.getSummary(conversationId);
+    expect(stored?.summary).not.toContain('src/old.ts');
+    expect(stored?.summary).toContain('src/session/service.ts');
+  });
+
+  it('falls back to the companion template when checkpoints are disabled', async () => {
+    const { store, conversationId, messages } = await seed(6);
+    const requests: SummaryRequest[] = [];
+    const sessions = new SessionService(store, {
+      config: config({
+        checkpointEnabled: false,
+        checkpointMode: 'coding',
+        summaryTargetTokens: 2_000,
+      }),
+      summarize: async (request) => {
+        requests.push(request);
+        return narrative;
+      },
+      evidence: { collect: async () => ledger },
+      taskBoard: { snapshot: async () => board },
+    });
+
+    await sessions.compact(USER, conversationId, { protectSeq: messages.at(-1)!.seq });
+
+    expect(requests[0]?.mode).toBe('companion');
+    expect(requests[0]?.ledger).toBeUndefined();
+    expect(requests[0]?.board).toBeUndefined();
+    const stored = await store.getSummary(conversationId);
+    expect(stored?.summary).not.toContain(EVIDENCE_HEADING);
+    expect(stored?.promptVersion).toBe(summaryPromptVersion('companion'));
+  });
+
+  it('honours a forced companion mode even when the trace is coding', async () => {
+    const { store, conversationId, messages } = await seed(6);
+    const requests: SummaryRequest[] = [];
+    const sessions = new SessionService(store, {
+      config: config({ checkpointMode: 'companion', summaryTargetTokens: 2_000 }),
+      summarize: async (request) => {
+        requests.push(request);
+        return narrative;
+      },
+      evidence: { collect: async () => ledger },
+    });
+
+    await sessions.compact(USER, conversationId, { protectSeq: messages.at(-1)!.seq });
+
+    expect(requests[0]?.mode).toBe('companion');
+    expect((await store.getSummary(conversationId))?.summary).not.toContain(EVIDENCE_HEADING);
+  });
+
+  it('does not fail compaction when the trace or the board cannot be read', async () => {
+    const { store, conversationId, messages } = await seed(6);
+    const sessions = new SessionService(store, {
+      config: config({ summaryTargetTokens: 2_000 }),
+      summarize: async () => narrative,
+      evidence: {
+        collect: async () => {
+          throw new Error('trace unavailable');
+        },
+      },
+      taskBoard: {
+        snapshot: async () => {
+          throw new Error('board unavailable');
+        },
+      },
+    });
+
+    const result = await sessions.compact(USER, conversationId, {
+      protectSeq: messages.at(-1)!.seq,
+    });
+
+    expect(result.compacted).toBe(true);
+    const stored = await store.getSummary(conversationId);
+    // The conversation is still compacted; only the appendix is missing.
+    expect(stored?.summary).toBe(narrative);
+  });
+
+  it('uses the coding template on the automatic prepare path', async () => {
+    const { store, conversationId, messages } = await seed(6);
+    const requests: SummaryRequest[] = [];
+    const sessions = new SessionService(store, {
+      config: config({ summaryTargetTokens: 2_000 }),
+      summarize: async (request) => {
+        requests.push(request);
+        return narrative;
+      },
+      evidence: { collect: async () => ledger },
+    });
+
+    const replay = await sessions.prepare(USER, conversationId, {
+      protectSeq: messages.at(-1)!.seq,
+    });
+
+    // `prepare` is the real trigger: compaction happens inside it when the
+    // window crosses the trigger ratio, so the checkpoint must appear there.
+    expect(requests[0]?.mode).toBe('coding');
+    expect(replay.summary).toContain(EVIDENCE_HEADING);
+    expect(replay.throughSeq).toBe(messages.at(-2)!.seq);
+  });
+
+  it('exposes the stored checkpoint as structure for readers', async () => {    const { store, conversationId, messages } = await seed(6);
+    const sessions = new SessionService(store, {
+      config: config({ summaryTargetTokens: 2_000 }),
+      summarize: async () => narrative,
+      evidence: { collect: async () => ledger },
+      taskBoard: { snapshot: async () => board },
+    });
+
+    await sessions.compact(USER, conversationId, { protectSeq: messages.at(-1)!.seq });
+
+    const checkpoint = await sessions.checkpoint(USER, conversationId);
+    expect(checkpoint).not.toBeNull();
+    expect(checkpoint?.mode).toBe('coding');
+    expect(checkpoint?.throughSeq).toBe(messages.at(-2)!.seq);
+    expect(checkpoint?.sections[0]?.title).toBe('任务与约束');
+    expect(checkpoint?.evidence?.files[0]?.path).toBe('src/session/service.ts');
+    expect(checkpoint?.evidence?.verifications[0]?.status).toBe('failed');
+    expect(checkpoint?.evidence?.board[0]?.id).toBe('task-1');
+  });
+
+  it('returns null for a conversation that has never compacted', async () => {
+    const { store, conversationId } = await seed(2);
+    const sessions = new SessionService(store, { config: config() });
+    expect(await sessions.checkpoint(USER, conversationId)).toBeNull();
   });
 });

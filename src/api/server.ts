@@ -24,6 +24,7 @@ import { installProvider } from '../agent/model-client.ts';
 import { createSummaryGenerator } from '../agent/summarizer.ts';
 import type { AgentOptions } from '../agent/infp-agent.ts';
 import { PROMPT_VERSION } from '../agent/instructions.ts';
+import { createTurnEvidenceSource } from '../service/checkpoint-evidence.ts';
 import { log } from '../observability/logging.ts';
 import { installTracing } from '../observability/tracing.ts';
 import type { ConversationPatch } from '../session/store.ts';
@@ -2235,6 +2236,22 @@ export function createApp(deps: AppDependencies) {
       return true;
     }
 
+    const checkpointMatch = /^\/api\/conversations\/([0-9a-f-]{36})\/checkpoint$/.exec(pathname);
+    if (req.method === 'GET' && checkpointMatch) {
+      const userId = await identify(req, res);
+      const id = checkpointMatch[1] as string;
+      const conversation = await sessions.get(userId, id);
+      if (!conversation) {
+        sendJson(res, 404, { error: 'conversation not found' });
+        return true;
+      }
+      // `null` is a real answer: the conversation has never compacted, so there
+      // is no checkpoint to show. It is not the same as a missing conversation.
+      const checkpoint = await sessions.checkpoint(userId, id);
+      sendJson(res, 200, { checkpoint });
+      return true;
+    }
+
     const conversationMatch = /^\/api\/conversations\/([0-9a-f-]{36})$/.exec(pathname);
 
     if (req.method === 'GET' && conversationMatch) {
@@ -2557,6 +2574,10 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     model,
     summaryModel,
     summarize: createSummaryGenerator(provider, summaryModel.id),
+    // The trace is the checkpoint's factual half. A deployment without a Team
+    // runtime leaves `taskBoard` unset; the evidence block still carries files,
+    // commands and unconfirmed calls.
+    evidence: createTurnEvidenceSource(store),
   });
   log.info('server.session', {
     compaction: config.compactionEnabled,
@@ -2574,6 +2595,8 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     summary_chunk_tokens: config.summaryMaxInputTokens,
     idle_compact_minutes: config.idleCompactMinutes,
     token_estimator: config.tokenEstimator,
+    checkpoint_enabled: config.checkpointEnabled,
+    checkpoint_mode: config.checkpointMode,
   });
 
   const workspaceSettings = workspaceConfig();

@@ -36,6 +36,26 @@
   `docs/mcp/acceptance.md`（BLOCKED 项不冒充 PASS）。
 
 
+### Added（长任务检查点，ADR 035）
+
+- **编码任务压缩保留工作状态。** 新增编码检查点模板：任务与约束、已完成、文件与
+  改动理由、验证、待确认、下一步、任务板、关键决定与原话。陪伴模板保留；`auto`
+  按工具轨迹、任务板或代码信号选择，`SESSION_CHECKPOINT_MODE` 可强制。
+- **证据由系统记录，不靠模型回忆。** 压缩时从 `turn_events` 重建文件变更、命令与
+  退出码、失败输出尾部、无结果/未知结果调用和证据索引，追加在模型叙述之后。证据
+  每次重建，旧附录在送回摘要模型前剥离；验证态区分通过、失败、未确认。
+- **检查点与 Team 任务板衔接。** `TaskBoardSource` 把看板快照写进证据块；
+  `renderTaskBrief` 用检查点为 fresh 成员生成有界任务简报。Team 运行时不在本次范围，
+  端口与契约已固定。
+- **只读检查点 API。** `GET /api/conversations/:id/checkpoint` 返回模式、章节、
+  文件/验证/待确认/任务板与边界元数据；未压缩返回 `null`。
+- **无需迁移。** 检查点仍是 `conversation_summaries.summary` 文本，结构由同一文本
+  解析；关闭开关即回到旧行为。`SESSION_CHECKPOINT_ENABLED`/`SESSION_CHECKPOINT_MODE`
+  见 `.env.example`。
+- **验收。** 新增 7 个测试文件/用例组，覆盖配对、三态验证、模板、预算、旧附录、
+  失败降级、SQLite 事件查询与 API；`npm test` 1412 通过、27 跳过。
+  证据在 `docs/features/eunoia-长任务检查点验收报告.md`。
+
 ### Added（模型轨迹与前缀缓存，ADR 032）
 
 - **聊天消息与模型轨迹分成两份事实。** `model_items` 按序保存模型实际看到/产生的
