@@ -29,3 +29,8 @@ docs/myfree
 
 # Headless Chrome profile created by `npm run browser:check`.
 .chrome-check-*
+
+# Personal/local images accidentally picked up by an earlier commit.
+/portrait_30KB.jpg
+/证件照_30K.jpg
+/resource/*.png

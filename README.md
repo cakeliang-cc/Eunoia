@@ -33,6 +33,21 @@ npm run dev                # http://127.0.0.1:8787
   `npm run backup:verify -- <backup-directory>` 校验恢复前的文件。过期草稿用
   `npm run cleanup:media` 清理。
 
+
+## 模型轨迹与前缀缓存
+
+- 稳定提示词、动态背景和模型实际回放轨迹分开管理。`MODEL_TRANSCRIPT_MODE=durable`
+  会把用户内容、背景更新、分步助手回复、reasoning 与工具结果按顺序存进 SQLite，
+  重启后继续同一阶段；压缩、重生、换模型或崩溃恢复建立显式新阶段。
+- 背景按命名块比较：未变不追加、变化追加快照、清空发 tombstone；本轮资料只对当前
+  回合生效。回放不执行工具，未知结果不自动重跑。
+- `MODEL_TRANSCRIPT_MODE` 代码默认 `legacy`（升级安全），本部署在 `.env` 设为
+  `durable`；回滚改回 legacy 并重启即可。详见
+  [ADR 032](docs/adr/032-model-transcript-and-prefix-cache.md) 和
+  [验收报告](docs/features/eunoia-模型轨迹与前缀缓存验收报告.md)。
+- 离线对照：`npm run experiment:transcript`；真实调用需显式 `--live`，并有请求与
+  Token 上限。结果写入 `docs/research/prefix-cache/experiments/`，不覆盖旧结果。
+
 ## 文档
 
 - [项目文档目录](docs/README.md)

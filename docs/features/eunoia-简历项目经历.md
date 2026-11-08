@@ -29,7 +29,7 @@ Eunoia 是一个面向代码任务的多模态 Agent。我主要围绕“模型�
 
 ## 事实依据与成果边界
 
-核对日期：2026 年 11 月 8 日。参考已提交基线 `824d369` 与当前代码，正文仅采用已有完整链路的能力；正在修改的持久模型轨迹不列为已交付成果。
+核对日期：2026 年 11 月 8 日。参考基线 `824d369` 与当前代码；持久模型轨迹已在本次交付完成并通过 A01–A32 与真实 smoke S01–S03，可作为上下文管理条目的补充介绍。
 
 | 简历条目 | 代码或验收依据 |
 | --- | --- |
@@ -38,6 +38,7 @@ Eunoia 是一个面向代码任务的多模态 Agent。我主要围绕“模型�
 | 互斥、幂等与执行对账 | `src/service/turns.ts`、`src/service/recovery.ts`、`src/service/turn-recorder.ts`、[ADR 027](../adr/027-turn-admission-and-idempotency.md)、[ADR 028](../adr/028-execution-history-and-recovery.md) |
 | 上下文预算与技能加载 | `src/agent/context-budget.ts`、`src/session/service.ts`、`src/skills/registry.ts`、`src/tools/skill.ts`、[ADR 030](../adr/030-per-request-context-budget.md) |
 | 多模态 | `src/agent/content.ts`、`src/agent/request-plan.ts`、`src/media/`、[ADR 031](../adr/031-multimodal.md)、[一期验收报告](../multimodal-acceptance.md) |
+| 模型轨迹与状态边界 | `src/session/model-transcript.ts`、`src/service/model-transcript.ts`、`src/agent/context-projection.ts`、[ADR 032](../adr/032-model-transcript-and-prefix-cache.md)、[验收报告](./eunoia-模型轨迹与前缀缓存验收报告.md) |
 | Web 与流式协议 | `web/app.js`、`src/api/sse.ts`、`tests/web/`、`tests/api/` |
 
 以下数据只适合附带对应证据介绍，不直接写成生产收益：
@@ -45,4 +46,4 @@ Eunoia 是一个面向代码任务的多模态 Agent。我主要围绕“模型�
 - 多模态一期验收报告记录 1325 项测试通过、27 项跳过，以及 3 项真实端点 smoke 通过。这是该次交付记录，不是本次重新执行全仓测试的结果。
 - 前缀缓存合成长回复对照中，输入参考费用下降 32.07%、含输出总参考费用下降 12.46%。该实验绕过了项目实际 SDK 适配器，不能描述为线上调用成本已降低 32%。详见 [实验评估](../research/prefix-cache/eunoia-前缀缓存方案对照评估.md)。
 
-正文不宣称生产环境已部署 gVisor、全部文件操作均在容器内执行、模型间缓存可迁移，或已经实现跨轮完整模型轨迹恢复。它们都有独立实现条件或尚待验收的边界。
+正文不宣称生产环境已部署 gVisor、全部文件操作均在容器内执行，或模型间缓存可迁移。持久模型轨迹已实现并验收，但真实费用收益只按 S01 小样本表述（输入长度 +36.46%、总参考费用 −2.47%），不宣称固定节省。

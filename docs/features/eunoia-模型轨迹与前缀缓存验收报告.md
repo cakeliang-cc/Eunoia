@@ -162,9 +162,11 @@ npm test              # 1371 passed / 27 skipped
 npm run browser:check # 见 docs/captures/browser-check.json
 ```
 
-`browser:check` 使用仓库脚本的实际启动方式；本次验证了页面加载、刷新、停止/继续、
-重新生成与错误路径的既有契约。没有真实浏览器能力时该项应标记为条件性结果，而不是
-全部验收通过；本次记录以脚本输出为准。
+`browser:check` 使用仓库脚本的实际启动方式，实际覆盖多模态 composer 的 390px/
+桌面布局、图片上传和预览；输出见 `docs/captures/browser-check.json`。刷新、停止/
+继续、重新生成、错误路径由 `tests/web/client.test.ts`、`tests/api/concurrency.test.ts`、
+`tests/api/server.test.ts` 的既有契约覆盖，**不是**真实浏览器证据；本报告不把它们
+写成浏览器验收通过。
 
 ## 7. 默认开关决定
 

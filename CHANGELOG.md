@@ -8,6 +8,32 @@
 
 ## [Unreleased]
 
+
+### Added（模型轨迹与前缀缓存，ADR 032）
+
+- **聊天消息与模型轨迹分成两份事实。** `model_items` 按序保存模型实际看到/产生的
+  用户内容、背景、分步助手回复、reasoning 与完整工具结果；`model_epochs` 冻结提示词/
+  工具/provider/model/编码版本；`model_steps` 保存每次请求尝试；`model_context_state`
+  保存背景块比较基线。回放只重放数据，不执行工具。
+- **背景按变化追加。** 关系、叙事、权限、目录、技能、工具说明、时钟是持续块；未变
+  不追加，变化追加快照，清空发 tombstone；本轮记忆/附件/继续/安全指令带 requestId，
+  下一回合失效。时钟按分钟去重，循环内不每步刷新。
+- **阶段边界明确。** 压缩、重生、提示词/工具变化、模型/provider 变化、停止恢复、
+  安全替换、未配对工具调用都会开启新 epoch 并记录原因；旧 epoch 保留可审计。
+  活动窗口是 item id 的有序视图，裁剪后下一步与重启沿用同一视图。
+- **全链路逐请求计量。** `model_steps.usage` 保存每次尝试；`turn_usage` 汇总已知
+  输入/输出/命中/写入与缺失标记；`lastRequestUsage`、`turnUsage`、`contextTokens`
+  三个口径分开。缺字段为 null，不改写成 0。
+- **schema v10。** 新增四张表和 `turn_requests.turn_usage`；增量、幂等、可重跑。
+  删除会话/用户级联清理轨迹；媒体引用统计包含可回放轨迹；备份快照自动包含新表。
+- **开关与恢复。** `MODEL_TRANSCRIPT_MODE=legacy|durable`；代码默认 legacy（升级
+  安全），本部署在 `.env` 启用 durable。旧库首次 durable 建 `legacy-seed` 基线；
+  未闭合工具调用建 `recovery-boundary`，说明「结果未知，未自动重跑」。
+- **验收。** A01–A32 离线契约、既有全量回归；真实 DeepSeek S01–S03：S01 输入长度
+  +36.46%、含输出总参考费用 −2.47%，S02 工具往返通过，S03 同 epoch 重启且工具零
+  重跑。证据在 `docs/features/eunoia-模型轨迹与前缀缓存验收报告.md` 与
+  `docs/research/prefix-cache/experiments/`。ADR：`docs/adr/032-model-transcript-and-prefix-cache.md`。
+
 ### Added（多模态图片输入，ADR 031）
 
 - **一条真正的图片输入链路。** 私有不可变资源（原图 / 归一化 / 请求变体）、
