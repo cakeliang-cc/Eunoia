@@ -127,6 +127,14 @@ export interface LoopTranscript {
     readonly status: 'incomplete' | 'failed' | 'unknown';
     readonly error: string;
   }): Promise<void>;
+  /**
+   * Record items injected between steps (a Team mailbox delivery).
+   *
+   * Without this, the loop's input would be longer than the transcript's and the
+   * next request would be refused as drift. The items are written before the
+   * request that carries them, so replay remains exact.
+   */
+  appendInput?(items: readonly LoopInputItem[]): Promise<void>;
 }
 
 export class ModelTranscriptUnavailableError extends Error {
@@ -172,6 +180,24 @@ export interface AgentLoopOptions {
   readonly media?: PreparedMediaPlan;
   /** Durable replay recorder. Absent in legacy mode and in evaluation runs. */
   readonly transcript?: LoopTranscript;
+  /**
+   * Items appended at the start of a model step.
+   *
+   * This is the mailbox seam for a Team member: a message that arrived while a
+   * member was busy is delivered before the next request, never in the middle
+   * of a tool group. The hook runs before the transcript records the request,
+   * so an injected message is persisted in the same immutable prefix the model
+   * actually saw. Returning nothing is the normal case.
+   */
+  readonly beforeStep?: (step: number) => Promise<readonly LoopInputItem[] | void>;
+  /**
+   * Called after a step's output has been persisted, before its tools run.
+   *
+   * The mailbox marks delivered messages processed here: "the model has finished
+   * a step that contained it" is the point after which re-delivery would be a
+   * duplicate, not a recovery.
+   */
+  readonly afterStep?: (step: number) => Promise<void>;
 }
 
 interface CallPlan {
@@ -253,6 +279,30 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
   try {
     for (let step = 1; step <= maxSteps; step += 1) {
       throwIfAborted(options.signal);
+
+      // Mailbox before the request, never inside a tool group: the item becomes
+      // part of the immutable request the transcript records below.
+      if (options.beforeStep) {
+        const injected = await options.beforeStep(step);
+        if (injected && injected.length > 0) {
+          input = [...input, ...injected];
+          if (options.transcript?.appendInput) {
+            try {
+              await options.transcript.appendInput(injected);
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              yield {
+                type: 'error',
+                message: `协作消息无法写入模型轨迹，本次请求没有发送（MODEL_TRANSCRIPT_UNAVAILABLE）。${message}`,
+                retryable: false,
+                finishReason: 'failed',
+                code: 'MODEL_TRANSCRIPT_UNAVAILABLE',
+              };
+              return;
+            }
+          }
+        }
+      }
 
       // Budget the request that is about to be sent, not the history that was
       // budgeted before the turn started.
@@ -442,6 +492,10 @@ export async function* runAgentLoop(options: AgentLoopOptions): AsyncIterable<Ag
         }
         attemptRef.completed = true;
       }
+
+      // The step is durably recorded; a mailbox item delivered into it counts
+      // as processed now, not when the activation ends (which may be later).
+      if (options.afterStep) await options.afterStep(step);
 
       // The model must see its own calls before their results, and reasoning is
       // replayed because DeepSeek requires it on tool-call turns.

@@ -18,6 +18,7 @@
  */
 
 import { SANDBOX_SCHEMA } from '../sandbox/schema.ts';
+import { TEAM_SCHEMA } from '../teams/schema.ts';
 
 /**
  * Version 2 adds the sandbox platform's tables (ADR 017); version 3 records the
@@ -51,10 +52,15 @@ import { SANDBOX_SCHEMA } from '../sandbox/schema.ts';
  * background-block comparison baseline). It also adds `turn_requests.turn_usage`
  * so a turn can report summed step usage without pretending it is a bill.
  * Version 10 is additive and idempotent.
+ * Version 12 adds the Agent Team/Subagent domain: teams, runs, members,
+ * activations, tasks, attempts, messages, artifacts, events and the whole-team
+ * budget ledger (ADR 034). It is additive and idempotent, so an interrupted
+ * migration can be re-run and a fresh database applies it as a no-op because
+ * the base schema already carries the same DDL.
  * The base schema is idempotent, so a version-1 file gets the tables by executing
  * the full schema; later files get the new columns by `ALTER TABLE`.
  */
-export const SQLITE_SCHEMA_VERSION = 10;
+export const SQLITE_SCHEMA_VERSION = 12;
 
 export const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -478,6 +484,8 @@ CREATE INDEX IF NOT EXISTS model_context_state_conversation_idx
   ON model_context_state (conversation_id, epoch_id);
 
 ${SANDBOX_SCHEMA}
+
+${TEAM_SCHEMA}
 `;
 
 /** Applied to a version-2 database that already has the sandbox tables. */
@@ -781,3 +789,10 @@ CREATE TABLE IF NOT EXISTS model_context_state (
 CREATE INDEX IF NOT EXISTS model_context_state_conversation_idx
   ON model_context_state (conversation_id, epoch_id);
 `;
+
+/**
+ * Version 11 → 12: the Agent Team tables.
+ *
+ * Additive and idempotent, so an interrupted migration can be re-run.
+ */
+export const SQLITE_MIGRATION_12 = TEAM_SCHEMA;

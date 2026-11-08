@@ -135,6 +135,7 @@ export class DurableTranscript implements LoopTranscript {
 
   #epoch: ModelEpoch;
   #windowIds: string[];
+  #injectCounter = 0;
   #windowRevision: number;
   #states: Map<string, ModelContextState>;
   #inputItems: LoopInputItem[];
@@ -447,6 +448,51 @@ export class DurableTranscript implements LoopTranscript {
       inputItemIds: viewIds,
       ...(needsWindow ? { replacementInput: request.requestInput } : {}),
     };
+  }
+
+  /**
+   * Persist items injected between steps (a mailbox delivery).
+   *
+   * They are appended as staged user items and become part of the next request
+   * view. The idempotency key uses the turn, a per-turn counter and the content
+   * hash, so a retried append cannot duplicate a message.
+   */
+  async appendInput(items: readonly LoopInputItem[]): Promise<void> {
+    if (items.length === 0) return;
+    this.#injectCounter += items.length;
+    const created: NewModelItem[] = items.map((item, index) => {
+      if (item.type !== 'message') {
+        throw new Error('only a message can be injected between steps');
+      }
+      const payload: TranscriptPayload = {
+        type: 'message',
+        role: item.role,
+        content: item.content,
+      };
+      return {
+        id: randomUUID(),
+        conversationId: this.#conversationId,
+        epochId: this.#epoch.id,
+        idempotencyKey: `inject:${this.#turnId}:${this.#injectCounter - items.length + index}:${itemContentHash(payload)}`,
+        requestId: this.#requestId,
+        turnId: this.#turnId,
+        step: null,
+        kind: item.role === 'assistant' ? 'assistant' : 'user',
+        source: 'system',
+        scope: 'conversation',
+        contentVersion: CONTENT_VERSION,
+        payload,
+        contentHash: itemContentHash(payload),
+        messageId: null,
+        callId: null,
+        status: 'complete',
+      };
+    });
+    const inserted = await this.#store.appendItems(created);
+    for (const item of inserted) {
+      this.#inputIds.push(item.id);
+    }
+    this.#inputItems = [...this.#inputItems, ...items];
   }
 
   async completeStep(completion: LoopTranscriptCompletion): Promise<void> {

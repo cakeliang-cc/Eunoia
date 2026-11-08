@@ -73,6 +73,7 @@ import {
   SQLITE_MIGRATION_10,
   SQLITE_SCHEMA,
   SQLITE_SCHEMA_VERSION,
+  SQLITE_MIGRATION_12,
 } from './sqlite-schema.ts';
 import { CWD_SCHEMA, PERMISSION_SCHEMA } from '../sandbox/schema.ts';
 import { StatementCache } from './statements.ts';
@@ -1954,6 +1955,9 @@ export function openSqliteStore(path: string): SqliteStore {
     }
     if (version < 10) {
       migrateToVersion10(db);
+    }
+    if (version < 12) {
+      db.exec(SQLITE_MIGRATION_12);
     }
   }
   if (version < SQLITE_SCHEMA_VERSION) {

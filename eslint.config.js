@@ -8,6 +8,7 @@ export default tseslint.config(
     // zero signal, which is how a lint gate stops being run.
     ignores: [
       'dist/**',
+      '.worktrees/**',
       'node_modules/**',
       'coverage/**',
       'reference/**',
@@ -56,6 +57,13 @@ export default tseslint.config(
         clearTimeout: 'readonly',
         console: 'readonly',
         URL: 'readonly',
+        EventSource: 'readonly',
+        confirm: 'readonly',
+        prompt: 'readonly',
+        alert: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        location: 'readonly',
       },
     },
     rules: {

@@ -33,7 +33,7 @@ export type LoopInputItem =
        * background as a user message for cache-friendly ordering, and that must
        * not make it look like the person's current turn.
        */
-      readonly source?: 'conversation' | 'background' | 'summary';
+      readonly source?: 'conversation' | 'background' | 'summary' | 'team_message';
       /** The real turn a background update belongs to, when scope=turn. */
       readonly turnId?: string;
     }

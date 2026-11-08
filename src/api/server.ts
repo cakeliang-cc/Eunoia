@@ -17,7 +17,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { access, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { extname, join, sep } from 'node:path';
+import { dirname, extname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { installProvider } from '../agent/model-client.ts';
@@ -56,7 +56,7 @@ import {
   turnRequestHash,
 } from '../service/turns.ts';
 import type { TurnRecord } from '../session/turn-types.ts';
-import { selectStore } from '../db/select.ts';
+import { selectStore, sqlitePath } from '../db/select.ts';
 import { agentMaxSteps, skillsEnabled, workspaceConfig } from '../config.ts';
 import { transcriptMode } from '../session/model-transcript.ts';
 import type { TranscriptMode } from '../session/model-transcript.ts';
@@ -110,6 +110,12 @@ import {
   handleWorkspaceRoute,
   workspaceUiConfig,
 } from '../workspace-ui/index.ts';
+import { createTeamApi } from '../teams/api.ts';
+import { TeamService } from '../teams/service.ts';
+import { MemoryTeamStore } from '../teams/store-memory.ts';
+import { openSqliteTeamStore } from '../teams/store-sqlite.ts';
+import { TeamWorkspaceService } from '../teams/workspaces.ts';
+import { teamCeiling, teamFeatureEnabled } from '../teams/config.ts';
 
 /**
  * Reject absurd bodies rather than buffering them.
@@ -691,6 +697,8 @@ export interface AppDependencies {
   readonly modelProfiles?: (id: string) => ModelProfile;
   /** Server-side replay switch. Defaults to the process environment. */
   readonly transcriptMode?: TranscriptMode;
+  /** Subagent/Agent Team orchestration, when the deployment enables it. */
+  readonly teamService?: TeamService | null;
 }
 
 function defaultModelProfileFor(id: string): ModelProfile {
@@ -707,6 +715,7 @@ export function createApp(deps: AppDependencies) {
    * same visibility a second process would have.
    */
   const turns = deps.turns ?? new TurnCoordinator(store);
+  let teamApi: ReturnType<typeof createTeamApi> | null = null;
   const media = deps.media ?? null;
   const limits = deps.mediaLimits ?? mediaLimits();
   const config = deps.sessionConfig ?? sessionConfig();
@@ -1655,6 +1664,21 @@ export function createApp(deps: AppDependencies) {
       return true;
     }
 
+    if (deps.teamService && url.pathname.startsWith('/api/teams')) {
+      const api =
+        teamApi ??
+        (teamApi = createTeamApi({
+          service: deps.teamService,
+          adapters: {
+            sendJson,
+            readJson: readJsonBody,
+            identify,
+            guardWrite: guardPermissionWrite,
+          },
+        }));
+      if (await api.handle(req, res, url)) return true;
+    }
+
     // Each group owns a disjoint set of paths, so first-match-wins is a
     // property of the list, not of the order inside one 480-line function.
     for (const group of [
@@ -1695,12 +1719,25 @@ export function createApp(deps: AppDependencies) {
         skills: deps.skills?.count() ?? 0,
         skills_version: deps.skills?.version() || null,
         media: media !== null,
+        team: deps.teamService
+          ? { enabled: true, persistence: 'store', recovery: 'on-start' }
+          : null,
       });
       return true;
     }
 
     if (req.method === 'GET' && pathname === '/app.js') {
       await serveWebAsset(res, 'app.js', 'text/javascript; charset=utf-8');
+      return true;
+    }
+
+    if (req.method === 'GET' && pathname === '/team.js') {
+      await serveWebAsset(res, 'team.js', 'text/javascript; charset=utf-8');
+      return true;
+    }
+
+    if (req.method === 'GET' && pathname === '/team.css') {
+      await serveWebAsset(res, 'team.css', 'text/css; charset=utf-8');
       return true;
     }
 
@@ -2179,7 +2216,12 @@ export function createApp(deps: AppDependencies) {
       const conversations = await sessions.list(userId, {
         includeArchived: url.searchParams.get('includeArchived') === '1',
       });
-      sendJson(res, 200, { conversations });
+      const hidden = deps.teamService
+        ? await deps.teamService.hiddenConversationIds(userId).catch(() => new Set<string>())
+        : new Set<string>();
+      sendJson(res, 200, {
+        conversations: conversations.filter((conversation) => !hidden.has(conversation.id)),
+      });
       return true;
     }
 
@@ -2625,6 +2667,39 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     decode_concurrency: mediaLimitConfig.maxConcurrentDecodes,
   });
 
+  let teamService: TeamService | null = null;
+  let teamStore: MemoryTeamStore | ReturnType<typeof openSqliteTeamStore> | null = null;
+  if (teamFeatureEnabled()) {
+    teamStore =
+      kind === 'memory'
+        ? new MemoryTeamStore()
+        : openSqliteTeamStore(sqlitePath());
+    const workspaceService = new TeamWorkspaceService({
+      store: sandboxStore,
+      ...(sandboxPlatform ? { provider: sandboxPlatform.provider } : {}),
+      options: {
+        sourceRoot: sandboxPlatform?.settings.workspace.sourceRoot ?? null,
+        storageRoot: dirname(sqlitePath()),
+      },
+    });
+    teamService = new TeamService({
+      teamStore,
+      store,
+      sessions,
+      workspace: workspaceService,
+      ceiling: teamCeiling(model.id),
+      toolPolicy,
+      maxSteps,
+      transcriptMode: transcriptMode(),
+    });
+    const teamRecovery = await teamService.recover();
+    if (teamRecovery.interrupted > 0 || teamRecovery.unknown > 0) {
+      log.warn('server.team_recovery', teamRecovery);
+    }
+  } else {
+    log.info('server.team_disabled', { reason: 'TEAM_ENABLED=0' });
+  }
+
   const server = createApp({
     store,
     sessions,
@@ -2640,6 +2715,7 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     mediaLimits: mediaLimitConfig,
     sessionConfig: config,
     transcriptMode: transcriptMode(),
+    ...(teamService ? { teamService } : {}),
   });
   log.info('server.model_transcript', { mode: transcriptMode() });
 
@@ -2664,6 +2740,7 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
 
   server.on('close', () => {
     sandboxPlatform?.stop();
+    void teamStore?.close();
     void store.close();
   });
 
