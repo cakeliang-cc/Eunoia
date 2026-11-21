@@ -79,7 +79,7 @@ npm run dev                # http://127.0.0.1:8787
   本地单用户需要在 `.env` 显式设置 `MCP_ALLOW_HOST_PROCESS=1`（不是沙箱）。
 - **图片。** 让 Agent 直接 `read_image` 工作区里的 PNG/JPEG/WebP；图片经媒体管线入库，
   源文件之后被改不会改变历史资产。
-- **联网。** `web_search` 需要独立的 `TAVILY_API_KEY`；没有密钥会明确报未配置。
+- **联网。** `web_search` 默认使用 Tavily，需要独立的 `TAVILY_API_KEY`。没有密钥可设 `WEB_SEARCH_PROVIDER=mwmbl` 使用匿名搜索，受服务方 IP 限额约束。Mwmbl 支持结果域名过滤，日期过滤需要 Tavily。
   `web_fetch` 抓取公网正文，拒绝私有地址、登录页和 PDF，并支持 cursor 分页。
 - **提问。** Agent 用 `ask_user_question` 暂停并询问需求；答案按字段校验后返回同一轮，
   不是权限批准。

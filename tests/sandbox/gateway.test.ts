@@ -191,6 +191,9 @@ describe('task and sandbox creation', () => {
   it('does not reclaim a sandbox that has an execution in flight', async () => {
     const platform = await setup({ limits: { maxConcurrentPerUser: 1 } });
     const { sandboxId } = await prepareTask(platform);
+    const otherUser = { taskId: 'other-task', sessionId: 'other-session', userId: 'other-user' };
+    await platform.gateway.ensureTask(otherUser);
+    const idle = await platform.gateway.ensureSandbox(otherUser);
     const at = platform.clock.now().toISOString();
     await platform.store.createExecution({
       executionId: 'exec_in_flight',
@@ -217,6 +220,7 @@ describe('task and sandbox creation', () => {
       platform.gateway.ensureSandbox({ taskId: 'task-2', userId: TASK.userId }),
     ).rejects.toMatchObject({ code: 'quota_exceeded' });
     expect(platform.runtime.destroyed).not.toContain(sandboxId);
+    expect(platform.runtime.destroyed).not.toContain(idle.sandboxId);
   });
 
   it('checks task ownership', async () => {

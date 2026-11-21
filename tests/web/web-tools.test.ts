@@ -6,18 +6,56 @@
  * the real Tavily account is a deployment credential, not a unit-test fixture.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { InMemoryStore } from '../../src/db/in-memory-store.ts';
 import { HttpFetchProvider } from '../../src/web/fetch-http.ts';
 import { TavilySearchProvider } from '../../src/web/tavily.ts';
+import { selectSearchProvider } from '../../src/web/search-provider.ts';
 import { WebService } from '../../src/web/service.ts';
 import { assertPublicUrl, isPrivateAddress } from '../../src/web/policy.ts';
 import { extractHtml } from '../../src/web/fetch-http.ts';
 import { WebError } from '../../src/web/types.ts';
+import type { FetchProvider, FetchedDocument } from '../../src/web/types.ts';
 
 const servers: Server[] = [];
+
+describe('Mwmbl search selection', () => {
+  const answer = (rows: unknown[]): FetchedDocument => ({
+    requestedUrl: 'https://api.mwmbl.org/api/v2/search/', finalUrl: 'https://api.mwmbl.org/api/v2/search/',
+    status: 200, mimeType: 'application/json', charset: 'utf-8', title: null,
+    text: JSON.stringify({ results: rows }), bytes: 1, truncated: false, fetchedAt: '2026-11-22',
+  });
+
+  it('executes an anonymous search and excludes duplicate or out-of-domain results', async () => {
+    const fetch = vi.fn<FetchProvider['fetch']>().mockResolvedValue(answer([
+      { url: 'https://arxiv.org.example.net/x', title: 'Out of scope' },
+      { url: 'https://papers.arxiv.org/x', title: 'Paper', content: 'Abstract' },
+      { url: 'https://papers.arxiv.org/x', title: 'Duplicate' },
+      { url: 'http://127.0.0.1/x', title: 'Local' },
+    ]));
+    const provider = selectSearchProvider({ WEB_SEARCH_PROVIDER: 'mwmbl' }, { id: 'http', fetch });
+    await expect(provider.search({ query: 'a & b', domains: ['ARXIV.ORG'], maxResults: 5 })).resolves.toEqual({
+      provider: 'mwmbl', billed: false, query: 'a & b', results: [
+        { url: 'https://papers.arxiv.org/x', title: 'Paper', snippet: 'Abstract', source: 'papers.arxiv.org', publishedAt: null },
+      ],
+    });
+    expect(fetch).toHaveBeenCalledWith(expect.objectContaining({
+      url: 'https://api.mwmbl.org/api/v2/search/?q=a+%26+b', maxRedirects: 0,
+    }));
+  });
+
+  it('keeps Tavily as the default and rejects unsupported date filtering before connecting', async () => {
+    const http = { id: 'http', fetch: vi.fn<FetchProvider['fetch']>() };
+    expect(selectSearchProvider({}, http).id).toBe('tavily');
+    expect(selectSearchProvider({ TAVILY_API_KEY: 'test' }, http).configured).toBe(true);
+    const provider = selectSearchProvider({ WEB_SEARCH_PROVIDER: 'mwmbl' }, http);
+    await expect(provider.search({ query: 'test', maxResults: 1, timeRange: { start: '2026-11-21' } }))
+      .rejects.toMatchObject({ code: 'WEB_UNSUPPORTED_FILTER' });
+    expect(http.fetch).not.toHaveBeenCalled();
+  });
+});
 
 afterEach(async () => {
   while (servers.length > 0) {
@@ -50,6 +88,16 @@ function service(base: string, options: { maxFetchChars?: number } = {}): WebSer
 }
 
 describe('web_fetch backend', () => {
+  it('completes a fetch when the byte limit truncates the response', async () => {
+    const base = await listen((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('0123456789'.repeat(20));
+    });
+    const http = new HttpFetchProvider({ policy: { allowPrivateNetwork: true } });
+    await expect(http.fetch({ url: base, maxRedirects: 0, timeoutMs: 1_000, maxBytes: 10 }))
+      .resolves.toMatchObject({ text: '0123456789', bytes: 10, truncated: true });
+  });
+
   it('extracts readable text, title and source metadata', async () => {
     const base = await listen((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });

@@ -106,8 +106,11 @@ export class SandboxConflictError extends SandboxError {
 export class SandboxQuotaError extends SandboxError {
   override readonly name: string = 'SandboxQuotaError';
 
-  constructor(message: string) {
-    super('quota_exceeded', message, false);
+  readonly scope: 'task' | 'user' | 'global';
+
+  constructor(message: string, scope: 'task' | 'user' | 'global') {
+    super('quota_exceeded', message, true);
+    this.scope = scope;
   }
 }
 

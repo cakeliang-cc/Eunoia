@@ -148,18 +148,7 @@ export class HttpFetchProvider implements FetchProvider {
           }
           const chunks: Buffer[] = [];
           let total = 0;
-          let truncated = false;
-          response.on('data', (chunk: Buffer) => {
-            total += chunk.length;
-            if (total > input.maxBytes) {
-              truncated = true;
-              chunks.push(chunk.subarray(0, Math.max(0, input.maxBytes - (total - chunk.length))));
-              response.destroy();
-              return;
-            }
-            chunks.push(chunk);
-          });
-          response.on('end', () => {
+          const finishBody = (truncated: boolean): void => {
             if (settled) return;
             settled = true;
             resolve({
@@ -172,7 +161,18 @@ export class HttpFetchProvider implements FetchProvider {
               truncated,
               finalUrl: url,
             });
+          };
+          response.on('data', (chunk: Buffer) => {
+            if (total + chunk.length > input.maxBytes) {
+              chunks.push(chunk.subarray(0, input.maxBytes - total));
+              finishBody(true);
+              response.destroy();
+              return;
+            }
+            total += chunk.length;
+            chunks.push(chunk);
           });
+          response.on('end', () => finishBody(false));
           response.on('error', finish);
         },
       );

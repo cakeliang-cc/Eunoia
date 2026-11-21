@@ -72,6 +72,7 @@ export class WebError extends Error {
     | 'WEB_TIMEOUT'
     | 'WEB_TOO_LARGE'
     | 'WEB_UNSUPPORTED_TYPE'
+    | 'WEB_UNSUPPORTED_FILTER'
     | 'WEB_HTTP_ERROR'
     | 'WEB_NETWORK'
     | 'WEB_CANCELLED';

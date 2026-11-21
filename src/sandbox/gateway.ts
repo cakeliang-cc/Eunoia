@@ -21,6 +21,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { SandboxStore } from './store.ts';
 import type {
   ApprovalGrant,
@@ -89,6 +90,7 @@ import type { ToolCwdChange, ToolCwdSnapshot } from '../tools/types.ts';
 
 export interface SandboxGatewayDeps {
   readonly projectRootFor?: (userId: string, conversationId: string) => Promise<string | undefined>;
+  readonly hasActiveJobs?: (task: Task) => Promise<boolean>;
   readonly store: SandboxStore;
   readonly controller: SandboxController;
   readonly workspaces: WorkspaceManager;
@@ -122,6 +124,7 @@ export class SandboxGateway {
   private readonly credentials: CredentialBroker;
   private readonly settings: SandboxSettings;
   private readonly projectRootFor: SandboxGatewayDeps['projectRootFor'];
+  private readonly hasActiveJobs: SandboxGatewayDeps['hasActiveJobs'];
   private changes: WorkspaceChangeRecorder | null;
   private readonly now: () => Date;
   /** The deployment's structural policy; the permission layer narrows it. */
@@ -135,6 +138,8 @@ export class SandboxGateway {
   private readonly fileOps: GatewayFileOperations;
   /** Executions currently inside the runtime, per sandbox. */
   private readonly inFlight = new Map<string, number>();
+  private readonly taskSandboxUses = new Map<string, number>();
+  private admission: Promise<unknown> = Promise.resolve();
 
   constructor(deps: SandboxGatewayDeps) {
     this.store = deps.store;
@@ -143,6 +148,7 @@ export class SandboxGateway {
     this.audit = deps.audit;
     this.metrics = deps.metrics;
     this.credentials = deps.credentials;
+    this.hasActiveJobs = deps.hasActiveJobs;
     this.settings = deps.settings;
     this.projectRootFor = deps.projectRootFor;
     this.changes = deps.changes ?? null;
@@ -278,26 +284,61 @@ export class SandboxGateway {
   }
 
   /** Get (or create) the task's sandbox with the deployment's defaults. */
-  async ensureSandbox(context: SandboxContext): Promise<Sandbox> {
+  async ensureSandbox(context: SandboxContext, signal?: AbortSignal): Promise<Sandbox> {
     const task = await this.loadTask(context);
-    const existing = await this.store.getSandboxForTask(task.taskId);
-    if (existing && existing.status !== 'DESTROYED') return existing;
-    // A conversation that has been idle still owns a running container, and
-    // those idle containers count against the per-user/per-deployment quota. A
-    // third conversation would otherwise be refused before its command starts
-    // (the "sandbox limit reached" path). Reclaim only when actually blocked, so
-    // a normal create never touches another task's runtime.
-    await this.reclaimIdleSandboxesForCapacity(task);
-    return this.create(
-      {
+    return this.admit(() => {
+      signal?.throwIfAborted();
+      return this.createSandbox({
         taskId: task.taskId,
         workspaceId: task.workspaceId,
         imageDigest: this.settings.imageDigest,
         policyVersion: this.settings.policyVersion,
         resourceProfile: 'default',
-      },
-      context,
-    );
+      }, context, true);
+    });
+  }
+
+  /** Hold the task's container through command setup and runtime execution. */
+  async withTaskSandbox<T>(
+    context: SandboxContext,
+    signal: AbortSignal | undefined,
+    run: (sandbox: Sandbox) => Promise<T>,
+  ): Promise<T> {
+    const { taskId } = context;
+    this.taskSandboxUses.set(taskId, (this.taskSandboxUses.get(taskId) ?? 0) + 1);
+    try {
+      const deadline = performance.now() + 8_000;
+      let sandbox: Sandbox;
+      for (;;) {
+        signal?.throwIfAborted();
+        try {
+          sandbox = await this.ensureSandbox(context, signal);
+          break;
+        } catch (error) {
+          if (!(error instanceof SandboxQuotaError)) throw error;
+          const remaining = deadline - performance.now();
+          if (remaining <= 0) {
+            throw new SandboxQuotaError(
+              `${error.message}。沙箱仍在使用，请等运行中的命令结束或停止不再需要的后台任务后重试。`,
+              error.scope,
+            );
+          }
+          await delay(Math.min(250, remaining), undefined, { signal });
+        }
+      }
+      signal?.throwIfAborted();
+      return await run(sandbox);
+    } finally {
+      const remaining = (this.taskSandboxUses.get(taskId) ?? 1) - 1;
+      if (remaining > 0) this.taskSandboxUses.set(taskId, remaining);
+      else this.taskSandboxUses.delete(taskId);
+    }
+  }
+
+  private admit<T>(operation: () => Promise<T>): Promise<T> {
+    const admitted = this.admission.then(operation);
+    this.admission = admitted.catch(() => undefined);
+    return admitted;
   }
 
   /**
@@ -341,6 +382,10 @@ export class SandboxGateway {
   // --------------------------------------------------------------- lifecycle ---
 
   async create(input: CreateSandboxInput, context?: SandboxContext): Promise<Sandbox> {
+    return this.admit(() => this.createSandbox(input, context));
+  }
+
+  private async createSandbox(input: CreateSandboxInput, context?: SandboxContext, reclaim = false): Promise<Sandbox> {
     const task = await this.loadTask({ taskId: input.taskId, ...(context ?? {}) });
     if (context?.userId && context.userId !== task.userId) {
       throw new SandboxPolicyError('task belongs to a different user');
@@ -363,6 +408,7 @@ export class SandboxGateway {
       return existing;
     }
 
+    if (reclaim) await this.reclaimIdleSandboxesForCapacity(task);
     await this.assertCapacity(task);
 
     const workspace = await this.store.getWorkspace(task.workspaceId);
@@ -1714,14 +1760,9 @@ export class SandboxGateway {
    */
   private async capacityError(task: Task): Promise<SandboxQuotaError | null> {
     const active = await this.store.listSandboxes(ACTIVE_SANDBOX_STATES);
-    if (active.length >= this.settings.limits.maxConcurrentGlobal) {
-      return new SandboxQuotaError(
-        `global sandbox limit reached (${this.settings.limits.maxConcurrentGlobal})`,
-      );
-    }
     const forTask = active.filter((sandbox) => sandbox.taskId === task.taskId);
     if (forTask.length >= this.settings.limits.maxConcurrentPerTask) {
-      return new SandboxQuotaError(`task already has ${forTask.length} sandbox(es)`);
+      return new SandboxQuotaError(`task already has ${forTask.length} sandbox(es)`, 'task');
     }
     let forUser = 0;
     for (const sandbox of active) {
@@ -1731,6 +1772,13 @@ export class SandboxGateway {
     if (forUser >= this.settings.limits.maxConcurrentPerUser) {
       return new SandboxQuotaError(
         `user sandbox limit reached (${this.settings.limits.maxConcurrentPerUser})`,
+        'user',
+      );
+    }
+    if (active.length >= this.settings.limits.maxConcurrentGlobal) {
+      return new SandboxQuotaError(
+        `global sandbox limit reached (${this.settings.limits.maxConcurrentGlobal})`,
+        'global',
       );
     }
     return null;
@@ -1749,16 +1797,18 @@ export class SandboxGateway {
    * used one. A sandbox with an execution in flight is never a candidate.
    */
   private async reclaimIdleSandboxesForCapacity(task: Task): Promise<number> {
-    if (!(await this.capacityError(task))) return 0;
+    let shortage = await this.capacityError(task);
+    if (!shortage || shortage.scope === 'task') return 0;
 
     const idleStates = ['READY', 'EXPIRED'] as const;
     const active = await this.store.listSandboxes(idleStates);
-    const candidates: { sandbox: Sandbox; sameUser: boolean; lastUsed: number }[] = [];
+    const candidates: { sandbox: Sandbox; owner: Task | null; sameUser: boolean; lastUsed: number }[] = [];
     for (const sandbox of active) {
       if (sandbox.taskId === task.taskId) continue;
       const owner = await this.store.getTask(sandbox.taskId);
       candidates.push({
         sandbox,
+        owner,
         sameUser: owner?.userId === task.userId,
         lastUsed: Date.parse(sandbox.lastHeartbeatAt ?? sandbox.updatedAt) || 0,
       });
@@ -1769,12 +1819,15 @@ export class SandboxGateway {
 
     let reclaimed = 0;
     for (const candidate of candidates) {
+      if (shortage.scope === 'user' && !candidate.sameUser) continue;
       // Re-read before acting: another capacity check may have retired it while
       // this loop was sorting, and a stale row would make the audit misleading.
       const fresh = await this.store.getSandbox(candidate.sandbox.sandboxId);
       if (!fresh || (fresh.status !== 'READY' && fresh.status !== 'EXPIRED')) continue;
       const unfinished = await this.store.listUnfinishedExecutions(fresh.sandboxId);
       if (unfinished.length > 0) continue;
+      if (candidate.owner && await this.hasActiveJobs?.(candidate.owner)) continue;
+      if (this.taskSandboxUses.has(fresh.taskId) || this.inFlight.has(fresh.sandboxId)) continue;
 
       try {
         await this.controller.destroy(fresh);
@@ -1812,7 +1865,8 @@ export class SandboxGateway {
         continue;
       }
 
-      if (!(await this.capacityError(task))) break;
+      shortage = await this.capacityError(task);
+      if (!shortage || shortage.scope === 'task') break;
     }
     return reclaimed;
   }

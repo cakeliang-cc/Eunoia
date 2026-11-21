@@ -55,7 +55,7 @@ import { WorkspaceChangeService, WorkspaceUndoError } from '../sandbox/index.ts'
 import { WebService } from '../web/service.ts';
 import { HttpFetchProvider } from '../web/fetch-http.ts';
 import { resolveFakeIpWithCloudflare } from '../web/dns-over-https.ts';
-import { createDefaultSearchProvider } from '../web/tavily.ts';
+import { selectSearchProvider } from '../web/search-provider.ts';
 import { QuestionService } from '../questions/service.ts';
 import { ProcessService } from '../processes/service.ts';
 import { PreviewService } from '../previews/service.ts';
@@ -3291,10 +3291,24 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
         [dirname(sqlitePath()), settings.workspace.storageRoot, teamStorageRoot],
       )
     : null;
+  const dnsPolicy = process.env.WEB_FETCH_DOH_FALLBACK === 'cloudflare'
+    ? { resolveFakeIp: resolveFakeIpWithCloudflare }
+    : {};
+  const publicHttp = new HttpFetchProvider({ policy: dnsPolicy });
+  const webService = new WebService({
+    fetchProvider: process.env.WEB_ALLOW_PRIVATE_NETWORK === '1'
+      ? new HttpFetchProvider({ policy: { allowPrivateNetwork: true } })
+      : publicHttp,
+    searchProvider: selectSearchProvider(process.env, publicHttp),
+    documents: store,
+  });
+
+  const processService = new ProcessService({ store });
   const sandboxPlatform = settings
     ? await createSandboxPlatform({
         store: sandboxStore,
         settings,
+        hasActiveJobs: async (task) => processService.hasActiveJobs(task.userId, task.taskId),
         ...(projects ? { projectRootFor: async (userId: string, conversationId: string) =>
           (await projects.forConversation(userId, conversationId))?.root } : {}),
       })
@@ -3304,12 +3318,6 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
    * change-set tables. The recorder is attached after construction because the
    * platform is built before this service exists.
    */
-  /**
-   * Web tools share the process's private store for immutable fetch snapshots.
-   * Search credentials are separate from the model key; a missing key makes the
-   * search tool report "not configured", never an empty result.
-   */
-  const processService = new ProcessService({ store });
   const questionService = new QuestionService({ store });
   /**
    * Preview ingress (R04): a loopback gateway over durable leases. It exists
@@ -3367,17 +3375,6 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     }
   }
   void questionService.expireStale().catch(() => undefined);
-
-  const webService = new WebService({
-    fetchProvider: new HttpFetchProvider({
-      policy: {
-        allowPrivateNetwork: process.env.WEB_ALLOW_PRIVATE_NETWORK === '1',
-        ...(process.env.WEB_FETCH_DOH_FALLBACK === 'cloudflare' ? { resolveFakeIp: resolveFakeIpWithCloudflare } : {}),
-      },
-    }),
-    searchProvider: createDefaultSearchProvider(process.env),
-    documents: store,
-  });
 
   const workspaceChanges = sandboxPlatform
     ? new WorkspaceChangeService({

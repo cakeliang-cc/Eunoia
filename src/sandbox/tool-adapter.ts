@@ -89,7 +89,6 @@ class GatewayToolSession implements ToolWorkspacePort, ToolExecutor, ToolCwdPort
 
   private readonly gateway: SandboxGateway;
   readonly context: SandboxContext;
-  private sandboxId: string | null = null;
   private taskReady = false;
   private workspaceRoot: string | null = null;
 
@@ -193,45 +192,48 @@ class GatewayToolSession implements ToolWorkspacePort, ToolExecutor, ToolCwdPort
     readonly toolCallId: string;
   }): Promise<ToolExecutionResult> {
     const started = Date.now();
-    const sandboxId = await this.ensureSandbox();
-    // ADR 021 §6.2: the cwd is read from the task context *here*, at execution
-    // creation, and frozen into the execution. The model never passes one.
-    const cwd = await this.gateway.currentDirectory(this.call());
-    const result = await this.gateway.execute(
-      this.call(input.toolCallId),
-      {
-        sandboxId,
-        executionId: `exec_${randomUUID()}`,
-        idempotencyKey: input.toolCallId,
-        command: input.command,
+    await this.ready();
+    return this.gateway.withTaskSandbox(this.call(), input.signal, async ({ sandboxId }) => {
+      // ADR 021 §6.2: the cwd is read from the task context *here*, at execution
+      // creation, and frozen into the execution. The model never passes one.
+      const cwd = await this.gateway.currentDirectory(this.call());
+      const result = await this.gateway.execute(
+        this.call(input.toolCallId),
+        {
+          sandboxId,
+          executionId: `exec_${randomUUID()}`,
+          idempotencyKey: input.toolCallId,
+          command: input.command,
+          cwd: cwd.cwd,
+          cwdVersion: cwd.cwdVersion,
+          timeoutMs: input.timeoutMs ?? 120_000,
+          shell: input.shell ?? false,
+          toolCallId: input.toolCallId,
+        },
+        input.signal ? { signal: input.signal } : {},
+      );
+      return {
+        status: result.status,
+        exitCode: result.exitCode ?? null,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        timedOut: result.status === 'TIMEOUT',
+        durationMs: Date.now() - started,
+        executionId: result.executionId,
+        // The same value that was frozen into the execution, so the model sees
+        // the base its relative paths actually had.
         cwd: cwd.cwd,
-        cwdVersion: cwd.cwdVersion,
-        timeoutMs: input.timeoutMs ?? 120_000,
-        shell: input.shell ?? false,
-        toolCallId: input.toolCallId,
-      },
-      input.signal ? { signal: input.signal } : {},
-    );
-    return {
-      status: result.status,
-      exitCode: result.exitCode ?? null,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      timedOut: result.status === 'TIMEOUT',
-      durationMs: Date.now() - started,
-      executionId: result.executionId,
-      // The same value that was frozen into the execution, so the model sees
-      // the base its relative paths actually had.
-      cwd: cwd.cwd,
-    };
+      };
+    });
   }
 
   async tunnel(input: {
     readonly port: number;
     readonly signal?: AbortSignal;
   }): Promise<import('node:stream').Duplex> {
-    const sandboxId = await this.ensureSandbox();
-    return this.gateway.openTunnel(this.call(), sandboxId, input.port, input.signal);
+    const context = await this.ready();
+    return this.gateway.withTaskSandbox(context, input.signal, ({ sandboxId }) =>
+      this.gateway.openTunnel(context, sandboxId, input.port, input.signal));
   }
 
   private call(toolCallId?: string): SandboxContext {
@@ -253,13 +255,5 @@ class GatewayToolSession implements ToolWorkspacePort, ToolExecutor, ToolCwdPort
       this.workspaceRoot ??= await this.gateway.workspaceLocation(this.context);
     }
     return this.call();
-  }
-
-  private async ensureSandbox(): Promise<string> {
-    if (this.sandboxId) return this.sandboxId;
-    await this.ready();
-    const sandbox = await this.gateway.ensureSandbox(this.call());
-    this.sandboxId = sandbox.sandboxId;
-    return sandbox.sandboxId;
   }
 }

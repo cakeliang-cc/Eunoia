@@ -23,12 +23,15 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createSandboxPlatform, type SandboxPlatform } from '../../src/sandbox/index.ts';
 import { MemorySandboxStore } from '../../src/sandbox/store-memory.ts';
 import { RESOURCE_PROFILES, SANDBOX_POLICY_VERSION } from '../../src/sandbox/types.ts';
 import type { SandboxSettings } from '../../src/sandbox/config.ts';
 import { sandboxContainerName } from '../../src/sandbox/runtime/oci-args.ts';
 import { testPermissionSettings } from './helpers.ts';
+import { InMemoryStore } from '../../src/db/in-memory-store.ts';
+import { ProcessService } from '../../src/processes/service.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -44,13 +47,14 @@ const enabled = ENABLED && /^sha256:[a-f0-9]{64}$/.test(IMAGE);
 interface Harness {
   readonly base: string;
   readonly platform: SandboxPlatform;
+  readonly store: MemorySandboxStore;
   readonly task: { taskId: string; sessionId: string; userId: string };
   readonly sandboxId: string;
 }
 
 let harness: Harness | null = null;
 
-async function startHarness(mode: 'bind' | 'copy' = 'bind'): Promise<Harness> {
+async function startHarness(mode: 'bind' | 'copy' = 'bind', maxConcurrentPerUser = 4, processes?: ProcessService): Promise<Harness> {
   const base = await mkdtemp(join(tmpdir(), 'eunoia-docker-it-'));
   const sourceRoot = join(base, 'repo');
   const storageRoot = join(base, 'sandboxes');
@@ -86,7 +90,7 @@ async function startHarness(mode: 'bind' | 'copy' = 'bind'): Promise<Harness> {
     resources: { ...RESOURCE_PROFILES.small!.limits, executionTimeoutMs: 30_000 },
     limits: {
       maxConcurrentGlobal: 4,
-      maxConcurrentPerUser: 4,
+      maxConcurrentPerUser,
       maxConcurrentPerTask: 2,
       maxExecutionTimeoutMs: 30_000,
       maxOutputBytes: 64 * 1024,
@@ -100,7 +104,10 @@ async function startHarness(mode: 'bind' | 'copy' = 'bind'): Promise<Harness> {
   };
 
   const store = new MemorySandboxStore();
-  const platform = await createSandboxPlatform({ store, settings });
+  const platform = await createSandboxPlatform({
+    store, settings,
+    ...(processes ? { hasActiveJobs: (task) => processes.hasActiveJobs(task.userId, task.taskId) } : {}),
+  });
   const task = {
     taskId: `it-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     sessionId: 'integration',
@@ -108,7 +115,7 @@ async function startHarness(mode: 'bind' | 'copy' = 'bind'): Promise<Harness> {
   };
   await platform.gateway.ensureTask(task);
   const sandbox = await platform.gateway.ensureSandbox({ taskId: task.taskId, userId: task.userId });
-  return { base, platform, task, sandboxId: sandbox.sandboxId };
+  return { base, platform, store, task, sandboxId: sandbox.sandboxId };
 }
 
 /**
@@ -151,6 +158,77 @@ describe.skipIf(!enabled)('real container integration', () => {
     await rm(harness.base, { recursive: true, force: true });
     harness = null;
   }, 60_000);
+
+  it('waits for a live Docker slot, honors cancellation and rebuilds a reclaimed task', async () => {
+    const h = await startHarness('bind', 2);
+    const tasks = [h.task, ...['b', 'c'].map((suffix) => ({
+      ...h.task, taskId: `${h.task.taskId}-${suffix}`, sessionId: `integration-${suffix}`,
+    }))];
+    const [a, b, c] = await Promise.all(tasks.map((task) => h.platform.provider.forTask(task)));
+    const hold = (name: string) => ({
+      command: ['sh', '-c', `touch ${name}.ready; until test -f ${name}.release; do sleep 0.1; done`],
+      toolCallId: `hold-${name}`, timeoutMs: 20_000,
+    });
+    const busy = [a!.executor.run(hold('a')), b!.executor.run(hold('b'))];
+    void Promise.allSettled(busy);
+    const root = join(h.base, 'repo');
+    try {
+      await expect.poll(async () => (await Promise.all(['a', 'b'].map((name) =>
+        readFile(join(root, `${name}.ready`)).then(() => true, () => false)))).every(Boolean),
+      { timeout: 8_000 }).toBe(true);
+      const runC = { command: ['echo', 'queued command ran'], toolCallId: 'queued-c' };
+      await expect(c!.executor.run({ ...runC, signal: AbortSignal.timeout(600) })).rejects.toMatchObject({ name: 'AbortError' });
+      expect(await h.store.getSandboxForTask(tasks[2]!.taskId)).toBeNull();
+      const resumed = c!.executor.run(runC);
+      void resumed.catch(() => undefined);
+      await delay(400);
+      expect(await h.store.getSandboxForTask(tasks[2]!.taskId)).toBeNull();
+      await writeFile(join(root, 'a.release'), '');
+      await expect(busy[0]).resolves.toMatchObject({ status: 'SUCCEEDED' });
+      await expect(resumed).resolves.toMatchObject({ status: 'SUCCEEDED', stdout: 'queued command ran\n' });
+      expect((await h.store.getSandbox(h.sandboxId))?.status).toBe('DESTROYED');
+      await expect(a!.executor.run({ command: ['cat', 'README.md'], toolCallId: 'rebuilt-a' }))
+        .resolves.toMatchObject({ status: 'SUCCEEDED', stdout: '# integration\n' });
+      expect((await h.store.getSandboxForTask(h.task.taskId))?.sandboxId).not.toBe(h.sandboxId);
+      await writeFile(join(root, 'b.release'), '');
+      await expect(busy[1]).resolves.toMatchObject({ status: 'SUCCEEDED' });
+    } finally {
+      await Promise.all(['a', 'b'].map((name) => writeFile(join(root, `${name}.release`), '')));
+      await Promise.allSettled(busy);
+      for (const task of tasks) {
+        const box = await h.store.getSandboxForTask(task.taskId);
+        if (box && box.status !== 'DESTROYED') await h.platform.gateway.destroy(task, box.sandboxId);
+      }
+      h.platform.stop();
+      await rm(h.base, { recursive: true, force: true });
+    }
+  }, 45_000);
+
+  it('preserves a real background job until it is stopped, then reuses its slot', async () => {
+    const processes = new ProcessService({ store: new InMemoryStore() });
+    const h = await startHarness('bind', 1, processes);
+    const other = { ...h.task, taskId: `${h.task.taskId}-b`, sessionId: 'integration-b' };
+    const a = await h.platform.provider.forTask(h.task);
+    const b = await h.platform.provider.forTask(other);
+    const context = { ...h.task, conversationId: h.task.sessionId, executor: a.executor, toolCallId: 'start-bg' };
+    try {
+      const job = await processes.start(context, { command: 'sleep 30' });
+      expect(job.status).toBe('running');
+      const runB = { command: ['echo', 'slot available'], toolCallId: 'after-bg' };
+      await expect(b.executor.run({ ...runB, signal: AbortSignal.timeout(600) })).rejects.toMatchObject({ name: 'AbortError' });
+      expect(await h.store.getSandboxForTask(other.taskId)).toBeNull();
+      expect((await h.platform.gateway.inspect(h.sandboxId)).runtimeAlive).toBe(true);
+      expect((await processes.stop({ ...context, toolCallId: 'stop-bg' }, job.id)).status).toBe('stopped');
+      await expect(b.executor.run(runB)).resolves.toMatchObject({ stdout: 'slot available\n', status: 'SUCCEEDED' });
+    } finally {
+      for (const task of [h.task, other]) {
+        const box = await h.store.getSandboxForTask(task.taskId);
+        if (box && box.status !== 'DESTROYED') await h.platform.gateway.destroy(task, box.sandboxId);
+      }
+      h.platform.stop();
+      await rm(h.base, { recursive: true, force: true });
+    }
+  }, 35_000);
 
   it('runs as a non-root user', async () => {
     const h = harness as Harness;

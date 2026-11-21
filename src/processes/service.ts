@@ -43,6 +43,7 @@ export class ProcessService {
   readonly #store: ProcessStore;
   readonly #limits: ProcessLimits;
   readonly #now: () => Date;
+  readonly #launching = new Map<string, { userId: string; taskId: string }>();
 
   constructor(deps: ProcessServiceDeps) {
     this.#store = deps.store;
@@ -52,6 +53,12 @@ export class ProcessService {
 
   get limits(): ProcessLimits {
     return this.#limits;
+  }
+
+  async hasActiveJobs(userId: string, taskId: string): Promise<boolean> {
+    const jobs = await this.#store.listRunningDevJobs();
+    return jobs.some((job) => job.userId === userId && job.taskId === taskId)
+      || [...this.#launching.values()].some((job) => job.userId === userId && job.taskId === taskId);
   }
 
   async start(
@@ -108,45 +115,49 @@ export class ProcessService {
       'echo $pid > "$base/pid"',
       'echo started',
     ].join('\n');
-    const result = await context.executor.run({
-      command: ['sh', '-c', script],
-      timeoutMs: 15_000,
-      toolCallId: context.toolCallId,
-      ...(context.signal ? { signal: context.signal } : {}),
-    });
-    if (result.status !== 'SUCCEEDED' || !result.stdout.includes('started')) {
-      throw new ProcessError(
-        'PROCESS_INVALID',
-        `作业启动失败：${(result.stderr || result.stdout).slice(0, 500) || result.status}`,
-        502,
-      );
+    this.#launching.set(id, { userId: context.userId, taskId: context.taskId });
+    try {
+      const result = await context.executor.run({
+        command: ['sh', '-c', script],
+        timeoutMs: 15_000,
+        toolCallId: context.toolCallId,
+        ...(context.signal ? { signal: context.signal } : {}),
+      });
+      if (result.status !== 'SUCCEEDED' || !result.stdout.includes('started')) {
+        throw new ProcessError(
+          'PROCESS_INVALID',
+          `作业启动失败：${(result.stderr || result.stdout).slice(0, 500) || result.status}`,
+          502,
+        );
+      }
+      const now = this.#now();
+      const record: DevJobRecord = {
+        id,
+        userId: context.userId,
+        conversationId: context.conversationId,
+        turnId: context.turnId ?? null,
+        memberId: context.memberId ?? null,
+        taskId: context.taskId,
+        toolCallId: context.toolCallId,
+        command,
+        cwd,
+        marker,
+        pid: null,
+        status: 'starting',
+        exitCode: null,
+        stdoutPath: `${base}/out`,
+        stderrPath: `${base}/err`,
+        stdinFifo: stdin ? `${base}/in` : null,
+        startedAt: now.toISOString(),
+        endedAt: null,
+        expiresAt: new Date(now.getTime() + this.#limits.ttlMs).toISOString(),
+        error: null,
+      };
+      await this.#store.createDevJob(record);
+      return await this.status(context, id);
+    } finally {
+      this.#launching.delete(id);
     }
-    const now = this.#now();
-    const record: DevJobRecord = {
-      id,
-      userId: context.userId,
-      conversationId: context.conversationId,
-      turnId: context.turnId ?? null,
-      memberId: context.memberId ?? null,
-      taskId: context.taskId,
-      toolCallId: context.toolCallId,
-      command,
-      cwd,
-      marker,
-      pid: null,
-      status: 'starting',
-      exitCode: null,
-      stdoutPath: `${base}/out`,
-      stderrPath: `${base}/err`,
-      stdinFifo: stdin ? `${base}/in` : null,
-      startedAt: now.toISOString(),
-      endedAt: null,
-      expiresAt: new Date(now.getTime() + this.#limits.ttlMs).toISOString(),
-      error: null,
-    };
-    await this.#store.createDevJob(record);
-    const status = await this.status(context, id);
-    return status;
   }
 
   async status(context: ProcessRunContext, id: string): Promise<DevJobRecord> {
