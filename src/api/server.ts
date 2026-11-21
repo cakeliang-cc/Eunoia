@@ -54,6 +54,7 @@ import { recoverInterruptedTurns } from '../service/recovery.ts';
 import { WorkspaceChangeService, WorkspaceUndoError } from '../sandbox/index.ts';
 import { WebService } from '../web/service.ts';
 import { HttpFetchProvider } from '../web/fetch-http.ts';
+import { resolveFakeIpWithCloudflare } from '../web/dns-over-https.ts';
 import { createDefaultSearchProvider } from '../web/tavily.ts';
 import { QuestionService } from '../questions/service.ts';
 import { ProcessService } from '../processes/service.ts';
@@ -3369,7 +3370,10 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
 
   const webService = new WebService({
     fetchProvider: new HttpFetchProvider({
-      policy: { allowPrivateNetwork: process.env.WEB_ALLOW_PRIVATE_NETWORK === '1' },
+      policy: {
+        allowPrivateNetwork: process.env.WEB_ALLOW_PRIVATE_NETWORK === '1',
+        ...(process.env.WEB_FETCH_DOH_FALLBACK === 'cloudflare' ? { resolveFakeIp: resolveFakeIpWithCloudflare } : {}),
+      },
     }),
     searchProvider: createDefaultSearchProvider(process.env),
     documents: store,

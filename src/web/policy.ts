@@ -47,6 +47,16 @@ export function isPrivateAddress(address: string): boolean {
 
 export interface UrlPolicyOptions {
   readonly allowPrivateNetwork?: boolean;
+  readonly resolveFakeIp?: (hostname: string, signal?: AbortSignal) => Promise<LookupAddress[]>;
+}
+
+interface LookupAddress {
+  readonly address: string;
+  readonly family: number;
+}
+
+function isFakeIp(address: string): boolean {
+  return /^198\.(18|19)\./.test(address) && isIP(address) === 4;
 }
 
 export function assertPublicUrl(raw: string, options: UrlPolicyOptions = {}): URL {
@@ -62,7 +72,7 @@ export function assertPublicUrl(raw: string, options: UrlPolicyOptions = {}): UR
   if (url.username.length > 0 || url.password.length > 0) {
     throw new WebError('WEB_INVALID_URL', 'URL 不能包含用户名或密码。', 400);
   }
-  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '');
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) {
     if (options.allowPrivateNetwork !== true) {
       throw new WebError('WEB_BLOCKED_HOST', `拒绝访问本机/内部主机：${host}`, 403);
@@ -77,7 +87,8 @@ export function assertPublicUrl(raw: string, options: UrlPolicyOptions = {}): UR
 export async function resolvePublicHost(
   hostname: string,
   options: UrlPolicyOptions = {},
-): Promise<{ address: string; family: number }> {
+  signal?: AbortSignal,
+): Promise<LookupAddress> {
   const bare = hostname.replace(/^\[|\]$/g, '');
   if (isIP(bare)) {
     if (isPrivateAddress(bare) && options.allowPrivateNetwork !== true) {
@@ -85,10 +96,16 @@ export async function resolvePublicHost(
     }
     return { address: bare, family: isIP(bare) };
   }
-  let addresses: { address: string; family: number }[];
+  let addresses: LookupAddress[];
   try {
     addresses = await lookup(bare, { all: true, verbatim: true });
+    const onlyFakeAddresses = addresses.length > 0 && addresses.every(({ address }) => isFakeIp(address));
+    const qualifiedHostname = bare.replace(/\.$/, '').includes('.');
+    if (onlyFakeAddresses && qualifiedHostname && options.resolveFakeIp && !options.allowPrivateNetwork) {
+      addresses = await options.resolveFakeIp(bare, signal);
+    }
   } catch (error) {
+    if (signal?.aborted) throw new WebError('WEB_CANCELLED', '请求已取消', 499);
     throw new WebError('WEB_NETWORK', `无法解析 ${bare}：${error instanceof Error ? error.message : String(error)}`, 502, {
       retryable: true,
     });
@@ -106,5 +123,5 @@ export async function resolvePublicHost(
       );
     }
   }
-  return addresses[0] as { address: string; family: number };
+  return addresses[0] as LookupAddress;
 }

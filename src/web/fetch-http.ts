@@ -98,7 +98,7 @@ export class HttpFetchProvider implements FetchProvider {
     readonly finalUrl: string;
   }> {
     const target = new URL(url);
-    const resolved = await resolvePublicHost(target.hostname, this.#policy);
+    const resolved = await resolvePublicHost(target.hostname, this.#policy, input.signal);
     if (input.signal?.aborted) throw new WebError('WEB_CANCELLED', '请求已取消', 499);
 
     return new Promise((resolve, reject) => {
