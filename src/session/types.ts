@@ -75,6 +75,8 @@ export interface Conversation {
    * default. A pinned id also pins that model's context budget.
    */
   readonly modelId: string | null;
+  /** A null legacy binding resolves to the persisted default project. */
+  readonly projectId?: string | null;
 }
 
 /**

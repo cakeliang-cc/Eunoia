@@ -407,6 +407,9 @@
     font-size: 13.5px; font-weight: 550; line-height: 1.4;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  .topbar-title .project-toggle { max-width: 100%; height: auto; padding: 2px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .project-toggle[hidden] { display: none; }
+  #wb-picker-recent { max-height: 110px; overflow: auto; }
   .topbar-actions { display: flex; align-items: center; gap: 7px; }
   .status {
     display: inline-flex; align-items: center; gap: 7px;
@@ -2075,6 +2078,7 @@
 
       <div class="topbar-title">
         <span class="topbar-eyebrow">Eunoia · 对话</span>
+        <button id="project-toggle" class="soft-button project-toggle" type="button" aria-label="切换项目" hidden>选择项目</button>
         <span id="thread-title">新的对话</span>
       </div>
 
@@ -2304,7 +2308,7 @@
       <header class="wb-picker-head">
         <div style="flex:1;min-width:0">
           <h2>选择工作区</h2>
-          <span class="wb-picker-copy">选中一个目录作为文件、改动和终端的根。</span>
+          <span class="wb-picker-copy">新会话、文件和终端都使用所选项目目录。</span>
         </div>
         <button id="wb-picker-close" class="icon-button" type="button" aria-label="关闭目录选择">
           <svg class="icon" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
@@ -2315,6 +2319,7 @@
         <input id="wb-picker-input" type="text" spellcheck="false" aria-label="目录路径">
         <button id="wb-picker-go" type="button">前往</button>
       </div>
+      <div id="wb-picker-recent" aria-label="最近打开的项目"></div>
       <div class="wb-picker-list" id="wb-picker-list"></div>
       <footer class="wb-picker-foot">
         <span class="wb-picker-note" id="wb-picker-note"></span>

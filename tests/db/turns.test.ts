@@ -389,6 +389,7 @@ describe('the version 7 to 8 migration', () => {
     legacy.exec('DROP TABLE IF EXISTS turn_events');
     legacy.exec('DROP TABLE IF EXISTS turn_requests');
     legacy.exec('ALTER TABLE agent_runs DROP COLUMN finish_reason');
+    legacy.exec('ALTER TABLE conversations DROP COLUMN project_id');
     legacy.exec('PRAGMA user_version = 7');
     legacy.close();
 
@@ -397,7 +398,7 @@ describe('the version 7 to 8 migration', () => {
       const version = upgraded.database.prepare('PRAGMA user_version').get() as {
         user_version: number;
       };
-      expect(Number(version.user_version)).toBe(15);
+      expect(Number(version.user_version)).toBe(16);
 
       const tables = (
         upgraded.database

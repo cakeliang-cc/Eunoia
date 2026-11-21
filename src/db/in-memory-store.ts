@@ -89,6 +89,7 @@ interface StoredConversation {
   turnCount: number;
   archivedAt: Date | null;
   modelId: string | null;
+  projectId?: string | null;
   messages: Message[];
 }
 
@@ -309,6 +310,7 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore, ModelTr
     userId: string,
     title?: string | null,
     modelId?: string | null,
+    projectId?: string | null,
   ): Promise<Conversation> {
     const conversation: StoredConversation = {
       id: randomUUID(),
@@ -319,6 +321,7 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore, ModelTr
       turnCount: 0,
       archivedAt: null,
       modelId: modelId ?? null,
+      projectId: projectId ?? null,
       messages: [],
     };
     this.#conversations.set(conversation.id, conversation);
@@ -533,6 +536,9 @@ export class InMemoryStore implements Store, TurnStore, MediaAssetStore, ModelTr
     const limit = options.limit ?? 30;
     return [...this.#conversations.values()]
       .filter((conversation) => conversation.userId === userId)
+      .filter((conversation) => options.projectId === undefined ||
+        conversation.projectId === options.projectId ||
+        (options.includeLegacyProject && conversation.projectId == null))
       .filter((conversation) => options.includeArchived || conversation.archivedAt === null)
       .sort((a, b) => {
         // Active rows first, then archived; within each group, newest first.

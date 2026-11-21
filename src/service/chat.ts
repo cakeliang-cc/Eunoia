@@ -1,3 +1,4 @@
+import { projectInstructions } from '../projects/instructions.ts';
 /**
  * One conversational turn, end to end.
  *
@@ -157,6 +158,7 @@ export interface TurnDependencies {
    * and one `skill` tool; it never adds a tool per skill.
    */
   readonly skills?: SkillRegistry | null;
+  readonly skillsForConversation?: (userId: string, conversationId: string) => Promise<SkillRegistry | null>;
   /** Model/tool step cap for one turn. */
   readonly maxSteps?: number;
   /**
@@ -625,6 +627,7 @@ async function* runTurnInner(
           userId: request.userId,
         })
       : null;
+    const instructionsFromProject = await projectInstructions(sandboxSession);
     /**
      * Arm undo before any tool can write. The baseline itself is captured by the
      * recorder at the first actual mutation, so a read-only turn pays nothing.
@@ -667,7 +670,10 @@ async function* runTurnInner(
       toolRegistry.registerAll(createPreviewTools(deps.previews));
     }
     if (sandboxSession) toolRegistry.registerAll(codingTools);
-    const skills = deps.skills ?? null;
+    const skills = deps.skillsForConversation
+      ? await deps.skillsForConversation(request.userId, conversationId)
+      : deps.skills ?? null;
+    const skillsBlock = [skills?.indexBlock(), instructionsFromProject].filter(Boolean).join('\n\n');
     if (skills && skills.count() > 0) {
       toolRegistry.registerAll(
         createSkillTools(skills, { availableTools: new Set(toolRegistry.names()) }),
@@ -803,7 +809,7 @@ async function* runTurnInner(
               permissionBlock: permissionStateBlock(policy),
             }
           : {}),
-        skillsBlock: skills?.indexBlock() ?? '',
+        skillsBlock,
         toolGuidelines,
         memoryBlock: context.memoryBlock,
         ...(request.attachments && request.attachments.length > 0
@@ -870,7 +876,7 @@ async function* runTurnInner(
       archivedSummaryBlock: replay.summary ? renderArchivedSummary(replay.summary) : null,
       situationBlock: context.situationBlock,
       ...(sandboxSession ? { workspaceBlock: workspaceBlock(sandboxSession.displayPath, policy) } : {}),
-      skillsBlock: skills?.indexBlock() ?? '',
+      skillsBlock,
       toolGuidelines,
       memoryBlock: context.memoryBlock,
       ...(request.attachments && request.attachments.length > 0

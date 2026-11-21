@@ -72,7 +72,7 @@ import { TEAM_SCHEMA } from '../teams/schema.ts';
  * The base schema is idempotent, so a version-1 file gets the tables by executing
  * the full schema; later files get the new columns by `ALTER TABLE`.
  */
-export const SQLITE_SCHEMA_VERSION = 15;
+export const SQLITE_SCHEMA_VERSION = 16;
 
 export const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -96,7 +96,8 @@ CREATE TABLE IF NOT EXISTS conversations (
   last_turn_at TEXT,
   turn_count   INTEGER NOT NULL DEFAULT 0,
   archived_at  TEXT,
-  model_id     TEXT
+  model_id     TEXT,
+  project_id   TEXT
 );
 
 CREATE INDEX IF NOT EXISTS conversations_user_recent_idx

@@ -135,6 +135,8 @@ export interface TeamServiceDeps {
   readonly store: Store;
   readonly sessions: SessionService;
   readonly workspace: TeamWorkspacePort;
+  readonly projectSkillsFor?: (team: Team) => Promise<import('../skills/registry.ts').SkillRegistry | null>;
+  readonly projectWorkspaceFor?: (team: Team) => Promise<TeamWorkspacePort>;
   /** Deployment ceiling; a client can only lower it. */
   readonly ceiling: TeamConfig;
   readonly toolPolicy?: ToolPolicy;
@@ -1432,6 +1434,7 @@ export class TeamService implements ActivationHost, TeamToolHost {
   }): Promise<ArtifactManifest> {
     const run = await this.getRun(input.ownerId, input.runId);
     const member = await this.getMember(input.ownerId, input.memberId);
+    if (member.teamId !== run.teamId) throw new TeamError('TEAM_WORKSPACE', '成员不属于这个项目的 Team。', 409);
     if (!member.workspaceId) {
       throw new TeamError('TEAM_WORKSPACE', '这个成员没有隔离工作区。', 409);
     }
@@ -1464,6 +1467,7 @@ export class TeamService implements ActivationHost, TeamToolHost {
   }): Promise<{ removed: boolean; reason: string }> {
     const run = await this.getRun(input.ownerId, input.runId);
     const member = await this.getMember(input.ownerId, input.memberId);
+    if (member.teamId !== run.teamId) throw new TeamError('TEAM_WORKSPACE', '成员不属于这个项目的 Team。', 409);
     if (!member.workspaceId || !this.#deps.workspace.cleanup) {
       return { removed: false, reason: 'no workspace' };
     }
@@ -1742,15 +1746,30 @@ export class TeamService implements ActivationHost, TeamToolHost {
     return allowed === null ? tools : tools.filter((tool) => allowed.includes(tool.name));
   }
 
+  async skillsFor(team: Team): Promise<import('../skills/registry.ts').SkillRegistry | null> {
+    return await this.#deps.projectSkillsFor?.(team) ?? null;
+  }
+
   async workspaceFor(member: Member): Promise<ToolSandboxSession | null> {
     if (!member.workspaceId) return null;
     const team = await this.teamStore.getTeam(member.teamId);
     if (!team) return null;
-    return this.#deps.workspace.session({
+    const workspace = await this.workspaceForTeam(team);
+    return workspace.session({
       userId: team.ownerId,
       workspaceTaskId: member.workspaceId,
       sessionId: member.internalConversationId,
     });
+  }
+
+  private async workspaceForTeam(team: Team): Promise<TeamWorkspacePort> {
+    return this.#deps.projectWorkspaceFor
+      ? this.#deps.projectWorkspaceFor(team)
+      : this.#deps.workspace;
+  }
+
+  private async workspaceForRun(ownerId: string, run: TeamRun): Promise<TeamWorkspacePort> {
+    return this.workspaceForTeam(await this.getTeam(ownerId, run.teamId));
   }
 
   async provisionWorkspace(input: {
@@ -1762,7 +1781,8 @@ export class TeamService implements ActivationHost, TeamToolHost {
     snapshotFrom: string | null;
   }): Promise<{ workspaceId: string; workspaceTaskId: string }> {
     void input.snapshotFrom;
-    const provisioned = await this.#deps.workspace.provision({
+    const workspace = await this.workspaceForTeam(input.team);
+    const provisioned = await workspace.provision({
       teamId: input.team.id,
       runId: input.run.id,
       ownerId: input.team.ownerId,
@@ -2286,21 +2306,23 @@ export class TeamService implements ActivationHost, TeamToolHost {
     readonly otherMemberId?: string | null;
   }): Promise<{ integration: Integration; manifest: ArtifactManifest }> {
     const run = await this.getRun(input.ownerId, input.runId);
+    const workspace = await this.workspaceForRun(input.ownerId, run);
     const task = await this.teamStore.getTask(input.taskId);
     if (!task || task.runId !== run.id) {
       throw new TeamError('TEAM_TASK_NOT_FOUND', '没有这个任务。', 404);
     }
     const member = await this.getMember(input.ownerId, input.memberId);
+    if (member.teamId !== run.teamId) throw new TeamError('TEAM_WORKSPACE', '成员不属于这个项目的 Team。', 409);
     if (!member.workspaceId) {
       throw new TeamError('TEAM_WORKSPACE', '这个成员没有隔离工作区。', 409);
     }
-    const baseline = await this.#deps.workspace.baselineForWorkspace?.(
+    const baseline = await workspace.baselineForWorkspace?.(
       member.workspaceId,
     );
     if (!baseline) {
       throw new TeamError('TEAM_WORKSPACE', '这个成员没有基线快照。', 409);
     }
-    const manifest = await this.#deps.workspace.diff({
+    const manifest = await workspace.diff({
       workspaceTaskId: member.workspaceId,
       baselineId: baseline.baselineId,
     });
@@ -2308,7 +2330,7 @@ export class TeamService implements ActivationHost, TeamToolHost {
       (entry) => entry.role === 'root',
     );
     const sourceHashes = root?.workspaceId
-      ? await this.#deps.workspace.currentHashes(root.workspaceId)
+      ? await workspace.currentHashes(root.workspaceId)
       : {};
     const baseHashes: Record<string, string> = {};
     for (const file of manifest.files) {
@@ -2317,18 +2339,19 @@ export class TeamService implements ActivationHost, TeamToolHost {
     let other: ArtifactManifest | null = null;
     if (input.otherMemberId) {
       const otherMember = await this.getMember(input.ownerId, input.otherMemberId);
+      if (otherMember.teamId !== run.teamId) throw new TeamError('TEAM_WORKSPACE', '成员不属于这个项目的 Team。', 409);
       const otherBaseline = otherMember.workspaceId
-        ? await this.#deps.workspace.baselineForWorkspace?.(otherMember.workspaceId)
+        ? await workspace.baselineForWorkspace?.(otherMember.workspaceId)
         : null;
       if (otherMember.workspaceId && otherBaseline) {
-        other = await this.#deps.workspace.diff({
+        other = await workspace.diff({
           workspaceTaskId: otherMember.workspaceId,
           baselineId: otherBaseline.baselineId,
         });
       }
     }
     const merged = integrateManifests({
-      targetRoot: this.#deps.workspace.sourceRootPath?.() ?? '',
+      targetRoot: workspace.sourceRootPath?.() ?? '',
       baseHashes,
       candidate: manifest,
       other,
@@ -2390,7 +2413,8 @@ export class TeamService implements ActivationHost, TeamToolHost {
   }> {
     const integration = await this.teamStore.getIntegration(input.integrationId);
     if (!integration) throw new TeamError('TEAM_INTEGRATION_CONFLICT', '没有这个集成候选。', 404);
-    await this.getRun(input.ownerId, integration.runId);
+    const run = await this.getRun(input.ownerId, integration.runId);
+    const workspace = await this.workspaceForRun(input.ownerId, run);
     const task = integration.taskId ? await this.teamStore.getTask(integration.taskId) : null;
     const recordedMemberId = integration.verification?.['memberId'];
     const memberId = task?.ownerId ?? (typeof recordedMemberId === 'string' ? recordedMemberId : null);
@@ -2401,12 +2425,10 @@ export class TeamService implements ActivationHost, TeamToolHost {
         | undefined) ?? {};
     const conflicts = [];
     for (const path of integration.conflicts) {
-      const source = member?.workspaceId
-        ? await this.#deps.workspace.readSourceFile?.(path).catch(() => null)
-        : await this.#deps.workspace.readSourceFile?.(path).catch(() => null);
+      const source = await workspace.readSourceFile?.(path).catch(() => null);
       const candidate =
         member?.workspaceId
-          ? await this.#deps.workspace.readWorkspaceFile?.(member.workspaceId, path).catch(() => null)
+          ? await workspace.readWorkspaceFile?.(member.workspaceId, path).catch(() => null)
           : null;
       conflicts.push({
         path,
@@ -2432,7 +2454,8 @@ export class TeamService implements ActivationHost, TeamToolHost {
   }): Promise<Integration> {
     const integration = await this.teamStore.getIntegration(input.integrationId);
     if (!integration) throw new TeamError('TEAM_INTEGRATION_CONFLICT', '没有这个集成候选。', 404);
-    await this.getRun(input.ownerId, integration.runId);
+    const run = await this.getRun(input.ownerId, integration.runId);
+    const workspace = await this.workspaceForRun(input.ownerId, run);
     if (!integration.conflicts.includes(input.path)) {
       throw new TeamError('TEAM_INTEGRATION_CONFLICT', '这个路径不在冲突列表里。', 409);
     }
@@ -2445,11 +2468,11 @@ export class TeamService implements ActivationHost, TeamToolHost {
     }
     let content: string;
     if (input.resolution === 'source') {
-      const source = await this.#deps.workspace.readSourceFile?.(input.path);
+      const source = await workspace.readSourceFile?.(input.path);
       if (!source) throw new TeamError('TEAM_INTEGRATION_CONFLICT', '源文件不存在。', 409);
       content = source.content;
     } else if (input.resolution === 'candidate') {
-      const candidate = await this.#deps.workspace.readWorkspaceFile?.(
+      const candidate = await workspace.readWorkspaceFile?.(
         member.workspaceId,
         input.path,
       );
@@ -2461,10 +2484,10 @@ export class TeamService implements ActivationHost, TeamToolHost {
       }
       content = input.content;
     }
-    await this.#deps.workspace.writeWorkspaceFile?.(member.workspaceId, input.path, content);
-    const baseline = await this.#deps.workspace.baselineForWorkspace?.(member.workspaceId);
+    await workspace.writeWorkspaceFile?.(member.workspaceId, input.path, content);
+    const baseline = await workspace.baselineForWorkspace?.(member.workspaceId);
     if (!baseline) throw new TeamError('TEAM_WORKSPACE', '缺少基线，无法重算候选。', 409);
-    const manifest = await this.#deps.workspace.diff({
+    const manifest = await workspace.diff({
       workspaceTaskId: member.workspaceId,
       baselineId: baseline.baselineId,
     });
@@ -2521,6 +2544,7 @@ export class TeamService implements ActivationHost, TeamToolHost {
     const integration = await this.teamStore.getIntegration(input.integrationId);
     if (!integration) throw new TeamError('TEAM_INTEGRATION_CONFLICT', '没有这个集成候选。', 404);
     const run = await this.getRun(input.ownerId, integration.runId);
+    const workspace = await this.workspaceForRun(input.ownerId, run);
     if (integration.conflicts.length > 0) {
       throw new TeamError('TEAM_INTEGRATION_CONFLICT', '仍有冲突，不能验证。', 409);
     }
@@ -2528,7 +2552,7 @@ export class TeamService implements ActivationHost, TeamToolHost {
     const member = task?.ownerId ? await this.teamStore.getMember(task.ownerId) : null;
     const root = (await this.teamStore.listMembers(run.teamId)).find((entry) => entry.role === 'root');
     const sourceHashes = root?.workspaceId
-      ? await this.#deps.workspace.currentHashes(root.workspaceId)
+      ? await workspace.currentHashes(root.workspaceId)
       : {};
     const nowIso = this.#now().toISOString();
     const updated = await this.teamStore.updateIntegration({
@@ -2570,12 +2594,14 @@ export class TeamService implements ActivationHost, TeamToolHost {
       throw new TeamError('TEAM_INTEGRATION_CONFLICT', '没有这个集成候选。', 404);
     }
     const run = await this.getRun(input.ownerId, integration.runId);
+    const workspace = await this.workspaceForRun(input.ownerId, run);
     if (integration.conflicts.length > 0) {
       throw new TeamError('TEAM_INTEGRATION_CONFLICT', '候选仍有未解决的冲突，不能发布。', 409, {
         conflicts: integration.conflicts,
       });
     }
     const member = await this.getMember(input.ownerId, input.memberId);
+    if (member.teamId !== run.teamId) throw new TeamError('TEAM_WORKSPACE', '成员不属于这个项目的 Team。', 409);
     if (!member.workspaceId) {
       throw new TeamError('TEAM_WORKSPACE', '这个成员没有隔离工作区。', 409);
     }
@@ -2593,8 +2619,8 @@ export class TeamService implements ActivationHost, TeamToolHost {
     if (!artifact) {
       throw new TeamError('TEAM_INTEGRATION_CONFLICT', '找不到候选产物，不能发布。', 409);
     }
-    const contentRoot = await this.#deps.workspace.workspacePathFor?.(member.workspaceId);
-    const targetRoot = this.#deps.workspace.sourceRootPath?.();
+    const contentRoot = await workspace.workspacePathFor?.(member.workspaceId);
+    const targetRoot = workspace.sourceRootPath?.();
     if (!targetRoot || !contentRoot) {
       throw new TeamError('TEAM_WORKSPACE', '发布需要源目录和成员工作区路径。', 409);
     }
@@ -2602,7 +2628,7 @@ export class TeamService implements ActivationHost, TeamToolHost {
       (entry) => entry.role === 'root',
     );
     const sourceHashes = root?.workspaceId
-      ? await this.#deps.workspace.currentHashes(root.workspaceId)
+      ? await workspace.currentHashes(root.workspaceId)
       : {};
     const result = await publishCandidate({
       targetRoot,

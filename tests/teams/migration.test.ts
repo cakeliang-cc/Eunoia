@@ -56,7 +56,7 @@ describe('T59 — migration and backup/restore', () => {
       raw.close();
 
       const reopened = openSqliteStore(path);
-      expect(SQLITE_SCHEMA_VERSION).toBe(15);
+      expect(SQLITE_SCHEMA_VERSION).toBe(16);
       const tables = (
         reopened.database
           .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'team%'")
@@ -66,7 +66,7 @@ describe('T59 — migration and backup/restore', () => {
       expect(
         (reopened.database.prepare('PRAGMA user_version').get() as { user_version: number })
           .user_version,
-      ).toBe(15);
+      ).toBe(16);
       const message = await reopened.appendMessage({
         conversationId: conversation.id,
         userId: USER,

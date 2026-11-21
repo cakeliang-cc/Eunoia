@@ -790,9 +790,9 @@ describe('T58 — member actions are auditable', () => {
 });
 
 describe('T59 — the fresh schema carries the Team tables', () => {
-  it('the main SQLite schema includes the Team tables at version 15', async () => {
+  it('the main SQLite schema includes the Team tables at version 16', async () => {
     const { SQLITE_SCHEMA, SQLITE_SCHEMA_VERSION } = await import('../../src/db/sqlite-schema.ts');
-    expect(SQLITE_SCHEMA_VERSION).toBe(15);
+    expect(SQLITE_SCHEMA_VERSION).toBe(16);
     for (const table of [
       'teams',
       'team_runs',

@@ -1,3 +1,5 @@
+import { projectInstructions } from '../projects/instructions.ts';
+import { createSkillTools } from '../tools/skill.ts';
 /**
  * The Subagent runtime: members, their activations, and the one execution path.
  *
@@ -111,6 +113,7 @@ export interface MailboxDelivery {
  * dependency points from orchestration to runtime, never back.
  */
 export interface ActivationHost {
+  skillsFor?(team: Team): Promise<import('../skills/registry.ts').SkillRegistry | null>;
   toolsFor(member: Member, activation: Activation): Promise<readonly ToolDefinition[]>;
   workspaceFor(member: Member): Promise<ToolSandboxSession | null>;
   /**
@@ -742,6 +745,9 @@ export class SubagentRuntime {
       );
       const workspace = await this.#deps.host.workspaceFor(member);
       if (workspace) registerScoped(tools, codingTools);
+      const skills = workspace ? await this.#deps.host.skillsFor?.(team) : null;
+      if (skills) registerScoped(tools, createSkillTools(skills, { availableTools: new Set(tools.names()) }));
+      const skillsBlock = [skills?.indexBlock(), await projectInstructions(workspace)].filter(Boolean).join('\n\n');
       /** MCP tools are granted to the member, not to the root's conversation. */
       let mcpGuidelines = '';
       let permissionPort: import('../tools/types.ts').ToolPermissionPort | null = null;
@@ -770,6 +776,7 @@ export class SubagentRuntime {
       });
       const memberContext = await this.#deps.host.contextFor({ team, run, member, activation });
       const runtimeContext = buildRuntimeContext({
+        skillsBlock,
         workspaceBlock: workspace ? `工作区挂载路径：${workspace.displayPath}` : null,
         toolGuidelines: [tools.guidelines(), mcpGuidelines].filter(Boolean).join('\n\n'),
         narrativeBlock: memberContext.block,
@@ -862,6 +869,7 @@ export class SubagentRuntime {
             seq: userMessage.seq,
           },
           context: {
+            skillsBlock,
             relationshipBlock: null,
             narrativeBlock: memberContext.block,
             situationBlock: null,

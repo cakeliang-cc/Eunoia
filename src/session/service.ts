@@ -132,8 +132,9 @@ export class SessionService {
     userId: string,
     title?: string | null,
     modelId?: string | null,
+    projectId?: string | null,
   ): Promise<Conversation> {
-    return this.#store.createConversation(userId, title, modelId);
+    return this.#store.createConversation(userId, title, modelId, projectId);
   }
 
   get(userId: string, conversationId: string): Promise<Conversation | null> {

@@ -183,6 +183,7 @@ interface ConversationRow {
   turn_count: number;
   archived_at: string | null;
   model_id: string | null;
+  project_id: string | null;
 }
 
 interface SummaryRow {
@@ -338,7 +339,7 @@ const TURN_EVENT_COLUMNS = `id, turn_id, conversation_id, seq, kind, call_id, to
   status, execution_id, payload, created_at`;
 
 const CONVERSATION_COLUMNS =
-  'id, user_id, title, started_at, last_turn_at, turn_count, archived_at, model_id';
+  'id, user_id, title, started_at, last_turn_at, turn_count, archived_at, model_id, project_id';
 
 const UPDATABLE_COLUMNS: Readonly<Record<keyof MemoryPatch, string>> = {
   content: 'content',
@@ -566,14 +567,16 @@ export class SqliteStore implements Store, TurnStore, MediaAssetStore, ModelTran
     userId: string,
     title?: string | null,
     modelId?: string | null,
+    projectId?: string | null,
   ): Promise<Conversation> {
     const id = randomUUID();
     this.#run(
-      'INSERT INTO conversations (id, user_id, title, model_id) VALUES (?, ?, ?, ?)',
+      'INSERT INTO conversations (id, user_id, title, model_id, project_id) VALUES (?, ?, ?, ?, ?)',
       id,
       userId,
       title ?? null,
       modelId ?? null,
+      projectId ?? null,
     );
     const conversation = await this.getConversation(userId, id);
     if (!conversation) throw new Error('conversation insert produced no row');
@@ -845,15 +848,21 @@ export class SqliteStore implements Store, TurnStore, MediaAssetStore, ModelTran
   ): Promise<Conversation[]> {
     const limit = options.limit ?? 30;
     const archivedFilter = options.includeArchived ? '' : 'AND archived_at IS NULL';
+    const projectFilter = options.projectId === undefined
+      ? ''
+      : options.includeLegacyProject
+        ? 'AND (project_id = ? OR project_id IS NULL)'
+        : 'AND project_id = ?';
     return this.#all<ConversationRow>(
       `SELECT ${CONVERSATION_COLUMNS} FROM conversations
-        WHERE user_id = ? ${archivedFilter}
+        WHERE user_id = ? ${archivedFilter} ${projectFilter}
         ORDER BY (archived_at IS NOT NULL) ASC,
                  (last_turn_at IS NULL) ASC,
                  last_turn_at DESC,
                  started_at DESC
         LIMIT ?`,
       userId,
+      ...(options.projectId === undefined ? [] : [options.projectId]),
       limit,
     ).map(toConversation);
   }
@@ -2398,6 +2407,9 @@ export function openSqliteStore(path: string): SqliteStore {
       db.exec(SQLITE_MIGRATION_15);
     }
   }
+  if (version < 16 && !db.prepare('PRAGMA table_info(conversations)').all().some((column) => column['name'] === 'project_id')) {
+    db.exec('ALTER TABLE conversations ADD COLUMN project_id TEXT');
+  }
   if (version < SQLITE_SCHEMA_VERSION) {
     db.exec(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
   }
@@ -2549,6 +2561,7 @@ function toConversation(row: ConversationRow): Conversation {
     turnCount: Number(row.turn_count),
     archivedAt: row.archived_at ? new Date(row.archived_at) : null,
     modelId: row.model_id,
+    projectId: row.project_id,
   };
 }
 

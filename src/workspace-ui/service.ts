@@ -181,6 +181,12 @@ export class WorkspaceUiService {
     };
   }
 
+  async forProject(root: string): Promise<WorkspaceUiService> {
+    const service = new WorkspaceUiService({ configuredRoot: root, config: this.config, git: this.gitEnabled });
+    await service.adopt(root, 'selected', false);
+    return service;
+  }
+
   /** The canonical root, for the terminal helper. */
   get currentRoot(): string | null {
     return this.root;

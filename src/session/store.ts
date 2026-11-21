@@ -22,6 +22,8 @@ export interface ConversationListOptions {
   /** Active rows only unless the caller explicitly asks to see the archive. */
   readonly includeArchived?: boolean;
   readonly limit?: number;
+  readonly projectId?: string;
+  readonly includeLegacyProject?: boolean;
 }
 
 export interface ConversationPatch {
@@ -38,6 +40,7 @@ export interface SessionStore {
     userId: string,
     title?: string | null,
     modelId?: string | null,
+    projectId?: string | null,
   ): Promise<Conversation>;
 
   /** Read one conversation owned by this user, or null. */

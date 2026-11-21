@@ -88,6 +88,7 @@ import { CwdError, type ChangeDirectoryInput } from './cwd/cwd-types.ts';
 import type { ToolCwdChange, ToolCwdSnapshot } from '../tools/types.ts';
 
 export interface SandboxGatewayDeps {
+  readonly projectRootFor?: (userId: string, conversationId: string) => Promise<string | undefined>;
   readonly store: SandboxStore;
   readonly controller: SandboxController;
   readonly workspaces: WorkspaceManager;
@@ -120,6 +121,7 @@ export class SandboxGateway {
   private readonly metrics: SandboxMetrics;
   private readonly credentials: CredentialBroker;
   private readonly settings: SandboxSettings;
+  private readonly projectRootFor: SandboxGatewayDeps['projectRootFor'];
   private changes: WorkspaceChangeRecorder | null;
   private readonly now: () => Date;
   /** The deployment's structural policy; the permission layer narrows it. */
@@ -142,6 +144,7 @@ export class SandboxGateway {
     this.metrics = deps.metrics;
     this.credentials = deps.credentials;
     this.settings = deps.settings;
+    this.projectRootFor = deps.projectRootFor;
     this.changes = deps.changes ?? null;
     this.now = deps.now ?? (() => new Date());
     this.policy = taskPolicy({
@@ -207,11 +210,19 @@ export class SandboxGateway {
   }): Promise<Task> {
     assertId('task id', input.taskId);
     const existing = await this.store.getTask(input.taskId);
+    // Team members arrive with their own pre-provisioned workspaces.
+    const projectRoot = input.taskId === input.sessionId
+      ? await this.projectRootFor?.(input.userId, input.sessionId)
+      : undefined;
     if (existing) {
       if (existing.userId !== input.userId) {
         throw new SandboxPolicyError('task belongs to a different user');
       }
-      const workspace = await this.workspaces.ensureForTask(input.taskId);
+      const assigned = existing.workspaceId ? await this.store.getWorkspace(existing.workspaceId) : null;
+      if (projectRoot && assigned?.mode === 'bind' && assigned.storageLocation !== projectRoot) {
+        throw new SandboxPolicyError('Existing task workspace belongs to a different project');
+      }
+      const workspace = await this.workspaces.ensureForTask(input.taskId, projectRoot);
       const refreshed = existing.workspaceId !== workspace.workspaceId
         ? await this.store.updateTask(existing.taskId, { workspaceId: workspace.workspaceId })
         : existing;
@@ -241,7 +252,7 @@ export class SandboxGateway {
       updatedAt: at,
     };
     const created = await this.store.ensureTask(task);
-    const workspace = await this.workspaces.ensureForTask(input.taskId);
+    const workspace = await this.workspaces.ensureForTask(input.taskId, projectRoot);
     const ready = await this.store.updateTask(created.taskId, {
       workspaceId: workspace.workspaceId,
     });

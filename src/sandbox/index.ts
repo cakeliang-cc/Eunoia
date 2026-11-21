@@ -56,6 +56,7 @@ export interface SandboxPlatform {
 }
 
 export interface CreateSandboxPlatformInput {
+  readonly projectRootFor?: NonNullable<import('./gateway.ts').SandboxGatewayDeps['projectRootFor']>;
   readonly store: SandboxStore;
   readonly settings: SandboxSettings;
   /** Injected by tests; the composition root uses the configured CLI runtime. */
@@ -106,6 +107,7 @@ export async function createSandboxPlatform(
     now,
   });
   const gateway = new SandboxGateway({
+    ...(input.projectRootFor ? { projectRootFor: input.projectRootFor } : {}),
     store: input.store,
     controller,
     workspaces,

@@ -16,6 +16,10 @@ const root = document.documentElement;
 
 const state = {
   conversationId: null,
+  projectId: null,
+  projects: [],
+  projectDrafts: new Map(),
+  switchingProject: false,
   sending: false,
   /**
    * The turn currently streaming, or null.
@@ -1672,7 +1676,7 @@ async function ensureConversationForUpload() {
   const response = await fetch('/api/conversations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(modelId ? { modelId } : {}),
+    body: JSON.stringify({ ...(modelId ? { modelId } : {}), ...(state.projectId ? { projectId: state.projectId } : {}) }),
   }).catch(() => null);
   if (!response || !response.ok) throw new Error('创建会话失败');
   const payload = await response.json().catch(() => ({}));
@@ -2171,7 +2175,7 @@ function regenerateTurn(turnEl) {
 }
 
 async function send(text, options = {}) {
-  if (state.sending) return;
+  if (state.sending || state.switchingProject) return;
   const regenerate = options.regenerate === true;
   const retry = options.retry === true;
   // A retry of an accepted-but-cut turn must resend the *same* body: the image
@@ -2193,10 +2197,17 @@ async function send(text, options = {}) {
       notice('说点什么，或者选一张图片。');
       return;
     }
-    // A non-default model selection has to exist before the first chat request,
-    // because the server pins the route to the conversation it admits.
-    if (!state.conversationId && state.selectedModelId && state.selectedModelId !== state.defaultModelId) {
-      await ensureConversationForUpload().catch(() => undefined);
+    // Bind the project and model before the first turn is admitted.
+    if (!state.conversationId && (state.projectId || (state.selectedModelId && state.selectedModelId !== state.defaultModelId))) {
+      state.switchingProject = true;
+      try {
+        await ensureConversationForUpload();
+      } catch {
+        notice('创建会话失败，请重试。');
+        return;
+      } finally {
+        state.switchingProject = false;
+      }
     }
   }
   state.sending = true;
@@ -2571,7 +2582,8 @@ function whenLabel(iso) {
  * happening, and replaying them would be a re-enactment rather than a record.
  * What is drawn is what was said.
  */
-async function loadConversation(id) {
+async function loadConversation(id, expectedProjectId) {
+  const activeProject = state.projectId;
   const response = await fetch(`/api/conversations/${id}/messages`).catch(() => null);
   if (!response || !response.ok) return false;
 
@@ -2579,8 +2591,19 @@ async function loadConversation(id) {
   // answers 200 with something else should leave the page usable, not throw
   // inside a click handler where nothing is listening for it.
   const payload = await response.json();
-  const { messages = [], modelId = null } = payload ?? {};
-  if (messages.length === 0) return false;
+  const { messages = [], modelId = null, projectId } = payload ?? {};
+  if (state.projectId !== activeProject || (expectedProjectId && projectId !== expectedProjectId)) return false;
+  if (typeof projectId === 'string' && projectId !== state.projectId) {
+    setActiveProject(projectId);
+    if (wbState.open) void ensureWorkbench();
+    void refreshHistory();
+  }
+  if (messages.length === 0) {
+    if (typeof projectId !== 'string') return false;
+    clearConversationView();
+    rememberConversation(id);
+    return true;
+  }
   // The route is pinned to the conversation; the selector follows it rather than
   // claiming the process default.
   if (modelId) {
@@ -2658,9 +2681,8 @@ async function refreshHistory() {
 
   // Archived rows are a separate view, not a second list. The server keeps them
   // out of the ordinary response, so the toggle has to ask for them explicitly.
-  const response = await fetch(
-    state.showArchived ? '/api/conversations?includeArchived=1' : '/api/conversations',
-  ).catch(() => null);
+  const archive = state.showArchived ? '?includeArchived=1' : '';
+  const response = await fetch(projectUrl('/api/conversations' + archive)).catch(() => null);
   // A slower earlier request has nothing useful to say about the current view.
   if (request !== historyRequest) return;
   if (!response || !response.ok) {
@@ -2695,7 +2717,11 @@ async function refreshHistory() {
     open.onclick = async () => {
       // Already open: just close the drawer rather than re-fetching what is
       // already on screen.
-      if (conversation.id !== state.conversationId) await loadConversation(conversation.id);
+      if (state.projectId && !canSwitchProject()) {
+        setHistoryNote('请等当前操作结束，并发送或移除草稿附件后再打开会话。');
+        return;
+      }
+      if (conversation.id !== state.conversationId) await loadConversation(conversation.id, state.projectId);
       if (historyDrawer) historyDrawer.dataset.open = 'false';
     };
 
@@ -2986,6 +3012,7 @@ const wbState = {
   terminalBusy: false,
   terminalHistory: [],
   terminalIndex: -1,
+  pickerRequest: 0,
   pickerPath: '',
   pickerParent: null,
   pickerRooted: false,
@@ -3148,11 +3175,88 @@ async function setWorkbenchOpen(open) {
   }
 }
 
+function projectUrl(path) {
+  if (!state.projectId) return path;
+  return path + (path.includes('?') ? '&' : '?') + 'projectId=' + encodeURIComponent(state.projectId);
+}
+
+function setActiveProject(projectId) {
+  state.projectId = projectId;
+  try { localStorage.setItem('df_project', projectId); } catch { /* Use the current tab's selection. */ }
+  const project = state.projects.find((entry) => entry.id === projectId);
+  if (project) state.projects = [project, ...state.projects.filter((entry) => entry.id !== projectId)];
+  const button = $('project-toggle');
+  if (button && project) {
+    button.textContent = project.name;
+    button.title = project.root;
+    button.hidden = false;
+  }
+  wbState.info = null;
+  wbState.statePromise = null;
+  wbState.levels.clear();
+  wbState.expanded.clear();
+  wbState.sessionChanges.clear();
+  wbState.gitStatus = null;
+  wbState.preview = null;
+  closePreview();
+  wbState.terminalHistory = [];
+  wbState.terminalIndex = 0;
+  const terminal = $('wb-terminal');
+  if (terminal) terminal.textContent = '';
+  paintWorkbench();
+}
+
+async function loadProjects() {
+  const response = await fetch('/api/projects').catch(() => null);
+  const payload = response?.ok ? await response.json().catch(() => null) : null;
+  if (!Array.isArray(payload?.projects) || !payload.defaultId) return;
+  state.projects = payload.projects;
+  let local = null;
+  try { local = localStorage.getItem('df_project'); } catch { /* Use the default project. */ }
+  const preferred = state.projectId || local;
+  setActiveProject(state.projects.some((entry) => entry.id === preferred) ? preferred : payload.defaultId);
+}
+
+function canSwitchProject() {
+  return !state.sending && !state.switchingProject && !state.uploading &&
+    !state.attachments.length && !state.mediaDrafts.length && !wbState.terminalBusy;
+}
+
+async function activateProject(projectId) {
+  if (projectId === state.projectId) {
+    closePicker();
+    return;
+  }
+  if (!canSwitchProject()) return;
+  const previousProject = state.projectId;
+  if (previousProject && state.conversationId) {
+    try { localStorage.setItem('df_project_conversation_' + previousProject, state.conversationId); } catch { /* Optional resume. */ }
+  }
+  state.switchingProject = true;
+  try {
+    if (previousProject) state.projectDrafts.set(previousProject, input.value);
+    clearConversationView();
+    input.value = state.projectDrafts.get(projectId) ?? '';
+    resize();
+    setActiveProject(projectId);
+    closePicker();
+    let remembered = null;
+    try { remembered = localStorage.getItem('df_project_conversation_' + projectId); } catch { /* Optional resume. */ }
+    if (remembered) await loadConversation(remembered, projectId);
+    await refreshHistory();
+    if (wbState.open) await ensureWorkbench();
+  } finally {
+    state.switchingProject = false;
+  }
+}
+
 async function loadWorkspaceState(force = false) {
   if (wbState.info && !force) return wbState.info;
   if (wbState.statePromise) return wbState.statePromise;
-  wbState.statePromise = (async () => {
-    const response = await fetch('/api/workspace').catch(() => null);
+  const pending = (async () => {
+    const projectAtStart = state.projectId;
+    const response = await fetch(projectUrl('/api/workspace')).catch(() => null);
+    if (projectAtStart !== state.projectId) return null;
     if (!response || !response.ok) {
       wbState.info = { configured: false, root: null, name: null, terminal: false, git: false };
       paintWorkbench();
@@ -3174,9 +3278,10 @@ async function loadWorkspaceState(force = false) {
     paintWorkbench();
     return wbState.info;
   })().finally(() => {
-    wbState.statePromise = null;
+    if (wbState.statePromise === pending) wbState.statePromise = null;
   });
-  return wbState.statePromise;
+  wbState.statePromise = pending;
+  return pending;
 }
 
 async function ensureWorkbench() {
@@ -3196,7 +3301,7 @@ async function loadLevel(path) {
   if (path === '.' || wbState.expanded.has(path)) renderTree();
 
   const response = await fetch(
-    `/api/workspace/files?path=${encodeURIComponent(path)}`,
+    projectUrl(`/api/workspace/files?path=${encodeURIComponent(path)}`),
   ).catch(() => null);
   if (wbState.info?.root !== rootAtStart) return;
   const current = wbState.levels.get(path);
@@ -3342,8 +3447,8 @@ async function loadPreview() {
   }
   const query = `path=${encodeURIComponent(preview.path)}`;
   const url = preview.mode === 'diff'
-    ? `/api/workspace/git/diff?${query}`
-    : `/api/workspace/file?${query}`;
+    ? projectUrl(`/api/workspace/git/diff?${query}`)
+    : projectUrl(`/api/workspace/file?${query}`);
   const response = await fetch(url).catch(() => null);
   if (token !== wbState.previewToken) return;
   if (!response || !response.ok) {
@@ -3538,7 +3643,7 @@ async function refreshChanges() {
   const rootAtStart = wbState.info.root;
   wbState.gitLoading = true;
   renderChanges();
-  const response = await fetch('/api/workspace/git/status').catch(() => null);
+  const response = await fetch(projectUrl('/api/workspace/git/status')).catch(() => null);
   if (wbState.info?.root !== rootAtStart) return;
   wbState.gitLoading = false;
   if (!response || !response.ok) {
@@ -3660,7 +3765,7 @@ async function runTerminal(command) {
   };
 
   try {
-    const response = await fetch('/api/workspace/terminal', {
+    const response = await fetch(projectUrl('/api/workspace/terminal'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -3724,6 +3829,9 @@ function renderPicker() {
 }
 
 async function loadBrowse(path) {
+  const request = ++wbState.pickerRequest;
+  const field = $('wb-picker-input');
+  const typedAtStart = field?.value;
   const note = $('wb-picker-note');
   if (note) note.textContent = '';
   const choose = $('wb-picker-choose');
@@ -3735,9 +3843,10 @@ async function loadBrowse(path) {
 
   const query = path && path.trim().length > 0 ? `?path=${encodeURIComponent(path.trim())}` : '';
   const response = await fetch(`/api/workspace/browse${query}`).catch(() => null);
-  if (choose) choose.disabled = false;
+  if (request !== wbState.pickerRequest) return;
   if (!response || !response.ok) {
     const detail = response ? await response.json().catch(() => ({})) : {};
+    if (request !== wbState.pickerRequest) return;
     if (note) note.textContent = detail.error || '读不到这个目录。';
     if (wbPickerList) {
       wbPickerList.textContent = '';
@@ -3746,12 +3855,13 @@ async function loadBrowse(path) {
     return;
   }
   const payload = await response.json().catch(() => ({}));
+  if (request !== wbState.pickerRequest) return;
   wbState.pickerPath = typeof payload.path === 'string' ? payload.path : '';
   wbState.pickerParent = typeof payload.parent === 'string' ? payload.parent : null;
   wbState.pickerRooted = payload.rooted === true;
   wbState.pickerEntries = Array.isArray(payload.entries) ? payload.entries : [];
-  const input = $('wb-picker-input');
-  if (input) input.value = wbState.pickerPath;
+  if (field && field.value === typedAtStart) field.value = wbState.pickerPath;
+  if (choose) choose.disabled = !wbState.pickerPath;
   const up = $('wb-picker-up');
   if (up) up.disabled = !wbState.pickerParent;
   if (note) note.textContent = wbState.pickerRooted ? '只能在配置的浏览范围内选择。' : '';
@@ -3764,13 +3874,32 @@ function openPicker() {
   const note = $('wb-picker-note');
   if (note) note.textContent = '';
   const choose = $('wb-picker-choose');
-  if (choose) choose.disabled = false;
-  const start = wbState.info?.root || wbState.info?.browseStart || '';
+  if (choose) choose.disabled = true;
+  const recent = $('wb-picker-recent');
+  if (recent) {
+    recent.textContent = '';
+    for (const project of state.projects) {
+      const row = el('button', 'wb-dir', project.name);
+      row.type = 'button';
+      row.title = project.root;
+      row.onclick = () => {
+        if (!canSwitchProject()) {
+          if (note) note.textContent = '请等当前操作结束，并发送或移除草稿附件后再切换项目。';
+          return;
+        }
+        void activateProject(project.id);
+      };
+      recent.append(row);
+    }
+  }
+  const current = state.projects.find((project) => project.id === state.projectId);
+  const start = current?.root || wbState.info?.root || wbState.info?.browseStart || '';
   void loadBrowse(start);
   $('wb-picker-input').focus();
 }
 
 function closePicker() {
+  wbState.pickerRequest++;
   if (wbPicker) wbPicker.dataset.open = 'false';
 }
 
@@ -3780,6 +3909,29 @@ async function chooseWorkspace(path) {
   const choose = $('wb-picker-choose');
   if (note) note.textContent = '';
   if (choose) choose.disabled = true;
+  if (state.projectId) {
+    if (!canSwitchProject()) {
+      if (choose) choose.disabled = false;
+      if (note) note.textContent = '请等当前操作结束，并发送或移除草稿附件后再切换项目。';
+      return;
+    }
+    state.switchingProject = true;
+    const response = await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Eunoia-Token': localToken || '' },
+      body: JSON.stringify({ path }),
+    }).catch(() => null);
+    const payload = response ? await response.json().catch(() => ({})) : {};
+    state.switchingProject = false;
+    if (choose) choose.disabled = false;
+    if (!response?.ok || !payload.project?.id) {
+      if (note) note.textContent = payload.error || '无法打开这个项目。';
+      return;
+    }
+    state.projects = [payload.project, ...state.projects.filter((entry) => entry.id !== payload.project.id)];
+    await activateProject(payload.project.id);
+    return;
+  }
   const response = await fetch('/api/workspace', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Workspace-UI': '1' },
@@ -3823,6 +3975,7 @@ async function chooseWorkspace(path) {
 $('workspace-toggle').onclick = () => void setWorkbenchOpen(!wbState.open);
 $('wb-close').onclick = () => void setWorkbenchOpen(false);
 $('wb-root').onclick = () => openPicker();
+if ($('project-toggle')) $('project-toggle').onclick = () => openPicker();
 $('wb-choose').onclick = () => openPicker();
 $('wb-refresh').onclick = () => {
   if (!wbState.info?.configured) return;
@@ -4214,6 +4367,7 @@ async function refreshMemoryStatus() {
  */
 async function bootstrap() {
   await refreshModelCapabilities().catch(() => undefined);
+  await loadProjects().catch(() => undefined);
   await restore().catch(() => undefined);
   await refreshHistory();
   await refreshMemoryStatus();

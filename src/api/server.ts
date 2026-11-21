@@ -1,3 +1,4 @@
+import { ProjectError, ProjectService, REGISTRY_KEY } from '../projects/service.ts';
 /**
  * HTTP transport.
  *
@@ -17,7 +18,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { access, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { dirname, extname, join, sep } from 'node:path';
+import { dirname, extname, join, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -681,6 +682,8 @@ export interface AppDependencies {
    * It is separate from `sandbox`, which is the agent's execution boundary.
    */
   readonly workspaceUi?: WorkspaceUiService | null;
+  readonly projects?: ProjectService | null;
+  readonly skillsForProject?: (root: string) => Promise<Awaited<ReturnType<typeof discoverSkillRegistry>> | null>;
   /**
    * Discovered skills. Null when no workspace is configured or discovery is
    * disabled; the `/api/skills` response then reports an empty list rather than
@@ -745,6 +748,7 @@ function defaultModelProfileFor(id: string): ModelProfile {
 export function createApp(deps: AppDependencies) {
   const store = deps.store;
   const sessions = deps.sessions ?? new SessionService(store);
+  const projects = deps.projects ?? null;
   const localToken = deps.localToken ?? randomUUID();
   /**
    * One coordinator per process. `createApp` is called once in production; a
@@ -1016,6 +1020,12 @@ export function createApp(deps: AppDependencies) {
       ...(deps.toolPolicy ? { toolPolicy: deps.toolPolicy } : {}),
       ...(deps.maxSteps ? { maxSteps: deps.maxSteps } : {}),
       ...(deps.skills ? { skills: deps.skills } : {}),
+      ...(projects && deps.skillsForProject ? {
+        skillsForConversation: async (userId: string, conversationId: string) => {
+          const project = await projects.forConversation(userId, conversationId);
+          return project ? deps.skillsForProject!(project.root) : null;
+        },
+      } : {}),
       ...(deps.transcriptMode ? { transcriptMode: deps.transcriptMode } : {}),
       ...(deps.mcp ? { mcp: deps.mcp } : {}),
       ...(deps.workspaceChanges ? { workspaceChanges: deps.workspaceChanges } : {}),
@@ -1295,6 +1305,10 @@ export function createApp(deps: AppDependencies) {
 
   /** One error body shape for media/capability failures, never a stack trace. */
   function sendTypedError(res: ServerResponse, error: unknown): boolean {
+    if (error instanceof ProjectError) {
+      sendJson(res, error.statusCode, { error: error.message });
+      return true;
+    }
     if (isMediaError(error) || isMediaPlanError(error)) {
       sendJson(res, error.status, {
         error: {
@@ -1453,7 +1467,8 @@ export function createApp(deps: AppDependencies) {
     let conversation;
     let conversationId = parsed.conversationId;
     if (conversationId === null) {
-      conversation = await sessions.create(userId);
+      const project = projects ? await projects.get(userId, null) : null;
+      conversation = await sessions.create(userId, null, null, project?.id);
       conversationId = conversation.id;
       await applyDefaultPermissionMode(userId, conversationId);
     } else {
@@ -1465,6 +1480,7 @@ export function createApp(deps: AppDependencies) {
       conversation = existing;
     }
 
+    await projects?.get(userId, conversation.projectId ?? null);
     let attachments: TurnAttachment[];
     try {
       attachments = await resolveAttachments(userId, conversationId, parsed.attachments);
@@ -1547,6 +1563,7 @@ export function createApp(deps: AppDependencies) {
       return;
     }
 
+    await projects?.get(userId, conversation.projectId ?? null);
     const turnId = parsed.turnId ?? randomUUID();
     const requestId = parsed.requestId ?? turnId;
 
@@ -1708,11 +1725,38 @@ export function createApp(deps: AppDependencies) {
     res: ServerResponse,
     url: URL,
   ): Promise<boolean> {
-    if (
-      deps.workspaceUi &&
-      (await handleWorkspaceRoute(req, res, url, deps.workspaceUi, { token: localToken }))
-    ) {
-      return true;
+    if (projects && url.pathname === '/api/projects') {
+      if (req.method === 'GET') {
+        if (!guardPermissionRead(req, res)) return true;
+        sendJson(res, 200, await projects.list(await identify(req, res)));
+        return true;
+      }
+      if (req.method === 'POST') {
+        if (!guardPermissionWrite(req, res)) return true;
+        const body = await readBodyOrReject(req, res);
+        if (!body.ok) return true;
+        const path = asObject(body.value)?.path;
+        if (typeof path !== 'string' || !path.trim()) {
+          sendJson(res, 400, { error: '请选择项目目录。' });
+          return true;
+        }
+        sendJson(res, 200, { project: await projects.open(await identify(req, res), path.trim()) });
+        return true;
+      }
+    }
+
+    if (deps.workspaceUi && url.pathname.startsWith('/api/workspace')) {
+      if (projects && !guardPermissionRead(req, res)) return true;
+      let workspaceUi = deps.workspaceUi;
+      if (projects && url.pathname !== '/api/workspace/browse') {
+        if (url.pathname === '/api/workspace' && req.method === 'POST') {
+          sendJson(res, 409, { error: '请通过项目选择器打开工作区。' });
+          return true;
+        }
+        const project = await projects.get(await identify(req, res), url.searchParams.get('projectId'));
+        workspaceUi = await workspaceUi.forProject(project.root);
+      }
+      if (await handleWorkspaceRoute(req, res, url, workspaceUi, { token: localToken })) return true;
     }
 
     if (deps.teamService && url.pathname.startsWith('/api/teams')) {
@@ -2655,7 +2699,13 @@ export function createApp(deps: AppDependencies) {
         return true;
       }
 
-      const conversation = await sessions.create(userId, parsed.title, parsed.modelId);
+      const projectId = asObject(raw)?.projectId;
+      if (projectId !== undefined && (typeof projectId !== 'string' || !isUuid(projectId) || !projects)) {
+        sendJson(res, 400, { error: '无效的项目 ID。' });
+        return true;
+      }
+      const project = projects ? await projects.get(userId, typeof projectId === 'string' ? projectId : null) : null;
+      const conversation = await sessions.create(userId, parsed.title, parsed.modelId, project?.id);
       await applyDefaultPermissionMode(userId, conversation.id);
       sendJson(res, 201, { conversation });
       return true;
@@ -2663,7 +2713,14 @@ export function createApp(deps: AppDependencies) {
 
     if (req.method === 'GET' && pathname === '/api/conversations') {
       const userId = await identify(req, res);
+      const projectId = url.searchParams.get('projectId');
+      const registry = projects ? await projects.list(userId) : null;
+      if (projectId !== null && !registry?.projects.some((project) => project.id === projectId)) {
+        sendJson(res, 404, { error: '找不到这个项目。' });
+        return true;
+      }
       const conversations = await sessions.list(userId, {
+        ...(projectId !== null ? { projectId, includeLegacyProject: registry?.defaultId === projectId } : {}),
         includeArchived: url.searchParams.get('includeArchived') === '1',
       });
       const hidden = deps.teamService
@@ -2815,6 +2872,7 @@ export function createApp(deps: AppDependencies) {
       sendJson(res, 200, {
         messages: await hydrateMessages(userId, messages),
         modelId: conversation.modelId,
+        ...(projects ? { projectId: conversation.projectId ?? (await projects.list(userId)).defaultId } : {}),
       });
       return true;
     }
@@ -2981,7 +3039,8 @@ export function createApp(deps: AppDependencies) {
 
     if (req.method === 'GET' && pathname === '/api/preferences') {
       const userId = await identify(req, res);
-      const preferences = await store.listPreferences(userId);
+      const preferences = Object.fromEntries(Object.entries(await store.listPreferences(userId))
+        .filter(([key]) => key !== REGISTRY_KEY));
       sendJson(res, 200, { preferences, memoryEnabled: preferences[MEMORY_ENABLED_KEY] !== false });
       return true;
     }
@@ -2991,6 +3050,10 @@ export function createApp(deps: AppDependencies) {
       const body = asObject(await readJsonBody(req));
       if (!body) {
         sendJson(res, 400, { error: 'body must be a JSON object' });
+        return true;
+      }
+      if (Object.hasOwn(body, REGISTRY_KEY)) {
+        sendJson(res, 400, { error: '项目登记必须通过项目接口修改。' });
         return true;
       }
       for (const [key, value] of Object.entries(body)) {
@@ -3058,6 +3121,10 @@ export function createApp(deps: AppDependencies) {
         if (await handleRoutes(req, res, url)) return;
         sendJson(res, 404, { error: 'not found' });
       } catch (error) {
+        if (!res.headersSent && error instanceof ProjectError) {
+          sendTypedError(res, error);
+          return;
+        }
         log.error('http.unhandled', {
           path: url.pathname,
           error: error instanceof Error ? error.message : String(error),
@@ -3213,8 +3280,23 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
 
   const workspaceSettings = workspaceConfig();
   const settings = sandboxSettings();
+  const workbenchConfig = workspaceUiConfig({ loopback: isLoopback(bindHost()) });
+  const teamStorageRoot = process.env.TEAM_WORKSPACE_ROOT?.trim() || join(homedir(), '.eunoia', 'team-workspaces');
+  const projects = workspaceSettings && settings
+    ? new ProjectService(
+        store,
+        workspaceSettings.root,
+        workbenchConfig.browseRoots.length ? workbenchConfig.browseRoots : [homedir(), dirname(resolve(workspaceSettings.root))],
+        [dirname(sqlitePath()), settings.workspace.storageRoot, teamStorageRoot],
+      )
+    : null;
   const sandboxPlatform = settings
-    ? await createSandboxPlatform({ store: sandboxStore, settings })
+    ? await createSandboxPlatform({
+        store: sandboxStore,
+        settings,
+        ...(projects ? { projectRootFor: async (userId: string, conversationId: string) =>
+          (await projects.forConversation(userId, conversationId))?.root } : {}),
+      })
     : null;
   /**
    * Turn undo shares the sandbox's workspace manager and the product store's
@@ -3324,7 +3406,7 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
 
   const workspaceUi = await WorkspaceUiService.create({
     configuredRoot: workspaceSettings?.root ?? null,
-    config: workspaceUiConfig({ loopback: isLoopback(bindHost()) }),
+    config: workbenchConfig,
   });
   const workspaceUiState = workspaceUi.state();
   log.info('server.workspace_ui', {
@@ -3334,16 +3416,17 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     git: workspaceUiState.git,
   });
 
-  const skills = workspaceSettings && skillsEnabled()
-    ? await discoverSkillRegistry([
-        { dir: join(workspaceSettings.root, '.eunoia', 'skills'), source: 'project' },
-        { dir: join(workspaceSettings.root, '.agents', 'skills'), source: 'agents' },
+  const skillsForProject = async (root: string) => skillsEnabled()
+    ? discoverSkillRegistry([
+        { dir: join(root, '.eunoia', 'skills'), source: 'project' },
+        { dir: join(root, '.agents', 'skills'), source: 'agents' },
         {
           dir: fileURLToPath(new URL('../skills/builtin/', import.meta.url)),
           source: 'builtin',
         },
       ])
     : null;
+  const skills = workspaceSettings ? await skillsForProject(workspaceSettings.root) : null;
   if (skills) {
     log.info('server.skills', {
       count: skills.count(),
@@ -3405,14 +3488,12 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
       kind === 'memory'
         ? new MemoryTeamStore()
         : openSqliteTeamStore(sqlitePath());
-    const workspaceService = new TeamWorkspaceService({
+    const teamWorkspace = (sourceRoot: string | null) => new TeamWorkspaceService({
       store: sandboxStore,
       ...(sandboxPlatform ? { provider: sandboxPlatform.provider } : {}),
       options: {
-        sourceRoot: sandboxPlatform?.settings.workspace.sourceRoot ?? null,
-        storageRoot:
-          process.env.TEAM_WORKSPACE_ROOT?.trim() ||
-          join(homedir(), '.eunoia', 'team-workspaces'),
+        sourceRoot,
+        storageRoot: teamStorageRoot,
       },
     });
     const availableImageModels = Object.values(MODEL_CATALOG)
@@ -3422,7 +3503,18 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
       teamStore,
       store,
       sessions,
-      workspace: workspaceService,
+      workspace: teamWorkspace(sandboxPlatform?.settings.workspace.sourceRoot ?? null),
+      ...(projects ? {
+        projectSkillsFor: async (team: import('../teams/types.ts').Team) => {
+          const project = await projects.forConversation(team.ownerId, team.rootConversationId);
+          return project ? skillsForProject(project.root) : null;
+        },
+        projectWorkspaceFor: async (team: import('../teams/types.ts').Team) => {
+          const project = await projects.forConversation(team.ownerId, team.rootConversationId);
+          if (!project) throw new ProjectError('Team 原会话已不存在。', 409);
+          return teamWorkspace(project.root);
+        },
+      } : {}),
       ceiling: teamCeiling(model.id),
       toolPolicy,
       maxSteps,
@@ -3455,6 +3547,8 @@ export async function startServer(port = Number(process.env.PORT ?? 8787)) {
     toolPolicy,
     maxSteps,
     workspaceUi,
+    projects,
+    skillsForProject,
     skills,
     media: mediaService,
     imagePolicies: defaultImagePolicies(),

@@ -72,21 +72,30 @@ export class WorkspaceManager {
   }
 
   /** Create (once) and return the workspace for a task. */
-  async ensureForTask(taskId: string): Promise<Workspace> {
+  async ensureForTask(taskId: string, projectRoot?: string): Promise<Workspace> {
     const existing = await this.store.getWorkspaceForTask(taskId);
-    if (existing) return existing;
+    if (existing) {
+      if (projectRoot && existing.mode === 'bind' && projectRoot !== existing.storageLocation) {
+        throw new SandboxError('conflict', 'Existing task workspace belongs to a different project');
+      }
+      return existing;
+    }
 
+    const sourceRoot = projectRoot ?? this.sourceRoot;
+    if (projectRoot && await realpath(projectRoot).catch(() => null) !== projectRoot) {
+      throw new SandboxError('conflict', 'Project directory changed before workspace creation');
+    }
     const at = this.now().toISOString();
     if (this.options.mode === 'bind') {
-      if (!this.sourceRoot) {
+      if (!sourceRoot) {
         throw new SandboxError(
           'invalid_input',
           'bind workspace mode needs a source root (WORKSPACE_ROOT)',
         );
       }
-      const realSource = await realpath(this.sourceRoot).catch(() => null);
+      const realSource = await realpath(sourceRoot).catch(() => null);
       if (!realSource) {
-        throw new SandboxError('not_found', `workspace source does not exist: ${this.sourceRoot}`);
+        throw new SandboxError('not_found', `workspace source does not exist: ${sourceRoot}`);
       }
       const info = await stat(realSource);
       if (!info.isDirectory()) {
@@ -114,8 +123,8 @@ export class WorkspaceManager {
     const destination = join(this.options.storageRoot, 'tasks', sanitizeName(taskId));
     await mkdir(destination, { recursive: true });
     const empty = (await readdir(destination).catch(() => [])).length === 0;
-    if (empty && this.sourceRoot) {
-      await copyTree(this.sourceRoot, destination, {
+    if (empty && sourceRoot) {
+      await copyTree(sourceRoot, destination, {
         ignore: this.ignored(),
         skipSensitive: !this.options.allowSensitive,
       });
@@ -351,6 +360,9 @@ export class WorkspaceManager {
   /** Verify a workspace is still readable; used by recovery before reconnecting. */
   async verify(workspace: Workspace): Promise<{ ok: boolean; detail: string }> {
     try {
+      if (workspace.mode === 'bind' && await realpath(workspace.storageLocation) !== workspace.storageLocation) {
+        return { ok: false, detail: 'bound workspace is no longer at its canonical path' };
+      }
       const info = await stat(workspace.storageLocation);
       if (!info.isDirectory()) {
         return { ok: false, detail: `${workspace.workspaceId} is not a directory` };
