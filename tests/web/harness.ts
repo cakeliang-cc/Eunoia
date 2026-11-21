@@ -161,6 +161,16 @@ export class El {
   child(className: string): El | undefined {
     return this.children.find((node) => node.classList.contains(className));
   }
+
+  /** As in a real DOM: detach what is there, then append what was passed. */
+  replaceChildren(...nodes: El[]): void {
+    for (const child of this.children) {
+      child.parent = null;
+      child.isConnected = false;
+    }
+    this.children.length = 0;
+    this.append(...nodes);
+  }
 }
 
 export type Frame = Record<string, unknown>;

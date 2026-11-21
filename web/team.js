@@ -115,7 +115,6 @@ function clearNote() {
 
 function openPanel() {
   state.open = true;
-  state.conversationId = conversationId();
   drawer.hidden = false;
   scrim.hidden = false;
   openButton?.setAttribute('aria-pressed', 'true');
@@ -140,26 +139,49 @@ function togglePanel() {
 
 // ------------------------------------------------------------------- load ---
 
+function teamPath(id) {
+  return `/api/teams?conversationId=${encodeURIComponent(id)}`;
+}
+
+function isCurrentConversation(id) {
+  return state.conversationId === id && conversationId() === id;
+}
+
+function adoptTeam(team) {
+  if (team && (!state.team || team.configRevision >= state.team.configRevision)) state.team = team;
+}
+
 async function load() {
-  state.conversationId = conversationId();
-  if (!state.conversationId) {
+  const id = conversationId();
+  if (id !== state.conversationId) {
+    state.conversationId = id;
+    state.source?.close();
+    state.source = null;
     state.team = null;
     state.run = null;
     state.snapshot = null;
+    state.cursor = 0;
+    clearNote();
+    if (id) render();
+  }
+  if (!id) {
     render();
     return;
   }
   try {
-    const team = await api(`/api/teams?conversationId=${encodeURIComponent(state.conversationId)}`);
-    state.team = team.team;
+    const team = await api(teamPath(id));
+    if (!isCurrentConversation(id)) return;
+    adoptTeam(team.team);
     if (team.activeRunId) {
       const snapshot = await api(`/api/teams/runs/${team.activeRunId}`);
+      if (!isCurrentConversation(id)) return;
       state.snapshot = snapshot;
       state.run = snapshot.run;
       state.cursor = snapshot.eventCursor || 0;
       subscribe();
     } else if (team.runs?.length) {
       const snapshot = await api(`/api/teams/runs/${team.runs[0].id}`);
+      if (!isCurrentConversation(id)) return;
       state.snapshot = snapshot;
       state.run = snapshot.run;
       state.cursor = snapshot.eventCursor || 0;
@@ -169,22 +191,31 @@ async function load() {
     }
     clearNote();
   } catch (error) {
-    setNote(error.message, true);
+    if (isCurrentConversation(id)) setNote(error.message, true);
   }
   render();
 }
 
 async function refresh() {
-  if (!state.run) return;
+  const id = state.conversationId;
+  if (!id) return;
   try {
+    if (!state.run) {
+      const { team } = await api(teamPath(id));
+      if (!isCurrentConversation(id)) return;
+      adoptTeam(team);
+      render();
+      return;
+    }
     const snapshot = await api(`/api/teams/runs/${state.run.id}`);
+    if (!isCurrentConversation(id)) return;
     state.snapshot = snapshot;
     state.run = snapshot.run;
-    state.team = snapshot.team;
+    adoptTeam(snapshot.team);
     state.cursor = Math.max(state.cursor, snapshot.eventCursor || 0);
     render();
   } catch (error) {
-    setNote(`${error.code ? `${error.code}: ` : ''}${error.message}`, true);
+    if (isCurrentConversation(id)) setNote(`${error.code ? `${error.code}: ` : ''}${error.message}`, true);
   }
 }
 
@@ -228,17 +259,19 @@ function subscribe() {
 // ----------------------------------------------------------------- action ---
 
 async function act(path, options, note) {
+  const id = state.conversationId;
   state.busy = true;
   render();
   try {
     const result = await api(path, options);
+    if (!isCurrentConversation(id)) return null;
+    adoptTeam(result?.team);
     state.note = note || null;
     state.error = null;
     await refresh();
     return result;
   } catch (error) {
-    state.error = `${error.code ? `${error.code}: ` : ''}${error.message}`;
-    render();
+    if (isCurrentConversation(id)) setNote(`${error.code ? `${error.code}: ` : ''}${error.message}`, true);
     return null;
   } finally {
     state.busy = false;
@@ -252,6 +285,50 @@ function post(path, body) {
   return act(path, { method: 'POST', body: JSON.stringify(body ?? {}) });
 }
 
+function writeMode(id, expectedRevision, mode) {
+  return api('/api/teams/config', {
+    method: 'POST',
+    body: JSON.stringify({
+      conversationId: id,
+      expectedRevision,
+      config: { mode },
+      enabled: mode === 'team',
+    }),
+  });
+}
+
+async function toggleMode() {
+  const id = state.conversationId;
+  if (!id || !isCurrentConversation(id) || state.busy || !state.team) return;
+  const wanted = state.team.config.mode === 'team' ? 'delegation' : 'team';
+  const note = wanted === 'team' ? 'Team 已开启' : 'Team 已关闭；历史记录保留';
+  state.busy = true;
+  clearNote();
+  render();
+  try {
+    let team;
+    try {
+      ({ team } = await writeMode(id, state.team.configRevision, wanted));
+    } catch (error) {
+      if (error.code !== 'TEAM_CONFIG_CONFLICT') throw error;
+      if (!isCurrentConversation(id)) return;
+      ({ team } = await api(teamPath(id)));
+      if (!isCurrentConversation(id)) return;
+      adoptTeam(team);
+      team = state.team;
+      if (team.config.mode !== wanted) ({ team } = await writeMode(id, team.configRevision, wanted));
+    }
+    if (!isCurrentConversation(id)) return;
+    adoptTeam(team);
+    setNote(note);
+  } catch (error) {
+    if (isCurrentConversation(id)) setNote(`${error.code ? `${error.code}: ` : ''}${error.message}`, true);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
 // ----------------------------------------------------------------- render ---
 
 function render() {
@@ -260,6 +337,13 @@ function render() {
   const mode = state.team?.config?.mode || 'team';
   modeButton.setAttribute('aria-pressed', mode === 'team' ? 'true' : 'false');
   modeButton.textContent = mode === 'team' ? '开启' : '关闭';
+  // The label is the state ("开启" = on); the accessible name says what a click
+  // does, because "关闭" on an already-off switch reads like "close" otherwise.
+  modeButton.setAttribute(
+    'aria-label',
+    mode === 'team' ? 'Team 模式：已开启，点击关闭' : 'Team 模式：已关闭，点击开启',
+  );
+  modeButton.title = mode === 'team' ? '关闭 Team 模式' : '开启 Team 模式';
   modeButton.disabled = state.busy || !state.team;
   $('team-mode-hint').textContent =
     mode === 'team'
@@ -893,18 +977,8 @@ for (const tab of drawer?.querySelectorAll('[data-team-tab]') ?? []) {
   });
 }
 
-$('team-mode')?.addEventListener('click', async () => {
-  if (!state.team) return;
-  const next = state.team.config.mode === 'team' ? 'delegation' : 'team';
-  await act('/api/teams/config', {
-    method: 'POST',
-    body: JSON.stringify({
-      conversationId: state.conversationId,
-      expectedRevision: state.team.configRevision,
-      config: { mode: next },
-      enabled: next === 'team',
-    }),
-  }, next === 'team' ? 'Team 已开启' : 'Team 已关闭；历史记录保留');
+$('team-mode')?.addEventListener('click', () => {
+  void toggleMode();
 });
 
 $('team-start')?.addEventListener('submit', async (event) => {
@@ -955,9 +1029,5 @@ $('team-stop')?.addEventListener('click', () => {
 // follows it the next time it is opened.
 window.addEventListener('storage', (event) => {
   if (event.key !== CONVERSATION_KEY || !state.open) return;
-  state.conversationId = event.newValue;
-  state.snapshot = null;
-  state.run = null;
-  state.team = null;
   void load();
 });
